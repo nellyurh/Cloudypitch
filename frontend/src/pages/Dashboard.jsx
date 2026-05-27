@@ -102,12 +102,7 @@ export const Dashboard = ({ sport = "football" }) => {
           </div>
         </div>
 
-        <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
-          <div className="flex items-center gap-2">
-            <h1 className="text-xl font-extrabold tracking-tight capitalize">
-              {sport} <span className="text-cp-lime">·</span> <span style={{ color: "var(--cp-text-muted)" }} className="text-sm font-medium">{count} matches</span>
-            </h1>
-          </div>
+        <div className="flex items-center justify-end mb-3 flex-wrap gap-2">
           <div className="flex items-center gap-1 cp-surface p-1" data-testid="match-filter">
             {FILTERS.map(f => (
               <button
@@ -122,6 +117,7 @@ export const Dashboard = ({ sport = "football" }) => {
               </button>
             ))}
           </div>
+          <span className="text-xs font-medium" style={{ color: "var(--cp-text-muted)" }} data-testid="match-count">{count} matches</span>
         </div>
 
         {loading && (

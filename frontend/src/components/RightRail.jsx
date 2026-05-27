@@ -2,6 +2,7 @@ import React, { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { Trophy, Flame, ChevronRight, Coins } from "lucide-react";
 import api from "../lib/api";
+import { FavoritesTicker } from "./FavoritesTicker";
 
 function Countdown({ to }) {
   const [now, setNow] = useState(() => Date.now());
@@ -49,6 +50,9 @@ export const RightRail = () => {
 
   return (
     <aside className="space-y-3" data-testid="right-rail">
+      {/* Pinned / Favorites ticker */}
+      <FavoritesTicker />
+
       {/* WC 2026 Banner */}
       <div className="cp-surface overflow-hidden">
         <div

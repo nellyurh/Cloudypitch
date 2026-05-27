@@ -235,78 +235,132 @@ async def upsert_apisports_game(sport_slug: str, game: dict):
 
 
 # ---------- StatPal tennis normalization ----------
-async def upsert_statpal_tennis_match(m: dict):
+def _parse_tennis_set_score(raw):
+    """StatPal encodes tiebreaks like '7.7' (7 set with tb 7) or '6.4' (6 with tb 4).
+    Returns (score:int|None, tiebreak:int|None)."""
+    if raw is None or raw == "":
+        return None, None
+    s = str(raw)
+    if "." in s:
+        a, b = s.split(".", 1)
+        try:
+            return int(float(a)), int(float(b))
+        except Exception:
+            return None, None
+    try:
+        return int(float(s)), None
+    except Exception:
+        return None, None
+
+
+async def upsert_statpal_tennis_match(m: dict, tournament_name: str = "Tennis", tournament_id: str = ""):
     db = get_db()
     mid = m.get("id") or m.get("@id")
     if not mid:
         return None
-    home = m.get("player_1") or m.get("home") or {}
-    away = m.get("player_2") or m.get("away") or {}
-    if isinstance(home, str):
-        home = {"name": home}
-    if isinstance(away, str):
-        away = {"name": away}
+    players = m.get("player") or m.get("players") or []
+    if not isinstance(players, list) or len(players) < 2:
+        return None
+    home = players[0] if isinstance(players[0], dict) else {}
+    away = players[1] if isinstance(players[1], dict) else {}
     home_name = home.get("name") or "Player 1"
     away_name = away.get("name") or "Player 2"
-    tournament = m.get("tournament") or m.get("league") or "Tennis"
-    status_raw = (m.get("status") or "").lower()
-    is_live = "playing" in status_raw or "in progress" in status_raw or "set" in status_raw
-    short = "LIVE" if is_live else ("FT" if "finished" in status_raw or "ended" in status_raw else "NS")
-    scheduled = m.get("date") or m.get("start_time") or utcnow_iso()
+    status_raw = (m.get("status") or "").strip()
+    sl = status_raw.lower()
+    if "finished" in sl or "ended" in sl:
+        short = "FT"
+    elif "walk over" in sl or "walkover" in sl:
+        short = "WO"
+    elif "set" in sl or "playing" in sl or "in progress" in sl or "game" in sl:
+        short = "LIVE"
+    else:
+        short = "NS"
 
-    league_doc_id = f"sp-l-{(tournament or 'tennis').replace(' ', '-').lower()}"
+    # Sets from s1..s5
+    sets_data = []
+    for i in range(1, 6):
+        h_raw = home.get(f"s{i}")
+        a_raw = away.get(f"s{i}")
+        if (h_raw in (None, "")) and (a_raw in (None, "")):
+            continue
+        h_score, h_tb = _parse_tennis_set_score(h_raw)
+        a_score, a_tb = _parse_tennis_set_score(a_raw)
+        if h_score is None and a_score is None:
+            continue
+        sets_data.append({
+            "period": i,
+            "period_name": f"Set {i}",
+            "home_score": h_score,
+            "away_score": a_score,
+            "home_tiebreak": h_tb,
+            "away_tiebreak": a_tb,
+        })
+
+    try:
+        home_score = int(float(home.get("totalscore") or 0))
+        away_score = int(float(away.get("totalscore") or 0))
+    except Exception:
+        home_score = sum(1 for s in sets_data if (s["home_score"] or 0) > (s["away_score"] or 0))
+        away_score = sum(1 for s in sets_data if (s["away_score"] or 0) > (s["home_score"] or 0))
+
+    # Parse date dd.mm.yyyy + HH:MM
+    sched = utcnow_iso()
+    date_str = m.get("date")
+    time_str = m.get("time") or "00:00"
+    if date_str:
+        try:
+            from datetime import datetime as _dt
+            d_, mo_, y_ = date_str.split(".")
+            h_, mn_ = time_str.split(":")[:2]
+            sched = _dt(int(y_), int(mo_), int(d_), int(h_), int(mn_), tzinfo=timezone.utc).isoformat()
+        except Exception:
+            pass
+
+    clean_t = tournament_name.replace("Atp - Singles: ", "").replace("Wta - Singles: ", "").replace("ATP - Singles: ", "").replace("WTA - Singles: ", "")
+    league_doc_id = f"sp-l-tennis-{(tournament_id or clean_t).replace(' ', '-').lower()}"
     await db.leagues.update_one(
         {"id": league_doc_id},
         {"$set": {
-            "id": league_doc_id, "sport_slug": "tennis", "name": tournament,
-            "country": "World", "logo_url": "", "tier_score": 60, "country_priority": 40,
-            "primary_provider": "statpal", "statpal_id": tournament,
+            "id": league_doc_id, "sport_slug": "tennis", "name": clean_t,
+            "country": "International", "logo_url": "", "tier_score": 70, "country_priority": 40,
+            "primary_provider": "statpal", "statpal_id": tournament_id or clean_t,
             "updated_at": utcnow_iso(),
         }},
         upsert=True,
     )
-    home_id = f"sp-t-tennis-{home_name.replace(' ', '-').lower()}"
-    away_id = f"sp-t-tennis-{away_name.replace(' ', '-').lower()}"
+    home_id = f"sp-t-tennis-{(home.get('id') or home_name).replace(' ', '-').replace('.', '').lower()}"
+    away_id = f"sp-t-tennis-{(away.get('id') or away_name).replace(' ', '-').replace('.', '').lower()}"
     for tid, n in ((home_id, home_name), (away_id, away_name)):
+        last = n.split()[-1] if n else "?"
         await db.teams.update_one({"id": tid}, {"$set": {
             "id": tid, "sport_slug": "tennis", "name": n,
-            "short_code": "".join([w[0] for w in n.split()[:3]]).upper() or n[:3].upper(),
+            "short_code": last[:3].upper(),
             "logo_url": "",
         }}, upsert=True)
 
-    # Sets → match_periods + tiebreaker info in raw_data
-    sets = m.get("sets") or m.get("scores") or []
-    sets_data = []
-    if isinstance(sets, list):
-        for i, s in enumerate(sets):
-            if isinstance(s, dict):
-                sets_data.append({
-                    "period": i + 1,
-                    "period_name": f"Set {i+1}",
-                    "home_score": s.get("home") or s.get("player_1") or s.get("p1"),
-                    "away_score": s.get("away") or s.get("player_2") or s.get("p2"),
-                    "home_tiebreak": s.get("home_tiebreak") or s.get("tiebreak_home"),
-                    "away_tiebreak": s.get("away_tiebreak") or s.get("tiebreak_away"),
-                })
-
-    home_score = sum(1 for s in sets_data if (s["home_score"] or 0) > (s["away_score"] or 0))
-    away_score = sum(1 for s in sets_data if (s["away_score"] or 0) > (s["home_score"] or 0))
-
     doc = {
         "sport_slug": "tennis", "league_id": league_doc_id,
-        "league_name": tournament, "league_logo": "", "league_country": "World",
+        "league_name": clean_t, "league_logo": "", "league_country": "International",
         "home_team_id": home_id, "away_team_id": away_id,
         "home_team_name": home_name, "away_team_name": away_name,
         "home_team_logo": "", "away_team_logo": "",
-        "home_short": home_name.split(" ")[-1][:3].upper(), "away_short": away_name.split(" ")[-1][:3].upper(),
-        "scheduled_at": scheduled, "status": short, "status_long": m.get("status") or short,
+        "home_short": (home_name.split()[-1] if home_name else "P1")[:3].upper(),
+        "away_short": (away_name.split()[-1] if away_name else "P2")[:3].upper(),
+        "scheduled_at": sched, "status": short, "status_long": status_raw or short,
         "minute": None, "home_score": home_score, "away_score": away_score,
         "sets": sets_data,
         "primary_provider": "statpal", "statpal_id": mid,
-        "is_live": is_live, "last_polled_at": utcnow_iso(),
-        "raw_data": {"tournament": tournament, "round": m.get("round")},
+        "is_live": short == "LIVE", "last_polled_at": utcnow_iso(),
+        "raw_data": {"tournament": clean_t},
     }
-    existing = await db.matches.find_one({"statpal_id": mid})
+    existing = await db.matches.find_one({"statpal_id": mid, "sport_slug": "tennis"})
+    if existing:
+        await db.matches.update_one({"id": existing["id"]}, {"$set": doc})
+        return existing["id"]
+    doc["id"] = new_id()
+    doc["created_at"] = utcnow_iso()
+    await db.matches.insert_one(doc)
+    return doc["id"]
     if existing:
         await db.matches.update_one({"id": existing["id"]}, {"$set": doc})
         return existing["id"]
@@ -481,31 +535,42 @@ async def sync_statpal_cricket():
 
 
 async def sync_statpal_tennis():
-    try:
-        data = await statpal.fetch_tennis_livescores()
-        # StatPal returns various shapes; try multiple paths
-        matches = []
-        if isinstance(data, dict):
-            tournaments = data.get("tournament") or data.get("tournaments") or []
-            if isinstance(tournaments, list):
-                for t in tournaments:
-                    if isinstance(t, dict):
-                        for m in (t.get("matches", {}).get("match") if isinstance(t.get("matches"), dict) else (t.get("matches") or [])):
-                            if isinstance(m, dict):
-                                m["tournament"] = t.get("name")
-                                matches.append(m)
-            if not matches:
-                m_root = data.get("matches") or data.get("data") or []
-                if isinstance(m_root, list):
-                    matches.extend([x for x in m_root if isinstance(x, dict)])
-        for m in matches:
-            try:
-                await upsert_statpal_tennis_match(m)
-            except Exception as e:
-                log.warning(f"statpal tennis upsert err: {e}")
-        log.info(f"statpal tennis: {len(matches)} matches")
-    except Exception as e:
-        log.warning(f"statpal tennis sync failed: {e}")
+    """StatPal shape: {livescores: {tournament: [{id, name, match: [...]}]}}."""
+    seen = 0
+    for fetcher in (statpal.fetch_tennis_livescores, statpal.fetch_tennis_tournaments):
+        try:
+            data = await fetcher()
+        except Exception as e:
+            log.warning(f"statpal tennis fetch: {e}")
+            continue
+        if not isinstance(data, dict):
+            continue
+        root = data.get("livescores") or data.get("tournaments") or data
+        if not isinstance(root, dict):
+            continue
+        tournaments = root.get("tournament") or root.get("tournaments") or []
+        if isinstance(tournaments, dict):
+            tournaments = [tournaments]
+        if not isinstance(tournaments, list):
+            continue
+        for t in tournaments:
+            if not isinstance(t, dict):
+                continue
+            t_name = t.get("name") or "Tennis"
+            t_id = str(t.get("id") or "")
+            matches = t.get("match") or t.get("matches") or []
+            if isinstance(matches, dict):
+                matches = [matches]
+            if not isinstance(matches, list):
+                continue
+            for m in matches:
+                if isinstance(m, dict):
+                    try:
+                        await upsert_statpal_tennis_match(m, tournament_name=t_name, tournament_id=t_id)
+                        seen += 1
+                    except Exception as e:
+                        log.warning(f"statpal tennis upsert err: {e}")
+    log.info(f"statpal tennis: {seen} matches")
 
 
 async def stale_status_sweep():
