@@ -1,0 +1,37 @@
+{
+  "summary": "Backend testing complete for Cloudy Pitch (FIFA WC2026 multi-sport platform). All 46 pytest tests passed against the public preview URL https://fantasy-wc.preview.emergentagent.com. Coverage: health, sports/countries/leagues catalog, matches (list/filters/detail/h2h), World Cup hub (12 groups), predictions (upcoming/leaderboard/submit/me), fantasy (competition, 100+ players, squad CRUD with budget+size validation, leaderboard), legend cards (100 cards across 3 tiers + starter pack of 5), prize pools, profile stats, search, full cookie-based auth flow (signup→cookie set, signin, /me, signout clears session, 409 duplicate, 401 unauthenticated, invalid password 401, rate-limit 429 confirmed), and admin endpoints (stats, users, matches, audit, promote, ingestion triggers for Sportmonks live/sync, API-Sports basketball, StatPal tennis). Non-admin/anon are correctly blocked from /api/admin/* (403/401).",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/backend_test.py",
+    "/app/test_reports/pytest/pytest_results.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "auth.py rate_limit() inserts a record THEN counts — works but each request hits Mongo with insert; consider TTL index on rate_limits.expires_at (currently records linger past their window since count_documents uses key only, not expires_at). Right now rate-limit window is effectively cumulative until TTL purge runs.",
+    "auth_routes.signup uses `random as _r` inside function — fine but consider moving to module-level import for clarity.",
+    "Admin ingestion endpoints (POST /api/admin/ingest/sportmonks/sync, /apisports/{sport}/sync, /statpal/tennis/sync) run synchronously in the request handler with `await`. For long-running syncs this will block the HTTP request and risk 502/timeout from ingress. Wrap with BackgroundTasks or asyncio.create_task and return immediately with a job id.",
+    "matches list endpoint default scoping (today only) is OK but should be documented; status=finished without explicit date may surprise consumers.",
+    "models.SignupIn allows display_name 2-64 chars and password 8-128 — fine; no explicit password-complexity enforcement beyond length (acceptable for MVP).",
+    "cards/me response key is `owned` (not `cards`); ensure frontend reads `owned` field consistently.",
+    "No /api/auth/me 429 protection / brute-force guard on /api/auth/me — fine since cookie required.",
+    "Account-lockout end-to-end (5 fails -> 423) was not exercised in this run because it would lock the admin account and trigger IP rate-limit; the underlying logic is verified by code review and the 401 invalid-password path was confirmed."
+  ],
+  "updated_files": [
+    "/app/backend/tests/backend_test.py"
+  ],
+  "success_rate": {"backend": "100% (46/46)", "frontend": "N/A (not tested per request)"},
+  "test_credentials": "Admin: admin@cloudypitch.com / CloudyAdmin2026! (verified working). Test users are created on-the-fly via /api/auth/signup with TEST_ prefix and random uuid suffix.",
+  "seed_data_creation": "On startup the backend auto-seeds 14 sports, 100 legend cards (20 GOAT / 30 Elite / 50 Star), fantasy-wc2026 competition, 12 WC groups, and 2 prize pools. All verified present.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Pytest file at /app/backend/tests/backend_test.py is a reusable regression suite using requests.Session() for cookie-based auth. IMPORTANT: signup rate limit is 5/hr/IP — if you re-run the full suite many times in quick succession, signup-heavy tests will hit 429. To reset: connect to MongoDB cloudypitch DB and `db.rate_limits.delete_many({})`. Public URL: https://fantasy-wc.preview.emergentagent.com. Admin login works; cp_session cookie is HTTP-only/secure/SameSite=lax. /api/cards/me returns key `owned` (not `cards`). Fantasy squad payload requires competition_id='fantasy-wc2026', players list with position in [GK,DEF,MID,FWD], budget <= 100.",
+  "rca of the issue": "No backend issues found. Initial 2 test failures were assertion bugs in my own test file (email lowercase normalization by server, and wrong response key for cards) — both fixed and re-verified."
+}

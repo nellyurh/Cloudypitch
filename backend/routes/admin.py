@@ -1,0 +1,128 @@
+"""Admin panel routes."""
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
+from typing import Optional
+from db import get_db, utcnow_iso
+import auth as a
+from ingestion import sync_sportmonks_today_and_next, sync_apisports_today, sync_statpal_tennis, poll_sportmonks_live
+
+router = APIRouter(prefix="/api/admin", tags=["admin"])
+
+
+@router.get("/stats")
+async def admin_stats(_: dict = Depends(a.require_admin)):
+    db = get_db()
+    return {
+        "users": await db.users.count_documents({}),
+        "active_sessions": await db.sessions.count_documents({"revoked_at": None}),
+        "matches": await db.matches.count_documents({}),
+        "live_matches": await db.matches.count_documents({"is_live": True}),
+        "events": await db.match_events.count_documents({}),
+        "leagues": await db.leagues.count_documents({}),
+        "teams": await db.teams.count_documents({}),
+        "predictions": await db.predictions.count_documents({}),
+        "fantasy_squads": await db.fantasy_squads.count_documents({}),
+        "cards": await db.legend_cards.count_documents({}),
+        "user_cards": await db.user_cards.count_documents({}),
+    }
+
+
+@router.get("/matches")
+async def admin_matches(
+    _: dict = Depends(a.require_admin),
+    sport: Optional[str] = None,
+    q: Optional[str] = None,
+    limit: int = 100,
+):
+    db = get_db()
+    query: dict = {}
+    if sport:
+        query["sport_slug"] = sport
+    if q:
+        rx = {"$regex": q, "$options": "i"}
+        query["$or"] = [{"home_team_name": rx}, {"away_team_name": rx}, {"league_name": rx}]
+    rows = await db.matches.find(query, {"_id": 0}).sort("scheduled_at", -1).limit(limit).to_list(length=limit)
+    return {"matches": rows, "count": len(rows)}
+
+
+@router.get("/users")
+async def admin_users(_: dict = Depends(a.require_admin), limit: int = 100):
+    db = get_db()
+    rows = await db.users.find({}, {"_id": 0, "password_hash": 0}).sort("created_at", -1).limit(limit).to_list(length=limit)
+    return {"users": rows}
+
+
+@router.post("/users/{user_id}/promote")
+async def promote_user(user_id: str, _: dict = Depends(a.require_admin)):
+    db = get_db()
+    await db.users.update_one({"id": user_id}, {"$set": {"role": "admin"}})
+    return {"ok": True}
+
+
+@router.post("/users/{user_id}/deactivate")
+async def deactivate_user(user_id: str, _: dict = Depends(a.require_admin)):
+    db = get_db()
+    await db.users.update_one({"id": user_id}, {"$set": {"is_active": False}})
+    return {"ok": True}
+
+
+@router.get("/audit")
+async def audit(_: dict = Depends(a.require_admin), limit: int = 100):
+    db = get_db()
+    rows = await db.auth_audit.find({}, {"_id": 0}).sort("created_at", -1).limit(limit).to_list(length=limit)
+    return {"audit": rows}
+
+
+@router.post("/ingest/sportmonks/sync")
+async def trigger_sportmonks_sync(_: dict = Depends(a.require_admin), days: int = 7):
+    await sync_sportmonks_today_and_next(days_ahead=days)
+    return {"ok": True}
+
+
+@router.post("/ingest/sportmonks/live")
+async def trigger_sportmonks_live(_: dict = Depends(a.require_admin)):
+    count = await poll_sportmonks_live()
+    return {"ok": True, "live_count": count}
+
+
+@router.post("/ingest/apisports/{sport}/sync")
+async def trigger_apisports_sync(sport: str, _: dict = Depends(a.require_admin)):
+    await sync_apisports_today(sport)
+    return {"ok": True}
+
+
+@router.post("/ingest/statpal/tennis/sync")
+async def trigger_statpal_tennis(_: dict = Depends(a.require_admin)):
+    await sync_statpal_tennis()
+    return {"ok": True}
+
+
+@router.post("/uploads")
+async def upload_logo(
+    file: UploadFile = File(...),
+    entity_type: str = "league",
+    entity_id: str = "",
+    user: dict = Depends(a.require_admin),
+):
+    """Upload an image. For MVP we store as base64 in MongoDB (avoids needing object storage)."""
+    if file.content_type not in ("image/png", "image/jpeg", "image/webp", "image/svg+xml"):
+        raise HTTPException(status_code=400, detail="Only PNG/JPEG/WebP/SVG allowed")
+    data = await file.read()
+    if len(data) > 2 * 1024 * 1024:
+        raise HTTPException(status_code=400, detail="Max 2MB")
+    import base64
+    b64 = base64.b64encode(data).decode("ascii")
+    data_url = f"data:{file.content_type};base64,{b64}"
+    db = get_db()
+    rec = {
+        "id": data_url[:64],
+        "uploaded_by": user["id"], "entity_type": entity_type, "entity_id": entity_id,
+        "kind": "logo", "mime_type": file.content_type, "size_bytes": len(data),
+        "data_url": data_url, "created_at": utcnow_iso(),
+    }
+    await db.uploads.insert_one(rec)
+    if entity_type == "league" and entity_id:
+        await db.leagues.update_one({"id": entity_id}, {"$set": {"logo_url": data_url}})
+    elif entity_type == "team" and entity_id:
+        await db.teams.update_one({"id": entity_id}, {"$set": {"logo_url": data_url}})
+    rec.pop("_id", None)
+    return {"upload": rec}
