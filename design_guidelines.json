@@ -1,0 +1,104 @@
+{
+  "project_name": "Cloudy Pitch",
+  "theme": {
+    "mode": "dark",
+    "archetype": "The Performance Pro (Modified for Data Dashboard)",
+    "description": "A dense, high-contrast, data-rich layout inspired by Sofascore. Prioritizes scannability, functional utility, and real-time updates over decorative design.",
+    "colors": {
+      "primary": "#A3E635",
+      "primary_hover": "#84CC16",
+      "bg_dark": "#1A1F26",
+      "bg_light": "#F4F6F2",
+      "surface_dark_card": "#064E3B",
+      "surface_light_card": "#FFFFFF",
+      "accent_forest": "#0F6E56",
+      "live_indicator": "#FF3D52",
+      "text_primary_dark": "#F8FAFC",
+      "text_secondary_dark": "#94A3B8",
+      "text_primary_light": "#0F172A",
+      "text_secondary_light": "#475569",
+      "border_dark": "rgba(255, 255, 255, 0.08)",
+      "border_light": "rgba(0, 0, 0, 0.08)"
+    },
+    "typography": {
+      "font_family": "Inter, system-ui, sans-serif",
+      "headings": {
+        "h1": "text-2xl font-bold tracking-tight",
+        "h2": "text-xl font-bold tracking-tight",
+        "h3": "text-lg font-semibold"
+      },
+      "body": "text-sm leading-tight",
+      "small": "text-xs text-secondary",
+      "match_score": "text-base font-bold",
+      "match_time": "text-xs font-medium text-lime-400"
+    }
+  },
+  "layout": {
+    "dashboard": {
+      "desktop": "grid grid-cols-[240px_1fr_300px] gap-6 max-w-[1400px] mx-auto p-4",
+      "tablet": "grid grid-cols-[240px_1fr] gap-4 p-4",
+      "mobile": "flex flex-col gap-4 p-2",
+      "left_sidebar": "Countries/Leagues list, sticky on desktop",
+      "center_feed": "Livescore feed, vertically stacked matches grouped by league",
+      "right_sidebar": "WC2026 Countdown banner, Top Leaderboard, Featured Prize Pool"
+    },
+    "navigation": {
+      "top_bar": "Sticky header with Logo, Search, User Profile, Theme Toggle",
+      "sports_nav": "Horizontal scrollable bar with 14 sports. Active state uses lime accent (#A3E635) bottom border."
+    },
+    "components": {
+      "match_row": {
+        "structure": "Vertical stack (Home team top, Away team bottom). Time/status on left, Teams in middle, Scores on right.",
+        "spacing": "Dense padding (p-2 or p-3), minimal gaps.",
+        "border": "Bottom border separating matches, border-border_dark.",
+        "hover": "Subtle background highlight on hover (bg-white/5 in dark mode).",
+        "live_state": "Red dot (#FF3D52) pulsing animation near time. Red text for current minute. Lime accent for winners.",
+        "tennis_tiebreaker": "Superscript notation for tiebreakers (e.g. 7<sup>7</sup>)"
+      },
+      "cards": {
+        "base": "Rounded-md bg-surface_dark_card border border-border_dark shadow-sm",
+        "header": "Border-b border-border_dark p-3 text-sm font-bold uppercase tracking-wider"
+      },
+      "buttons": {
+        "primary": "bg-primary text-slate-900 font-bold px-4 py-2 rounded-md hover:bg-primary_hover transition-colors",
+        "secondary": "bg-accent_forest text-white font-medium px-4 py-2 rounded-md hover:brightness-110 transition-colors"
+      }
+    }
+  },
+  "iconography": {
+    "library": "@phosphor-icons/react",
+    "style": "Regular or Bold weight, size 16px to 20px depending on context",
+    "usage": "Use icons for sports in the nav, menu items, and UI actions. Keep them clean and legible."
+  },
+  "animations": {
+    "live_pulse": "animate-pulse (1s duration, infinite) on the red live indicator dot.",
+    "hover_transitions": "transition-colors duration-200 ease-in-out for interactive elements."
+  },
+  "media": {
+    "image_urls": {
+      "world_cup_banner": {
+        "url": "https://images.unsplash.com/photo-1705593973313-75de7bf95b56?crop=entropy&cs=srgb&fm=jpg&ixid=M3w3NTY2NjZ8MHwxfHNlYXJjaHwxfHxmb290YmFsbCUyMHN0YWRpdW0lMjBjcm93ZHxlbnwwfHx8fDE3Nzk5MTk4MTF8MA&ixlib=rb-4.1.0&q=85",
+        "description": "Football stadium crowd, use for WC 2026 Countdown banner background or World Cup hub hero.",
+        "category": "banner"
+      },
+      "fantasy_player_action": {
+        "url": "https://images.unsplash.com/photo-1517466787929-bc90951d0974?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NTYxODh8MHwxfHNlYXJjaHwzfHxzb2NjZXIlMjBwbGF5ZXIlMjBhY3Rpb258ZW58MHx8fHwxNzc5OTE5ODExfDA&ixlib=rb-4.1.0&q=85",
+        "description": "Soccer player in action, use for Legend Cards (GOAT, Elite, Star) or Fantasy Hub placeholders.",
+        "category": "card_image"
+      }
+    }
+  },
+  "accessibility": {
+    "contrast": "Ensure text contrast meets WCAG AA standards, especially on dark cards and lime primary buttons.",
+    "testing": "All interactive elements (buttons, inputs, match rows, tabs) MUST include descriptive data-testid attributes (e.g., data-testid='sports-nav-football', data-testid='match-row-chelsea-tottenham')."
+  },
+  "instructions_to_main_agent": [
+    "Strictly follow the 3-column Sofascore layout structure for the dashboard.",
+    "Match rows MUST be vertically stacked (home above away), right-aligned scores, and extremely dense.",
+    "Red (#FF3D52) is strictly reserved for the LIVE indicator dot (with pulse animation). Do not use it for errors or other UI elements.",
+    "Use CSS variables for theme switching (--cp-bg, --cp-text, etc.) mapping to the provided brand colors.",
+    "Implement the 14 sports horizontal scroll navigation.",
+    "Ensure the lime accent (#A3E635) is used effectively for active states, winners, and primary calls to action.",
+    "Build the dashboard to feel like a serious, data-rich sports utility, not a generic SaaS landing page."
+  ]
+}
