@@ -15,6 +15,20 @@ from adapters import sportmonks, apisports, statpal
 log = logging.getLogger("ingest")
 
 # ---------- league/team helpers ----------
+def _normalize_country(s):
+    """Title-case country names but preserve uppercase abbreviations like USA, UAE, DR Congo."""
+    if not s or not isinstance(s, str):
+        return "International"
+    parts = s.strip().split()
+    out = []
+    for p in parts:
+        if len(p) <= 3 and p.isupper():
+            out.append(p)
+        else:
+            out.append(p.title())
+    return " ".join(out) or "International"
+
+
 def _country_score(country: str | None) -> int:
     return COUNTRY_PRIORITY.get((country or "").strip(), 200)
 
@@ -161,10 +175,34 @@ async def upsert_sportmonks_fixture(fx: dict):
 # ---------- API-Sports normalization ----------
 async def upsert_apisports_game(sport_slug: str, game: dict):
     db = get_db()
-    gid = game.get("id") or (game.get("game", {}) if isinstance(game.get("game"), dict) else {}).get("id")
-    if not gid:
-        # NBA shape sometimes nested differently
-        gid = (game.get("game") or {}).get("id") if isinstance(game.get("game"), dict) else None
+    # API-Sports football has its data nested under 'fixture'
+    if sport_slug == "football":
+        fx_obj = game.get("fixture") or {}
+        gid = fx_obj.get("id")
+        scheduled = fx_obj.get("date")
+        status_obj = fx_obj.get("status") or {}
+        short = status_obj.get("short") if isinstance(status_obj, dict) else None
+        long_s = status_obj.get("long") if isinstance(status_obj, dict) else None
+        # Football scores: goals.home / goals.away (current); score.fulltime etc.
+        goals_obj = game.get("goals") or {}
+        home_score = goals_obj.get("home")
+        away_score = goals_obj.get("away")
+        # Override `scores` shape so periods extraction won't crash
+        scores = {"home": {"total": home_score}, "away": {"total": away_score}}
+    else:
+        gid = game.get("id") or (game.get("game", {}) if isinstance(game.get("game"), dict) else {}).get("id")
+        if not gid:
+            gid = (game.get("game") or {}).get("id") if isinstance(game.get("game"), dict) else None
+        scheduled = game.get("date") or game.get("timestamp") or (game.get("game", {}) or {}).get("date")
+        scores = game.get("scores") or {}
+        home_score_obj = scores.get("home") if isinstance(scores.get("home"), dict) else None
+        away_score_obj = scores.get("away") if isinstance(scores.get("away"), dict) else None
+        home_score = (home_score_obj or {}).get("total") if home_score_obj else scores.get("home")
+        away_score = (away_score_obj or {}).get("total") if away_score_obj else scores.get("away")
+        status_obj = game.get("status") or {}
+        short = status_obj.get("short") if isinstance(status_obj, dict) else status_obj
+        long_s = status_obj.get("long") if isinstance(status_obj, dict) else status_obj
+
     if not gid:
         return None
 
@@ -173,14 +211,7 @@ async def upsert_apisports_game(sport_slug: str, game: dict):
     away_t = teams.get("away") or {}
     league = game.get("league") or game.get("competition") or {}
     country = league.get("country", {}) if isinstance(league.get("country"), dict) else {"name": league.get("country")}
-    scores = game.get("scores") or {}
-    home_score = (scores.get("home") or {}).get("total") if isinstance(scores.get("home"), dict) else scores.get("home")
-    away_score = (scores.get("away") or {}).get("total") if isinstance(scores.get("away"), dict) else scores.get("away")
-    status_obj = game.get("status") or {}
-    short = status_obj.get("short") if isinstance(status_obj, dict) else status_obj
-    long_s = status_obj.get("long") if isinstance(status_obj, dict) else status_obj
     is_live = short not in ("NS", "FT", "AET", "PEN", "POST", "CANC", "PST", "TBD", None, "")
-    scheduled = game.get("date") or game.get("timestamp") or (game.get("game", {}) or {}).get("date")
     if isinstance(scheduled, int):
         scheduled = datetime.fromtimestamp(scheduled, tz=timezone.utc).isoformat()
 
@@ -188,12 +219,19 @@ async def upsert_apisports_game(sport_slug: str, game: dict):
     away_name = away_t.get("name") or "Away"
     league_name = league.get("name") or sport_slug.upper()
     country_name = country.get("name") if isinstance(country, dict) else (country or "World")
+    country_name = _normalize_country(country_name) if isinstance(country_name, str) else "International"
 
-    # Football: cross-provider dedup. Skip if Sportmonks already has this match.
+    # Football: cross-provider dedup. If Sportmonks already has it, skip.
+    # If StatPal has it, MERGE logos from this API-Sports record (StatPal has no logos).
+    overwrite_id = None
     if sport_slug == "football":
         dup = await _cross_provider_dedup("football", home_name, away_name, scheduled if isinstance(scheduled, str) else "")
-        if dup and dup.get("primary_provider") == "sportmonks":
-            return dup.get("id")
+        if dup:
+            if dup.get("primary_provider") == "sportmonks":
+                return dup.get("id")
+            if dup.get("primary_provider") == "statpal":
+                # We'll overwrite this match with richer API-Sports data (has logos)
+                overwrite_id = dup.get("id")
 
     # Extract periods (basketball Q1-Q4, NBA linescore, hockey periods, MMA fight info)
     periods = []
@@ -282,6 +320,10 @@ async def upsert_apisports_game(sport_slug: str, game: dict):
     if existing:
         await db.matches.update_one({"id": existing["id"]}, {"$set": doc})
         return existing["id"]
+    if overwrite_id:
+        # Overwrite StatPal dup with richer API-Sports data (has logos)
+        await db.matches.update_one({"id": overwrite_id}, {"$set": doc})
+        return overwrite_id
     doc["id"] = new_id()
     doc["created_at"] = utcnow_iso()
     await db.matches.insert_one(doc)
@@ -866,6 +908,8 @@ async def sync_statpal_football():
             country = country_obj.get("name") or "International"
         else:
             country = country_obj or "International"
+        if isinstance(country, str):
+            country = _normalize_country(country)
         matches = cat.get("match") or cat.get("matches") or []
         if isinstance(matches, dict):
             matches = [matches]
@@ -876,7 +920,8 @@ async def sync_statpal_football():
             {"id": league_doc_id},
             {"$set": {
                 "id": league_doc_id, "sport_slug": "football", "name": league_name,
-                "country": country, "logo_url": "", "tier_score": 30, "country_priority": 100,
+                "country": country, "logo_url": "", "tier_score": 30,
+                "country_priority": _country_score(country),
                 "primary_provider": "statpal", "statpal_id": league_id or league_name,
                 "updated_at": utcnow_iso(),
             }},

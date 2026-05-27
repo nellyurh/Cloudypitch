@@ -24,6 +24,7 @@ async def list_matches(
     status: Optional[str] = Query(None, description="live|upcoming|finished|all"),
     league_id: Optional[str] = None,
     country: Optional[str] = None,
+    tz_offset_min: int = 0,
     limit: int = 500,
 ):
     db = get_db()
@@ -53,14 +54,25 @@ async def list_matches(
     elif date:
         try:
             d = datetime.fromisoformat(date).replace(tzinfo=timezone.utc)
-            start = d.replace(hour=0, minute=0, second=0, microsecond=0).isoformat()
-            end = (d + timedelta(days=1)).replace(hour=0, minute=0, second=0, microsecond=0).isoformat()
+            # Shift local-day boundary into UTC using tz_offset_min
+            # tz_offset_min = local_minutes_ahead_of_utc (e.g. Lagos +1h = 60)
+            offset = timedelta(minutes=tz_offset_min)
+            start = (d - offset).replace(hour=0, minute=0, second=0, microsecond=0).isoformat()
+            end = ((d - offset) + timedelta(days=1)).replace(hour=0, minute=0, second=0, microsecond=0).isoformat()
+            # Adjust: start_local 00:00 = UTC start - offset (offset positive when local ahead of UTC)
+            start = (d.replace(hour=0, minute=0, second=0, microsecond=0) - offset).isoformat()
+            end = (d.replace(hour=0, minute=0, second=0, microsecond=0) + timedelta(days=1) - offset).isoformat()
             q["scheduled_at"] = {"$gte": start, "$lt": end}
         except Exception:
             pass
     else:
-        # Default: today
-        start, end = _today_range_iso()
+        # Default: today (in user's TZ)
+        offset = timedelta(minutes=tz_offset_min)
+        today_utc = datetime.now(timezone.utc)
+        local_now = today_utc + offset
+        local_start = local_now.replace(hour=0, minute=0, second=0, microsecond=0)
+        start = (local_start - offset).isoformat()
+        end = (local_start + timedelta(days=1) - offset).isoformat()
         q["scheduled_at"] = {"$gte": start, "$lt": end}
 
     rows = await db.matches.find(q, {"_id": 0, "raw_data": 0}).sort("scheduled_at", sort_order).to_list(length=limit)
