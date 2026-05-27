@@ -837,6 +837,132 @@ async def sync_statpal_cricket():
     log.info(f"statpal cricket: {seen} matches")
 
 
+async def sync_statpal_football():
+    """StatPal football livescores — supplements API-Sports/Sportmonks with extra live leagues."""
+    db = get_db()
+    seen = 0
+    try:
+        data = await statpal.fetch_football_livescores()
+    except Exception as e:
+        log.warning(f"statpal football fetch: {e}")
+        return 0
+    if not isinstance(data, dict):
+        return 0
+    root = data.get("livescore") or data.get("livescores") or data
+    if not isinstance(root, dict):
+        return 0
+    categories = root.get("league") or root.get("category") or root.get("categories") or root.get("tournament") or []
+    if isinstance(categories, dict):
+        categories = [categories]
+    if not isinstance(categories, list):
+        return 0
+    for cat in categories:
+        if not isinstance(cat, dict):
+            continue
+        league_name = cat.get("name") or "Football"
+        league_id = str(cat.get("id") or "")
+        country_obj = cat.get("country")
+        if isinstance(country_obj, dict):
+            country = country_obj.get("name") or "International"
+        else:
+            country = country_obj or "International"
+        matches = cat.get("match") or cat.get("matches") or []
+        if isinstance(matches, dict):
+            matches = [matches]
+        if not isinstance(matches, list):
+            continue
+        league_doc_id = f"sp-l-football-{league_id or league_name.replace(' ', '-').lower()}"
+        await db.leagues.update_one(
+            {"id": league_doc_id},
+            {"$set": {
+                "id": league_doc_id, "sport_slug": "football", "name": league_name,
+                "country": country, "logo_url": "", "tier_score": 30, "country_priority": 100,
+                "primary_provider": "statpal", "statpal_id": league_id or league_name,
+                "updated_at": utcnow_iso(),
+            }},
+            upsert=True,
+        )
+        for m in matches:
+            if not isinstance(m, dict):
+                continue
+            mid = m.get("id") or m.get("@id")
+            if not mid:
+                continue
+            home = m.get("home") or m.get("local") or {}
+            away = m.get("away") or m.get("visitor") or {}
+            if isinstance(home, str):
+                home = {"name": home}
+            if isinstance(away, str):
+                away = {"name": away}
+            home_name = home.get("name") or "Home"
+            away_name = away.get("name") or "Away"
+            # Dedup vs sportmonks/api-sports
+            sched_raw = m.get("date") or m.get("time") or utcnow_iso()
+            try:
+                # StatPal date format dd.mm.yyyy + HH:MM
+                from datetime import datetime as _dt
+                if m.get("date") and "." in m.get("date", ""):
+                    d_, mo_, y_ = m["date"].split(".")
+                    tt = (m.get("time") or "00:00").split(":")
+                    sched_iso = _dt(int(y_), int(mo_), int(d_), int(tt[0]), int(tt[1]), tzinfo=timezone.utc).isoformat()
+                else:
+                    sched_iso = sched_raw
+            except Exception:
+                sched_iso = sched_raw
+            dup = await _cross_provider_dedup("football", home_name, away_name, sched_iso)
+            if dup and dup.get("primary_provider") in ("sportmonks", "api-sports"):
+                continue
+            home_score = home.get("totalscore") or home.get("goals") or 0
+            away_score = away.get("totalscore") or away.get("goals") or 0
+            try:
+                home_score = int(home_score)
+                away_score = int(away_score)
+            except Exception:
+                home_score = 0
+                away_score = 0
+            # Fallback: parse from ft.score "[1-0]" if main goals are zero but ft has a score
+            ft_obj = m.get("ft") if isinstance(m.get("ft"), dict) else None
+            if ft_obj and home_score == 0 and away_score == 0:
+                ft_score = (ft_obj.get("score") or "").strip("[]")
+                if "-" in ft_score:
+                    try:
+                        h, a = ft_score.split("-")
+                        home_score = int(h.strip())
+                        away_score = int(a.strip())
+                    except Exception:
+                        pass
+            status_raw = (m.get("status") or "").strip()
+            sl = status_raw.lower()
+            if "finished" in sl or "ended" in sl or "ft" in sl:
+                short = "FT"
+                is_live = False
+            elif sl and ("half" in sl or "min" in sl or sl[0].isdigit()):
+                short = "LIVE"
+                is_live = True
+            else:
+                short = "NS"
+                is_live = False
+            doc = {
+                "id": f"sp-fb-{mid}",
+                "sport_slug": "football",
+                "league_id": league_doc_id, "league_name": league_name,
+                "league_logo": "", "league_country": country,
+                "home_team_id": f"sp-t-fb-{home_name.replace(' ', '-').lower()}",
+                "away_team_id": f"sp-t-fb-{away_name.replace(' ', '-').lower()}",
+                "home_team_name": home_name, "away_team_name": away_name,
+                "home_team_logo": "", "away_team_logo": "",
+                "home_short": home_name[:3].upper(), "away_short": away_name[:3].upper(),
+                "scheduled_at": sched_iso, "status": short, "status_long": status_raw or short,
+                "minute": None, "home_score": home_score, "away_score": away_score,
+                "primary_provider": "statpal", "statpal_id": mid,
+                "is_live": is_live, "last_polled_at": utcnow_iso(),
+            }
+            await db.matches.update_one({"statpal_id": mid, "sport_slug": "football"}, {"$set": doc}, upsert=True)
+            seen += 1
+    log.info(f"statpal football: {seen} matches")
+    return seen
+
+
 async def sync_statpal_tennis():
     """StatPal shape: {livescores: {tournament: [{id, name, match: [...]}]}}."""
     seen = 0
@@ -978,6 +1104,10 @@ async def start_background_jobs():
                 pass
             try:
                 await sync_statpal_cricket()
+            except Exception:
+                pass
+            try:
+                await sync_statpal_football()
             except Exception:
                 pass
             await asyncio.sleep(120)

@@ -46,3 +46,14 @@ async def fetch_golf_tournaments():
 
 async def fetch_horse_racing():
     return await _get("/horse-racing/racecards")
+
+
+async def fetch_football_livescores():
+    return await _get("/soccer/livescores")
+
+
+async def fetch_football_results(date: str | None = None):
+    p = {}
+    if date:
+        p["date"] = date
+    return await _get("/soccer/results", p)

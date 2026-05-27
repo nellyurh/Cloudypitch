@@ -124,6 +124,12 @@ export const MatchRow = ({ m, sport = "football" }) => {
           <span className={`cp-score-cell away ${awayWin ? "winner" : homeWin ? "loser" : ""}`} data-testid={`away-score-${m.id}`}>{as}</span>
         </>
       )}
+      {isTennis && started && (
+        <>
+          <span className={`cp-score-cell home ${homeWin ? "winner" : awayWin ? "loser" : ""}`} data-testid={`home-score-${m.id}`}>{hs}</span>
+          <span className={`cp-score-cell away ${awayWin ? "winner" : homeWin ? "loser" : ""}`} data-testid={`away-score-${m.id}`}>{as}</span>
+        </>
+      )}
 
       {isMMA && mmaInfo && started && (
         <span className="cp-score-cell home text-[10px] !font-semibold" style={{ gridColumn: 3, gridRow: "1 / 3", color: "var(--cp-text-muted)", justifyContent: "flex-end", paddingRight: 8 }}>
