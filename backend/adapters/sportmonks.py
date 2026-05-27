@@ -56,8 +56,8 @@ async def fetch_fixture(fixture_id: int):
 
 async def fetch_standings(league_id: int, season_id: int | None = None):
     if season_id:
-        return await _get(f"/standings/seasons/{season_id}", {"include": "participant"})
-    return await _get(f"/standings/live/leagues/{league_id}", {"include": "participant"})
+        return await _get(f"/standings/seasons/{season_id}", {"include": "participant;rule"})
+    return await _get(f"/standings/live/leagues/{league_id}", {"include": "participant;rule"})
 
 
 async def fetch_top_scorers(season_id: int):
@@ -65,6 +65,25 @@ async def fetch_top_scorers(season_id: int):
         f"/topscorers/seasons/{season_id}",
         {"include": "player;participant;type"},
     )
+
+
+async def fetch_team_squad(season_id: int, team_id: int):
+    return await _get(
+        f"/squads/seasons/{season_id}/teams/{team_id}",
+        {"include": "player;position"},
+    )
+
+
+async def fetch_teams_for_season(season_id: int):
+    return await _get(f"/teams/seasons/{season_id}", {"per_page": 50})
+
+
+async def fetch_seasons_for_league(league_id: int):
+    return await _get("/seasons", {"filters": f"seasonLeagues:{league_id}", "per_page": 50})
+
+
+async def fetch_league_detail(league_id: int):
+    return await _get(f"/leagues/{league_id}", {"include": "currentseason"})
 
 
 async def fetch_leagues():

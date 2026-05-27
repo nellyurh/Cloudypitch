@@ -15,6 +15,7 @@ HOSTS = {
     "mma": "https://v1.mma.api-sports.io",
     "f1": "https://v1.formula-1.api-sports.io",
     "afl": "https://v1.afl.api-sports.io",
+    "football": "https://v3.football.api-sports.io",
 }
 
 
@@ -35,10 +36,15 @@ async def _get(sport: str, path: str, params: dict | None = None) -> Any:
 
 
 async def fetch_games(sport: str, date: str | None = None, live: bool = False):
+    # API-Sports football endpoint is /fixtures, not /games
+    if sport == "football":
+        path = "/fixtures"
+    else:
+        path = "/games"
     if live:
-        return await _get(sport, "/games", {"live": "all"})
+        return await _get(sport, path, {"live": "all"})
     params = {"date": date} if date else {}
-    return await _get(sport, "/games", params)
+    return await _get(sport, path, params)
 
 
 async def fetch_standings(sport: str, league: int, season: int):

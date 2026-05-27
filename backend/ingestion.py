@@ -189,6 +189,59 @@ async def upsert_apisports_game(sport_slug: str, game: dict):
     league_name = league.get("name") or sport_slug.upper()
     country_name = country.get("name") if isinstance(country, dict) else (country or "World")
 
+    # Football: cross-provider dedup. Skip if Sportmonks already has this match.
+    if sport_slug == "football":
+        dup = await _cross_provider_dedup("football", home_name, away_name, scheduled if isinstance(scheduled, str) else "")
+        if dup and dup.get("primary_provider") == "sportmonks":
+            return dup.get("id")
+
+    # Extract periods (basketball Q1-Q4, NBA linescore, hockey periods, MMA fight info)
+    periods = []
+    home_scores_obj = scores.get("home") if isinstance(scores.get("home"), dict) else {}
+    away_scores_obj = scores.get("away") if isinstance(scores.get("away"), dict) else {}
+    if sport_slug in ("basketball", "nba"):
+        if isinstance(home_scores_obj.get("linescore"), list):
+            for i, (h, a) in enumerate(zip(home_scores_obj["linescore"], away_scores_obj.get("linescore", [])), 1):
+                try:
+                    periods.append({"period": i, "period_name": f"Q{i}" if i <= 4 else f"OT{i-4}", "home_score": int(h) if h else 0, "away_score": int(a) if a else 0})
+                except Exception:
+                    pass
+        else:
+            for i in range(1, 5):
+                h = home_scores_obj.get(f"quarter_{i}")
+                a = away_scores_obj.get(f"quarter_{i}")
+                if h is None and a is None:
+                    continue
+                try:
+                    periods.append({"period": i, "period_name": f"Q{i}", "home_score": int(h or 0), "away_score": int(a or 0)})
+                except Exception:
+                    pass
+            for ot_key in ("over_time", "overtime"):
+                h = home_scores_obj.get(ot_key)
+                a = away_scores_obj.get(ot_key)
+                if h is not None or a is not None:
+                    try:
+                        periods.append({"period": 5, "period_name": "OT", "home_score": int(h or 0), "away_score": int(a or 0)})
+                    except Exception:
+                        pass
+    elif sport_slug == "hockey":
+        for i in range(1, 4):
+            h = home_scores_obj.get(f"period_{i}") or home_scores_obj.get(f"p{i}")
+            a = away_scores_obj.get(f"period_{i}") or away_scores_obj.get(f"p{i}")
+            if h is None and a is None:
+                continue
+            try:
+                periods.append({"period": i, "period_name": f"P{i}", "home_score": int(h or 0), "away_score": int(a or 0)})
+            except Exception:
+                pass
+    elif sport_slug == "mma":
+        fight = game.get("fight") if isinstance(game.get("fight"), dict) else {}
+        rnd = fight.get("round")
+        tm = fight.get("time")
+        method = fight.get("method")
+        if rnd or method:
+            periods.append({"period": 1, "period_name": f"R{rnd or '-'}", "home_score": 0, "away_score": 0, "time": tm, "method": method})
+
     league_doc_id = f"as-l-{league.get('id')}" if league.get("id") else f"as-l-{sport_slug}"
     await db.leagues.update_one(
         {"id": league_doc_id},
@@ -221,6 +274,7 @@ async def upsert_apisports_game(sport_slug: str, game: dict):
         "scheduled_at": scheduled, "status": short or "NS", "status_long": long_s or "Not Started",
         "minute": None, "home_score": home_score or 0, "away_score": away_score or 0,
         "home_score_ht": None, "away_score_ht": None,
+        "periods": periods,
         "primary_provider": "api-sports", "api_sports_id": gid,
         "is_live": is_live, "last_polled_at": utcnow_iso(),
     }
@@ -463,7 +517,7 @@ async def sync_apisports_today(sport_slug: str, days_back: int = 1, days_ahead: 
 async def poll_apisports_live():
     """Poll live games for ALL API-Sports sports in one pass."""
     total = 0
-    for sport in ("basketball", "nba", "baseball", "hockey", "rugby", "handball", "volleyball", "mma", "afl"):
+    for sport in ("football", "basketball", "nba", "baseball", "hockey", "rugby", "handball", "volleyball", "mma", "afl"):
         try:
             data = await apisports.fetch_games(sport, live=True)
             games = (data or {}).get("response", []) if isinstance(data, dict) else []
@@ -477,6 +531,255 @@ async def poll_apisports_live():
         except Exception as e:
             log.warning(f"api-sports live {sport} failed: {e}")
     return total
+
+
+# ---------- Sportmonks: standings, top scorers, WC squads ----------
+async def upsert_standing(row: dict, league_doc_id: str):
+    """Persist one standings row."""
+    db = get_db()
+    participant = row.get("participant") or {}
+    team_id = await upsert_sportmonks_team(participant, "football") if isinstance(participant, dict) and participant else None
+    details = row.get("details") or []
+    # details is an array of {type_id, value} — we leave it for raw; canonical fields below
+    doc = {
+        "id": f"sm-st-{row.get('id')}",
+        "league_id": league_doc_id,
+        "season_id": row.get("season_id"),
+        "team_id": team_id,
+        "team_name": participant.get("name") if isinstance(participant, dict) else None,
+        "team_logo": participant.get("image_path") if isinstance(participant, dict) else None,
+        "rank": row.get("position"),
+        "points": row.get("points") or 0,
+        "GF": (row.get("scores") or {}).get("goals_scored") if isinstance(row.get("scores"), dict) else None,
+        "GA": (row.get("scores") or {}).get("goals_against") if isinstance(row.get("scores"), dict) else None,
+        "MP": (row.get("overall") or {}).get("games_played") if isinstance(row.get("overall"), dict) else None,
+        "W": (row.get("overall") or {}).get("wins") if isinstance(row.get("overall"), dict) else None,
+        "D": (row.get("overall") or {}).get("draws") if isinstance(row.get("overall"), dict) else None,
+        "L": (row.get("overall") or {}).get("losses") if isinstance(row.get("overall"), dict) else None,
+        "form": row.get("form"),
+        "raw_details": details,
+        "updated_at": utcnow_iso(),
+    }
+    await db.standings.update_one(
+        {"id": doc["id"]},
+        {"$set": doc},
+        upsert=True,
+    )
+
+
+async def sync_sportmonks_standings_live(league_sm_id: int):
+    """Pull live standings for a Sportmonks league."""
+    db = get_db()
+    try:
+        data = await sportmonks.fetch_standings(league_sm_id)
+        rows = (data or {}).get("data", []) if isinstance(data, dict) else []
+        if not isinstance(rows, list) or not rows:
+            return 0
+        # Wipe old standings for this league then insert
+        league_doc_id = f"sm-l-{league_sm_id}"
+        await db.standings.delete_many({"league_id": league_doc_id})
+        for r in rows:
+            try:
+                await upsert_standing(r, league_doc_id)
+            except Exception as e:
+                log.warning(f"standing upsert: {e}")
+        return len(rows)
+    except Exception as e:
+        log.warning(f"standings {league_sm_id}: {e}")
+        return 0
+
+
+async def sync_sportmonks_standings_all():
+    """Pull standings for all tier-1/2 leagues we know about."""
+    db = get_db()
+    # Tier 1+2 leagues (tier_score >= 60) plus WC
+    leagues = await db.leagues.find(
+        {"sport_slug": "football", "primary_provider": "sportmonks", "tier_score": {"$gte": 60}},
+        {"_id": 0, "sportmonks_id": 1, "name": 1},
+    ).to_list(length=200)
+    total = 0
+    for lg in leagues:
+        if not lg.get("sportmonks_id"):
+            continue
+        n = await sync_sportmonks_standings_live(lg["sportmonks_id"])
+        total += n
+    log.info(f"sportmonks standings: {total} rows across {len(leagues)} leagues")
+    return total
+
+
+async def sync_sportmonks_scorers_for_season(season_id: int, league_doc_id: str):
+    """Pull top scorers for one season → upsert into top_scorers."""
+    db = get_db()
+    try:
+        data = await sportmonks.fetch_top_scorers(season_id)
+        rows = (data or {}).get("data", []) if isinstance(data, dict) else []
+        if not isinstance(rows, list):
+            return 0
+        # Filter to goalscorers (type.id = 208) when type info present
+        goal_rows = []
+        for r in rows:
+            t = r.get("type")
+            if isinstance(t, dict):
+                # Sportmonks: type.developer_name 'TOPSCORER_GOALS' or name 'Goal Scorer'
+                name = (t.get("developer_name") or t.get("name") or "").lower()
+                if "goal" not in name:
+                    continue
+            goal_rows.append(r)
+        if not goal_rows:
+            goal_rows = rows  # fallback
+        await db.top_scorers.delete_many({"league_id": league_doc_id})
+        for i, r in enumerate(goal_rows[:50], 1):
+            player = r.get("player") or {}
+            participant = r.get("participant") or {}
+            doc = {
+                "id": f"sm-ts-{r.get('id')}",
+                "league_id": league_doc_id,
+                "season_id": season_id,
+                "player_id": player.get("id"),
+                "player_name": player.get("name") or player.get("display_name") or "Player",
+                "player_photo": player.get("image_path"),
+                "team_id": participant.get("id"),
+                "team_name": participant.get("name"),
+                "team_logo": participant.get("image_path"),
+                "goals": r.get("total") or 0,
+                "rank": r.get("position") or i,
+            }
+            await db.top_scorers.update_one({"id": doc["id"]}, {"$set": doc}, upsert=True)
+        return len(goal_rows)
+    except Exception as e:
+        log.warning(f"top_scorers season {season_id}: {e}")
+        return 0
+
+
+async def sync_sportmonks_scorers_all():
+    """For each tier-1/2 league, try to pull top scorers using its latest known season_id."""
+    db = get_db()
+    leagues = await db.leagues.find(
+        {"sport_slug": "football", "primary_provider": "sportmonks", "tier_score": {"$gte": 80}},
+        {"_id": 0, "sportmonks_id": 1, "id": 1, "name": 1},
+    ).to_list(length=80)
+    total = 0
+    for lg in leagues:
+        sm_id = lg.get("sportmonks_id")
+        if not sm_id:
+            continue
+        try:
+            det = await sportmonks.fetch_league_detail(sm_id)
+            ldata = (det or {}).get("data") if isinstance(det, dict) else None
+            cs = (ldata or {}).get("currentseason") if isinstance(ldata, dict) else None
+            season_id = cs.get("id") if isinstance(cs, dict) else None
+            if not season_id:
+                continue
+            n = await sync_sportmonks_scorers_for_season(season_id, lg["id"])
+            total += n
+        except Exception as e:
+            log.warning(f"scorers for league {sm_id}: {e}")
+    log.info(f"sportmonks top scorers: {total} rows")
+    return total
+
+
+async def sync_wc2026_squads():
+    """Pull every WC2026 team squad → players collection. Season 26618."""
+    db = get_db()
+    WC_SEASON = 26618
+    try:
+        data = await sportmonks.fetch_teams_for_season(WC_SEASON)
+        teams = (data or {}).get("data", []) if isinstance(data, dict) else []
+    except Exception as e:
+        log.warning(f"wc2026 teams: {e}")
+        return 0
+    # Filter to real national teams (placeholder entries have no country / are bracket slots)
+    real_teams = [t for t in teams if isinstance(t, dict) and (t.get("country_id") or 0) > 0 and "Winner" not in (t.get("name") or "") and "Group" not in (t.get("name") or "") or "" == ""]
+    # Looser filter: just exclude obvious placeholders
+    real_teams = [t for t in teams if isinstance(t, dict) and t.get("name") and not any(x in t.get("name", "") for x in ["Winner ", "Loser ", "1st Group", "2nd Group", "3rd ", "Best 3rd"])]
+    total_players = 0
+    for team in real_teams[:64]:
+        tid = team.get("id")
+        if not tid:
+            continue
+        # Ensure team doc exists
+        team_doc_id = await upsert_sportmonks_team(team, "football")
+        try:
+            sdata = await sportmonks.fetch_team_squad(WC_SEASON, tid)
+            roster = (sdata or {}).get("data", []) if isinstance(sdata, dict) else []
+        except Exception as e:
+            log.warning(f"squad {tid}: {e}")
+            continue
+        if not isinstance(roster, list):
+            continue
+        # Sportmonks position IDs (rough): 24=GK, 25=DEF, 26=MID, 27=FWD
+        POS_MAP = {24: "GK", 25: "DEF", 26: "MID", 27: "FWD"}
+        for entry in roster:
+            if not isinstance(entry, dict):
+                continue
+            player = entry.get("player") or {}
+            pos = entry.get("position") or {}
+            pos_id = pos.get("id") if isinstance(pos, dict) else None
+            pos_name = (pos.get("name") or "").lower() if isinstance(pos, dict) else ""
+            short_pos = POS_MAP.get(pos_id)
+            if not short_pos:
+                if "goalkeeper" in pos_name:
+                    short_pos = "GK"
+                elif "defend" in pos_name or "back" in pos_name:
+                    short_pos = "DEF"
+                elif "midfield" in pos_name:
+                    short_pos = "MID"
+                elif "attack" in pos_name or "forward" in pos_name or "striker" in pos_name or "winger" in pos_name:
+                    short_pos = "FWD"
+                else:
+                    short_pos = "MID"
+            # Synthetic fantasy price by position
+            base_price = {"GK": 4.5, "DEF": 5.0, "MID": 7.0, "FWD": 8.5}.get(short_pos, 5.0)
+            pid = player.get("id")
+            if not pid:
+                continue
+            doc = {
+                "id": f"sm-p-{pid}",
+                "name": player.get("display_name") or player.get("name") or "Player",
+                "team_id": team_doc_id,
+                "team_name": team.get("name"),
+                "team_logo": team.get("image_path") or "",
+                "sportmonks_id": pid,
+                "position": short_pos,
+                "photo_url": player.get("image_path") or "",
+                "country": team.get("name"),
+                "price": base_price,
+                "shirt_number": entry.get("jersey_number"),
+                "is_wc_2026": True,
+                "updated_at": utcnow_iso(),
+            }
+            await db.players.update_one({"id": doc["id"]}, {"$set": doc}, upsert=True)
+            total_players += 1
+    log.info(f"wc2026 squads: {total_players} players across {len(real_teams)} teams")
+    return total_players
+
+
+# ---------- API-Sports football enrichment (cross-provider dedup) ----------
+async def _cross_provider_dedup(sport: str, home_name: str, away_name: str, scheduled_at_iso: str):
+    """Check if a match with same teams (fuzzy) within ±24h already exists.
+    Returns existing match id or None."""
+    if not (home_name and away_name and scheduled_at_iso):
+        return None
+    db = get_db()
+    try:
+        from datetime import datetime as _dt, timedelta as _td
+        d = _dt.fromisoformat(scheduled_at_iso.replace("Z", "+00:00"))
+        lo = (d - _td(hours=24)).isoformat()
+        hi = (d + _td(hours=24)).isoformat()
+    except Exception:
+        return None
+    # Loose case-insensitive prefix match on the first word of each team name
+    h_token = (home_name.split()[0] or "")[:6]
+    a_token = (away_name.split()[0] or "")[:6]
+    if len(h_token) < 3 or len(a_token) < 3:
+        return None
+    existing = await db.matches.find_one({
+        "sport_slug": sport,
+        "scheduled_at": {"$gte": lo, "$lt": hi},
+        "home_team_name": {"$regex": f"^{h_token}", "$options": "i"},
+        "away_team_name": {"$regex": f"^{a_token}", "$options": "i"},
+    }, {"id": 1, "primary_provider": 1, "_id": 0})
+    return existing
 
 
 async def sync_statpal_cricket():
@@ -597,7 +900,21 @@ async def start_background_jobs():
             await sync_sportmonks_today_and_next(days_ahead=7, days_back=3)
         except Exception as e:
             log.warning(f"initial sm sync: {e}")
-        for sport in ("basketball", "nba", "baseball", "hockey", "rugby", "handball", "volleyball", "mma", "afl"):
+        # WC2026 official squads → fantasy player pool
+        try:
+            await sync_wc2026_squads()
+        except Exception as e:
+            log.warning(f"wc2026 squads: {e}")
+        # Standings + top scorers for major leagues
+        try:
+            await sync_sportmonks_standings_all()
+        except Exception as e:
+            log.warning(f"standings all: {e}")
+        try:
+            await sync_sportmonks_scorers_all()
+        except Exception as e:
+            log.warning(f"scorers all: {e}")
+        for sport in ("football", "basketball", "nba", "baseball", "hockey", "rugby", "handball", "volleyball", "mma", "afl"):
             try:
                 await sync_apisports_today(sport, days_back=1, days_ahead=3)
             except Exception as e:
@@ -639,7 +956,15 @@ async def start_background_jobs():
                 await sync_sportmonks_today_and_next(days_ahead=7, days_back=3)
             except Exception:
                 pass
-            for sport in ("basketball", "nba", "baseball", "hockey", "rugby", "handball", "volleyball", "mma", "afl"):
+            try:
+                await sync_sportmonks_standings_all()
+            except Exception:
+                pass
+            try:
+                await sync_sportmonks_scorers_all()
+            except Exception:
+                pass
+            for sport in ("football", "basketball", "nba", "baseball", "hockey", "rugby", "handball", "volleyball", "mma", "afl"):
                 try:
                     await sync_apisports_today(sport, days_back=1, days_ahead=3)
                 except Exception:

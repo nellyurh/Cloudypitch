@@ -17,13 +17,12 @@ async def get_competition():
 @router.get("/players")
 async def list_fantasy_players(limit: int = 500):
     db = get_db()
-    # Use football teams pool, attach generated prices/positions if not yet ingested
-    teams = await db.teams.find({"sport_slug": "football"}, {"_id": 0}).limit(200).to_list(length=200)
-    # If we have actual player ingest, prefer that
-    players = await db.players.find({}, {"_id": 0}).limit(limit).to_list(length=limit)
+    # Prefer real WC2026 players from Sportmonks
+    players = await db.players.find({"is_wc_2026": True}, {"_id": 0}).sort([("position", 1), ("price", -1)]).limit(limit).to_list(length=limit)
     if players:
-        return {"players": players}
-    # Fallback synthetic pool (so squad builder works pre-WC ingest)
+        return {"players": players, "source": "wc2026"}
+    # Fallback synthetic pool (used before WC squad ingest finishes)
+    teams = await db.teams.find({"sport_slug": "football"}, {"_id": 0}).limit(200).to_list(length=200)
     POSITIONS = ["GK", "DEF", "DEF", "DEF", "MID", "MID", "MID", "FWD", "FWD"]
     PRICE = {"GK": 5.0, "DEF": 5.5, "MID": 7.5, "FWD": 9.0}
     out = []
@@ -37,7 +36,7 @@ async def list_fantasy_players(limit: int = 500):
                 "position": pos, "price": PRICE[pos] + (i * 0.1),
                 "country": t.get("country") or "World",
             })
-    return {"players": out[:limit]}
+    return {"players": out[:limit], "source": "synthetic"}
 
 
 @router.get("/squad/me")
