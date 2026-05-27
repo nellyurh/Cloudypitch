@@ -21,19 +21,23 @@ async def _get(path: str, params: dict | None = None) -> Any:
         return r.json()
 
 
-async def fetch_fixtures_by_date(date_str: str):
+async def fetch_fixtures_by_date(date_str: str, page: int = 1):
     """date_str: YYYY-MM-DD"""
     return await _get(
         f"/fixtures/date/{date_str}",
-        {"include": "participants;scores;state;league;venue;periods"},
+        {"include": "participants;scores;state;league.country;venue;periods;season", "per_page": 50, "page": page},
     )
 
 
 async def fetch_live():
     return await _get(
         "/livescores/inplay",
-        {"include": "participants;scores;state;events;statistics;periods;league"},
+        {"include": "participants;scores;state;events;statistics;periods;league.country"},
     )
+
+
+async def fetch_all_leagues(page: int = 1):
+    return await _get("/leagues", {"include": "country", "per_page": 50, "page": page})
 
 
 async def fetch_today_livescores():
@@ -64,7 +68,7 @@ async def fetch_top_scorers(season_id: int):
 
 
 async def fetch_leagues():
-    return await _get("/leagues", {"per_page": 50})
+    return await _get("/leagues", {"include": "country", "per_page": 50})
 
 
 # ---------- Mapping helpers ----------

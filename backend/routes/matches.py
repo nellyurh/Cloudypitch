@@ -23,13 +23,34 @@ async def list_matches(
     date: Optional[str] = None,
     status: Optional[str] = Query(None, description="live|upcoming|finished|all"),
     league_id: Optional[str] = None,
-    limit: int = 200,
+    country: Optional[str] = None,
+    limit: int = 500,
 ):
     db = get_db()
     q: dict = {"sport_slug": sport}
     if league_id:
         q["league_id"] = league_id
-    if date:
+    if country:
+        q["league_country"] = country
+
+    sort_order = 1  # ascending by default
+
+    if status == "live":
+        q["is_live"] = True
+    elif status == "upcoming":
+        # Next 7 days
+        now_iso = datetime.now(timezone.utc).isoformat()
+        end_iso = (datetime.now(timezone.utc) + timedelta(days=7)).isoformat()
+        q["status"] = {"$in": ["NS", "TBD", "POSTP"]}
+        q["scheduled_at"] = {"$gte": now_iso, "$lt": end_iso}
+    elif status == "finished":
+        # Past 7 days finished
+        start_iso = (datetime.now(timezone.utc) - timedelta(days=7)).isoformat()
+        end_iso = datetime.now(timezone.utc).isoformat()
+        q["status"] = {"$in": ["FT", "AET", "PEN"]}
+        q["scheduled_at"] = {"$gte": start_iso, "$lt": end_iso}
+        sort_order = -1
+    elif date:
         try:
             d = datetime.fromisoformat(date).replace(tzinfo=timezone.utc)
             start = d.replace(hour=0, minute=0, second=0, microsecond=0).isoformat()
@@ -38,22 +59,13 @@ async def list_matches(
         except Exception:
             pass
     else:
+        # Default: today
         start, end = _today_range_iso()
-        # If filter is live, fall back to is_live regardless of date
-        if status != "live":
-            q["scheduled_at"] = {"$gte": start, "$lt": end}
+        q["scheduled_at"] = {"$gte": start, "$lt": end}
 
-    if status == "live":
-        q["is_live"] = True
-        q.pop("scheduled_at", None)
-    elif status == "upcoming":
-        q["status"] = {"$in": ["NS", "TBD", "POSTP"]}
-    elif status == "finished":
-        q["status"] = {"$in": ["FT", "AET", "PEN"]}
+    rows = await db.matches.find(q, {"_id": 0, "raw_data": 0}).sort("scheduled_at", sort_order).to_list(length=limit)
 
-    rows = await db.matches.find(q, {"_id": 0, "raw_data": 0}).sort("scheduled_at", 1).to_list(length=limit)
-
-    # Group by league for the dashboard
+    # Group by league for the dashboard (sort groups by country priority then league tier)
     by_league: dict = {}
     for r in rows:
         key = r.get("league_id") or "unknown"
@@ -62,11 +74,22 @@ async def list_matches(
                 "league_id": key,
                 "league_name": r.get("league_name") or "League",
                 "league_logo": r.get("league_logo") or "",
-                "league_country": r.get("league_country") or "World",
+                "league_country": r.get("league_country") or "International",
                 "matches": [],
             }
         by_league[key]["matches"].append(r)
-    grouped = sorted(by_league.values(), key=lambda x: (x["league_country"] or "", x["league_name"] or ""))
+    # Pull tier/priority from leagues collection for stable ordering
+    league_ids = list(by_league.keys())
+    league_meta = await db.leagues.find({"id": {"$in": league_ids}}, {"_id": 0, "id": 1, "tier_score": 1, "country_priority": 1}).to_list(length=2000)
+    meta_by_id = {m["id"]: m for m in league_meta}
+    for g in by_league.values():
+        m = meta_by_id.get(g["league_id"], {})
+        g["_tier"] = m.get("tier_score", 30)
+        g["_country_priority"] = m.get("country_priority", 200)
+    grouped = sorted(
+        by_league.values(),
+        key=lambda x: (x["_country_priority"], -x["_tier"], x["league_country"] or "", x["league_name"] or ""),
+    )
     return {"matches": rows, "grouped": grouped, "count": len(rows)}
 
 

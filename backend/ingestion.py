@@ -24,12 +24,21 @@ async def upsert_sportmonks_league(league: dict, sport_slug: str = "football"):
         return None
     db = get_db()
     sid = league.get("id")
-    country = league.get("country", {}).get("name") if isinstance(league.get("country"), dict) else None
+    # Country can be nested object (when include=country) or null
+    country_obj = league.get("country")
+    if isinstance(country_obj, dict):
+        country = country_obj.get("name")
+    elif isinstance(country_obj, str):
+        country = country_obj
+    else:
+        country = None
+    if not country:
+        country = league.get("country_name") or "International"
     doc = {
         "id": f"sm-l-{sid}",
         "sport_slug": sport_slug,
         "name": league.get("name"),
-        "country": country or league.get("country_id_name") or "World",
+        "country": country,
         "logo_url": league.get("image_path") or league.get("image_url") or "",
         "type": league.get("type") or "domestic",
         "season": league.get("currentseason", {}).get("name") if isinstance(league.get("currentseason"), dict) else None,
@@ -73,6 +82,16 @@ async def upsert_sportmonks_fixture(fx: dict):
     # League
     league = fx.get("league") if isinstance(fx.get("league"), dict) else None
     league_doc_id = await upsert_sportmonks_league(league, "football") if league else None
+    # Country from league (could be nested object after include=league.country)
+    league_country = None
+    if league:
+        c = league.get("country")
+        if isinstance(c, dict):
+            league_country = c.get("name")
+        elif isinstance(c, str):
+            league_country = c
+    if not league_country:
+        league_country = "International"
 
     # Participants → home / away
     parts = fx.get("participants") or []
@@ -102,7 +121,7 @@ async def upsert_sportmonks_fixture(fx: dict):
         "league_id": league_doc_id,
         "league_name": (league or {}).get("name"),
         "league_logo": (league or {}).get("image_path") or "",
-        "league_country": (league or {}).get("country", {}).get("name") if isinstance((league or {}).get("country"), dict) else None,
+        "league_country": league_country,
         "home_team_id": home_id,
         "away_team_id": away_id,
         "home_team_name": (home_team or {}).get("name"),
@@ -298,20 +317,54 @@ async def upsert_statpal_tennis_match(m: dict):
 
 
 # ---------- High-level jobs ----------
-async def sync_sportmonks_today_and_next(days_ahead: int = 7):
+async def sync_sportmonks_leagues_catalog():
+    """Pull complete league catalog so countries/leagues sidebar is populated even before fixtures arrive."""
+    log.info("sportmonks leagues catalog sync starting")
+    seen = 0
+    for page in range(1, 12):  # up to ~600 leagues
+        try:
+            data = await sportmonks.fetch_all_leagues(page=page)
+            leagues = (data or {}).get("data", []) if isinstance(data, dict) else []
+            if not isinstance(leagues, list) or not leagues:
+                break
+            for lg in leagues:
+                try:
+                    await upsert_sportmonks_league(lg, "football")
+                    seen += 1
+                except Exception as e:
+                    log.warning(f"sm league upsert: {e}")
+            pag = (data or {}).get("pagination") or {}
+            if not pag.get("has_more"):
+                break
+        except Exception as e:
+            log.warning(f"sm leagues page {page}: {e}")
+            break
+    log.info(f"sportmonks leagues catalog: {seen} leagues")
+    return seen
+
+
+async def sync_sportmonks_today_and_next(days_ahead: int = 7, days_back: int = 3):
     base = utcnow().date()
-    for i in range(days_ahead + 1):
+    for i in range(-days_back, days_ahead + 1):
         d = (base + timedelta(days=i)).isoformat()
         try:
-            data = await sportmonks.fetch_fixtures_by_date(d)
-            fixtures = (data or {}).get("data", []) if isinstance(data, dict) else []
-            if isinstance(fixtures, list):
+            # Paginate through all fixtures of the day
+            total = 0
+            for page in range(1, 8):
+                data = await sportmonks.fetch_fixtures_by_date(d, page=page)
+                fixtures = (data or {}).get("data", []) if isinstance(data, dict) else []
+                if not isinstance(fixtures, list) or not fixtures:
+                    break
                 for fx in fixtures:
                     try:
                         await upsert_sportmonks_fixture(fx)
+                        total += 1
                     except Exception as e:
                         log.warning(f"sm upsert err: {e}")
-            log.info(f"sportmonks {d}: {len(fixtures) if isinstance(fixtures, list) else 0} fixtures")
+                pag = (data or {}).get("pagination") or {}
+                if not pag.get("has_more"):
+                    break
+            log.info(f"sportmonks {d}: {total} fixtures")
         except Exception as e:
             log.warning(f"sportmonks date {d} failed: {e}")
 
@@ -332,20 +385,99 @@ async def poll_sportmonks_live():
         return 0
 
 
-async def sync_apisports_today(sport_slug: str):
-    today = utcnow().date().isoformat()
-    try:
-        data = await apisports.fetch_games(sport_slug, today)
-        games = (data or {}).get("response", []) if isinstance(data, dict) else []
-        if isinstance(games, list):
-            for g in games:
-                try:
-                    await upsert_apisports_game(sport_slug, g)
-                except Exception as e:
-                    log.warning(f"as upsert {sport_slug} err: {e}")
-        log.info(f"api-sports {sport_slug}: {len(games) if isinstance(games, list) else 0} games")
-    except Exception as e:
-        log.warning(f"api-sports {sport_slug} sync failed: {e}")
+async def sync_apisports_today(sport_slug: str, days_back: int = 1, days_ahead: int = 3):
+    """Sync games for past N days + next M days for a given API-Sports sport."""
+    base = utcnow().date()
+    total = 0
+    for i in range(-days_back, days_ahead + 1):
+        d = (base + timedelta(days=i)).isoformat()
+        try:
+            data = await apisports.fetch_games(sport_slug, d)
+            games = (data or {}).get("response", []) if isinstance(data, dict) else []
+            if isinstance(games, list):
+                for g in games:
+                    try:
+                        await upsert_apisports_game(sport_slug, g)
+                        total += 1
+                    except Exception as e:
+                        log.warning(f"as upsert {sport_slug} err: {e}")
+        except Exception as e:
+            log.warning(f"api-sports {sport_slug} sync {d} failed: {e}")
+    log.info(f"api-sports {sport_slug}: {total} games across window")
+
+
+async def poll_apisports_live():
+    """Poll live games for ALL API-Sports sports in one pass."""
+    total = 0
+    for sport in ("basketball", "nba", "baseball", "hockey", "rugby", "handball", "volleyball", "mma", "afl"):
+        try:
+            data = await apisports.fetch_games(sport, live=True)
+            games = (data or {}).get("response", []) if isinstance(data, dict) else []
+            if isinstance(games, list):
+                for g in games:
+                    try:
+                        await upsert_apisports_game(sport, g)
+                        total += 1
+                    except Exception as e:
+                        log.warning(f"as live upsert {sport} err: {e}")
+        except Exception as e:
+            log.warning(f"api-sports live {sport} failed: {e}")
+    return total
+
+
+async def sync_statpal_cricket():
+    """Pull cricket livescores + upcoming. Lightweight schema — store raw in matches."""
+    db = get_db()
+    seen = 0
+    for fetcher, kind in ((statpal.fetch_cricket_livescores, "live"), (statpal.fetch_cricket_upcoming, "upcoming")):
+        try:
+            data = await fetcher()
+        except Exception as e:
+            log.warning(f"statpal cricket {kind}: {e}")
+            continue
+        if not isinstance(data, dict):
+            continue
+        # StatPal returns nested structures; flatten as much as possible
+        candidates = []
+        for k in ("matches", "match", "tournament", "tournaments", "data"):
+            v = data.get(k)
+            if isinstance(v, list):
+                candidates.extend([x for x in v if isinstance(x, dict)])
+            elif isinstance(v, dict):
+                inner = v.get("match") or v.get("matches") or []
+                if isinstance(inner, list):
+                    candidates.extend([x for x in inner if isinstance(x, dict)])
+        for m in candidates:
+            mid = m.get("id") or m.get("@id")
+            if not mid:
+                continue
+            doc = {
+                "id": f"sp-cr-{mid}",
+                "sport_slug": "cricket",
+                "primary_provider": "statpal",
+                "statpal_id": mid,
+                "scheduled_at": m.get("date") or m.get("start_time") or utcnow_iso(),
+                "status": "LIVE" if kind == "live" else "NS",
+                "is_live": kind == "live",
+                "home_team_name": (m.get("home") or {}).get("name") if isinstance(m.get("home"), dict) else (m.get("team_a") or "Team A"),
+                "away_team_name": (m.get("away") or {}).get("name") if isinstance(m.get("away"), dict) else (m.get("team_b") or "Team B"),
+                "home_team_logo": "", "away_team_logo": "",
+                "home_short": "TA", "away_short": "TB",
+                "home_score": 0, "away_score": 0,
+                "league_country": "International", "league_name": "Cricket",
+                "league_id": "sp-l-cricket",
+                "raw_data": m,
+                "last_polled_at": utcnow_iso(),
+            }
+            await db.matches.update_one({"statpal_id": mid, "sport_slug": "cricket"}, {"$set": doc}, upsert=True)
+            seen += 1
+    # Ensure league row exists
+    await db.leagues.update_one({"id": "sp-l-cricket"}, {"$set": {
+        "id": "sp-l-cricket", "sport_slug": "cricket", "name": "International Cricket",
+        "country": "International", "logo_url": "", "tier_score": 60, "country_priority": 40,
+        "primary_provider": "statpal",
+    }}, upsert=True)
+    log.info(f"statpal cricket: {seen} matches")
 
 
 async def sync_statpal_tennis():
@@ -391,19 +523,28 @@ async def start_background_jobs():
     """Kick off long-running background tasks."""
 
     async def initial_sync():
+        # Pull all leagues first so sidebar populates immediately
         try:
-            await sync_sportmonks_today_and_next(days_ahead=7)
+            await sync_sportmonks_leagues_catalog()
+        except Exception as e:
+            log.warning(f"initial leagues catalog: {e}")
+        try:
+            await sync_sportmonks_today_and_next(days_ahead=7, days_back=3)
         except Exception as e:
             log.warning(f"initial sm sync: {e}")
         for sport in ("basketball", "nba", "baseball", "hockey", "rugby", "handball", "volleyball", "mma", "afl"):
             try:
-                await sync_apisports_today(sport)
+                await sync_apisports_today(sport, days_back=1, days_ahead=3)
             except Exception as e:
                 log.warning(f"initial as {sport}: {e}")
         try:
             await sync_statpal_tennis()
         except Exception as e:
             log.warning(f"initial statpal tennis: {e}")
+        try:
+            await sync_statpal_cricket()
+        except Exception as e:
+            log.warning(f"initial statpal cricket: {e}")
 
     async def live_poller():
         while True:
@@ -417,13 +558,27 @@ async def start_background_jobs():
                 pass
             await asyncio.sleep(20)
 
+    async def apisports_live_poller():
+        # Slower than football — 90s cadence
+        while True:
+            try:
+                await poll_apisports_live()
+            except Exception as e:
+                log.warning(f"apisports live: {e}")
+            await asyncio.sleep(90)
+
     async def fixture_daily():
         while True:
             await asyncio.sleep(6 * 3600)
             try:
-                await sync_sportmonks_today_and_next(days_ahead=7)
+                await sync_sportmonks_today_and_next(days_ahead=7, days_back=3)
             except Exception:
                 pass
+            for sport in ("basketball", "nba", "baseball", "hockey", "rugby", "handball", "volleyball", "mma", "afl"):
+                try:
+                    await sync_apisports_today(sport, days_back=1, days_ahead=3)
+                except Exception:
+                    pass
 
     async def statpal_poller():
         while True:
@@ -431,9 +586,14 @@ async def start_background_jobs():
                 await sync_statpal_tennis()
             except Exception:
                 pass
+            try:
+                await sync_statpal_cricket()
+            except Exception:
+                pass
             await asyncio.sleep(120)
 
     asyncio.create_task(initial_sync())
     asyncio.create_task(live_poller())
+    asyncio.create_task(apisports_live_poller())
     asyncio.create_task(fixture_daily())
     asyncio.create_task(statpal_poller())
