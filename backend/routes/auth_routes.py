@@ -41,7 +41,8 @@ async def signup(payload: SignupIn, request: Request, response: Response):
     for c in starter:
         await db.user_cards.insert_one({
             "id": new_id(), "user_id": user["id"], "card_id": c["id"],
-            "uses_remaining": 5, "total_uses": 5, "acquired_at": utcnow_iso(),
+            "uses_remaining": 5, "uses_left": 5, "total_uses": 0,
+            "acquired_at": utcnow_iso(),
             "acquired_via": "signup_starter",
         })
     raw = await a.create_session(user["id"], request)

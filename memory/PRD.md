@@ -52,6 +52,37 @@ Three integrated products:
 - ✅ New LineupPitch component: green pitch with center circle/penalty boxes/goals, player number badges (lime home / white away), formation auto-derived from position_code, full bench list
 - ✅ Verified by testing agent (iteration 2): 100% backend + frontend pass
 
+## Iteration 6 — Card Picker + Premium + Wider Ad Wiring (2026-05-28)
+
+### Card Application UI
+- `CardPickerModal` component: multi-select up to 2 owned cards for a single prediction
+- Live boost preview (Base × Stage / Card Boost % / If exact = final pts)
+- Per-card match indicator ("no match for this game" if card's country doesn't apply)
+- Empty state with CTA to browse Legend Cards
+- "Apply boost" pill on every unlocked prediction row (data-testid `pred-boost-{id}`)
+- Predictions submit now passes `card_ids[]` to backend (capped at 2)
+- Auth starter-pack also writes `uses_left` alongside `uses_remaining` for downstream compat (admin backfilled with 5 Star cards)
+
+### Premium Subscription (₦2K/mo)
+- New `/premium` page with hero, ₦2,000/mo price, Subscribe button → Paystack initialize (`purpose='premium_sub'`)
+- Compliance pre-flight check (18+ + spending caps) before initialising
+- Compare Plans table — 8 rows showing Free vs Premium feature parity
+- Active state when `is_premium=true` with `premium_until` date
+- `public_user()` now exposes `is_premium` + `premium_until` to frontend
+- Disabled state when Paystack keys not configured (graceful)
+- Header dropdown + drawer now has `Go Premium` link (becomes `Premium ✓` once active)
+
+### AdSlot Wiring
+- WC Hub Groups tab — `wc_hub_sponsor` ad rendered between groups 6 and 7
+- Dashboard — `match_list_inline` ad after every 3rd LeagueGroup
+- New `InterstitialAd` component mounted on App root — triggers on route changes, rate-limited (1 per 3min via localStorage `cp_interstitial_last_shown`), dismissable, skips after 3 dismisses, blocked on `/payment`, `/signin`, `/signup`, `/premium`
+- Seeded 4 sample direct sponsors: MTN (home_bottom_banner), Bet9ja (interstitial_nav), OPay (wc_hub_sponsor), Flutterwave (match_list_inline)
+
+### Test Results
+- Backend: **16/16** pytest pass (100%)
+- Frontend: 95% — only minor observation about interstitial overlay intercepting clicks during automated nav tests (by design)
+- No production bugs
+
 ## Iteration 5 — Full 7-Phase Spec Implementation (2026-05-28) — "do all"
 
 User dumped the complete product playbook (ad revenue, prediction scoring, legend card mechanic, fantasy points, prize-pool distribution, wallet, compliance). All 7 phases shipped in one batch.
