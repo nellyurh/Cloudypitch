@@ -52,6 +52,18 @@ Three integrated products:
 - ✅ New LineupPitch component: green pitch with center circle/penalty boxes/goals, player number badges (lime home / white away), formation auto-derived from position_code, full bench list
 - ✅ Verified by testing agent (iteration 2): 100% backend + frontend pass
 
+## Iteration 4 — Sofascore MatchRow, Standings, Top Scorers, Cards-per-Game Caps (2026-05-28)
+- ✅ **MatchRow visual rewrite** to mirror Sofascore screenshots: time + status stacked on left (kickoff HH:MM top, FT/HT/minute' below with red color for live), team logos + names stacked vertically (home top / away bottom), scores stacked on right (red for live), thin vertical dividers between cells, **favorite star** at far right with optimistic POST/DELETE to `/api/users/me/favorites/match/{id}`
+- ✅ **Standings endpoint** `GET /api/leagues/{league_id}/standings?refresh=1`: fixed Sportmonks v3 type_id mapping (187=points, 179=goal_diff, 129/130/131/132/133/134) and added `details.type;form;rule` to fetch include — returns position, played, won, drawn, lost, goals_for, goals_against, goal_diff, points, form, team_logo
+- ✅ **Top scorers endpoint** `GET /api/leagues/{league_id}/topscorers?refresh=1`: returns rank, player_name, team_name, team_logo, goals
+- ✅ **Card usage enforcement** (`/app/backend/routes/card_usage.py`):
+  - `POST /api/cards/use` with `{card_id, scope, scope_id}` — enforces cap (match: 2, group: 4, round: 5; SPECIAL_CAPS round:final = 10), idempotent (same card+scope+scope_id ignored), decrements `uses_left` on user_card
+  - `GET /api/cards/usage?scope&scope_id` — returns `{count, cap, remaining, used}`
+  - `GET /api/cards/usage/me` — grouped per-scope usage map
+- ✅ **League doc enriched** with `current_season_id` + `sportmonks_league_id` during fixture upsert
+- ✅ Verified by testing agent (iteration 4): backend 12/12 pytest pass · frontend MatchRow layout + live indicator + regression passing · favorite-star URL bug found and fixed post-test (`/users/me/favorites/*` route prefix)
+- 🧹 Test suite: `/app/backend/tests/test_iteration4.py`
+
 ## Iteration 3 — WC Hub, Predictions/Fantasy UX, Logo Enrichment (2026-05-28)
 - ✅ **World Cup Hub UI** redesigned with 4 tabs (Groups · Knockout · Schedule · Prize Pool): hero banner with large live countdown, 12 group cards (A-L) showing country flags via flagcdn.com + 4 teams + standings table placeholders, full knockout bracket visualization (12 R32 + 8 R16 + QF/SF/Final cards)
 - ✅ **Country flag lookup**: `/app/frontend/src/lib/flags.js` with 45 ISO-3166 alpha-2 codes for WC2026 nations

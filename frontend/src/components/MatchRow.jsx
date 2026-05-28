@@ -65,8 +65,8 @@ const FavStar = ({ m }) => {
     const next = !fav;
     setFav(next);
     try {
-      if (next) await api.post(`/me/favorites/match/${m.id}`);
-      else await api.delete(`/me/favorites/match/${m.id}`);
+      if (next) await api.post(`/users/me/favorites/match/${m.id}`);
+      else await api.delete(`/users/me/favorites/match/${m.id}`);
     } catch (_) { setFav(!next); }
     setBusy(false);
   };
