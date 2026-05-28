@@ -59,16 +59,20 @@ export default function EventsList({ events, homeTeamId, awayTeamId, homeName, a
             {/* Home side */}
             <div className="text-right pr-2">
               {isHome && (
-                <div className="inline-flex items-center gap-2 justify-end">
+                <div className="inline-flex items-center gap-2 justify-end" title={typeName}>
                   <div className="text-right">
                     <div className="font-medium">{displayPlayer}</div>
-                    {assist && (
+                    {assist ? (
                       <div className="text-[11px]" style={{ color: "var(--cp-text-muted)" }}>
                         {isSub ? `↓ ${assist}` : `assist: ${assist}`}
                       </div>
+                    ) : (
+                      <div className="text-[10px] uppercase tracking-wider" style={{ color: "var(--cp-text-muted)" }}>
+                        {typeName}
+                      </div>
                     )}
                   </div>
-                  {iconFor(e.type)}
+                  {iconFor(typeName)}
                 </div>
               )}
             </div>
@@ -82,13 +86,17 @@ export default function EventsList({ events, homeTeamId, awayTeamId, homeName, a
             {/* Away side */}
             <div className="text-left pl-2">
               {isAway && (
-                <div className="inline-flex items-center gap-2">
-                  {iconFor(e.type)}
+                <div className="inline-flex items-center gap-2" title={typeName}>
+                  {iconFor(typeName)}
                   <div className="text-left">
                     <div className="font-medium">{displayPlayer}</div>
-                    {assist && (
+                    {assist ? (
                       <div className="text-[11px]" style={{ color: "var(--cp-text-muted)" }}>
                         {isSub ? `↓ ${assist}` : `assist: ${assist}`}
+                      </div>
+                    ) : (
+                      <div className="text-[10px] uppercase tracking-wider" style={{ color: "var(--cp-text-muted)" }}>
+                        {typeName}
                       </div>
                     )}
                   </div>

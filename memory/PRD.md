@@ -43,11 +43,24 @@ Three integrated products:
 - ✅ 3-column responsive dashboard with left sidebar (countries+leagues) and right rail (WC countdown + leaderboard + featured pool)
 - ✅ Backend tested 46/46 (100%) by testing agent
 
+## Iteration 2 — Match Detail UI Polish (2026-05-28)
+- ✅ Sportmonks event/stat type IDs mapped to human-readable names (Goal, Yellow Card, Substitution, Ball Possession %, Shots on Target, etc.) via nested `events.type` / `statistics.type` includes + `EVENT_TYPE_NAMES` & `STAT_TYPE_NAMES` fallback dicts in `adapters/sportmonks.py`
+- ✅ `team_id` normalized to `sm-t-{id}` prefix across events/stats/lineups → enables correct home/away split on frontend
+- ✅ Stale-data detection in `GET /api/matches/{id}` auto-refreshes legacy fixtures with numeric type IDs; also supports `?refresh=1` query param + UI refresh button
+- ✅ New EventsList component (`/app/frontend/src/components/match/EventsList.jsx`): home-on-left / away-on-right layout, icons for Goal/Yellow Card/Red Card/Substitution/VAR, sub assist line, minute pill in center
+- ✅ New StatsBars component (`/app/frontend/src/components/match/StatsBars.jsx`): Sofascore-style side-by-side mirrored bar charts, lime fill for winning side, % stats normalised, priority ordering (possession → shots → corners → fouls → cards)
+- ✅ New LineupPitch component (`/app/frontend/src/components/match/LineupPitch.jsx`): green pitch with center circle/penalty boxes/goals, player number badges (lime home / white away), formation auto-derived from position_code row counts (4-3-3 / 4-5-1 etc.), full bench list below
+- ✅ Verified by testing agent (iteration 2): 100% backend + frontend pass
+
 ## Test Credentials
 See `/app/memory/test_credentials.md`. Admin: `admin@cloudypitch.com` / `CloudyAdmin2026!`
 
 ## Backlog (P0/P1/P2)
 **P0 (next iteration):**
+- Missing team logos for some API-Sports / StatPal matches (recurring — investigate ingestion logo URL handling + frontend MatchRow fallback)
+- World Cup hub UI (groups, brackets, countdown — data schema ready)
+- Predictions hub UI polish (picks page + leaderboard)
+- Fantasy squad builder UX pass
 - Paystack/Flutterwave integration for Legend Card purchases (₦2000/₦1000/₦500 + ₦200 recharge per 5 uses)
 - 18+ age gate on real-money flows
 - Self-imposed spending caps UI (₦5K/day, ₦20K/month defaults)
@@ -59,14 +72,15 @@ See `/app/memory/test_credentials.md`. Admin: `admin@cloudypitch.com` / `CloudyA
 - Per-sport score displays beyond tennis: NBA quarters grid, cricket overs format, MMA round timer, F1/golf leaderboards
 - Knockout bracket UI (data structure ready)
 - Push notifications (web + Flutter via FCM)
-- Email verification
-- Password reset flow
-- Country sidebar real country names (require `include=country` in Sportmonks calls)
+- Email verification + password reset flow
+- Country sidebar real country names (require `include=country` in Sportmonks calls — done for leagues, pending for teams)
+- Pin African leagues to top of sidebar based on user `country_code`
 
 **P2:**
 - Object storage for league/team logos beyond base64 (S3/MinIO on Contabo)
 - Redis-backed cache (replace in-memory `cache.py`)
 - WebSocket live push for match detail page
+- Refactor `/app/backend/ingestion.py` (1272 lines) → split into per-adapter modules
 - B2B sponsor placements (Bet9ja/MTN/OPay banners)
 - Refer-a-friend program
 - Daily/weekly free prediction streak rewards
