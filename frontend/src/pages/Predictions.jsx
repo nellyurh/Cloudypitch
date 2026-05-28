@@ -1,21 +1,42 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import api from "../lib/api";
 import { useAuth, formatApiErr } from "../lib/auth";
 import { Link } from "react-router-dom";
-import { Trophy, Check, AlertTriangle } from "lucide-react";
+import { Trophy, Check, AlertTriangle, Lock, Award } from "lucide-react";
+
+const TeamLogo = ({ src, name }) => {
+  if (src) return <img src={src} alt="" className="w-6 h-6 object-contain shrink-0" onError={(e) => { e.target.style.display = "none"; }}/>;
+  return (
+    <span className="inline-flex items-center justify-center w-6 h-6 rounded-sm text-[10px] font-bold shrink-0" style={{ background: "var(--cp-surface-2)", color: "var(--cp-text-muted)" }}>
+      {(name || "?").slice(0, 1).toUpperCase()}
+    </span>
+  );
+};
+
+function groupByDate(matches) {
+  const groups = {};
+  for (const m of matches) {
+    const d = new Date(m.scheduled_at);
+    const key = d.toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" });
+    if (!groups[key]) groups[key] = [];
+    groups[key].push(m);
+  }
+  return Object.entries(groups);
+}
 
 export const PredictionsHub = () => {
   const { user } = useAuth();
   const [matches, setMatches] = useState([]);
   const [board, setBoard] = useState([]);
-  const [picks, setPicks] = useState({}); // { matchId: { home, away } }
+  const [picks, setPicks] = useState({});
   const [saving, setSaving] = useState({});
+  const [savedMatch, setSavedMatch] = useState(null);
   const [err, setErr] = useState("");
 
   const load = async () => {
     try {
       const [u, b] = await Promise.all([
-        api.get("/predictions/upcoming?limit=50"),
+        api.get("/predictions/upcoming?limit=80"),
         api.get("/predictions/leaderboard?limit=10"),
       ]);
       setMatches(u.data.matches || []);
@@ -37,51 +58,135 @@ export const PredictionsHub = () => {
     setErr("");
     try {
       await api.post("/predictions", { match_id: matchId, home_score_predicted: Number(p.home), away_score_predicted: Number(p.away) });
+      setSavedMatch(matchId);
+      setTimeout(() => setSavedMatch(null), 1800);
     } catch (e) { setErr(formatApiErr(e)); }
     setSaving(s => ({ ...s, [matchId]: false }));
     load();
   };
 
+  const myTotalPoints = useMemo(() => {
+    if (!user) return 0;
+    const mine = board.find(b => b.user_id === user.id);
+    return mine?.total_points || 0;
+  }, [board, user]);
+
+  const myRank = useMemo(() => {
+    if (!user) return null;
+    const mine = board.find(b => b.user_id === user.id);
+    return mine?.rank || null;
+  }, [board, user]);
+
+  const grouped = useMemo(() => groupByDate(matches), [matches]);
+  const total = matches.length;
+  const predicted = matches.filter(m => m.my_prediction).length;
+
   return (
     <div className="grid grid-cols-1 lg:grid-cols-[1fr_320px] gap-4" data-testid="predictions-hub">
       <div>
-        <div className="flex items-center justify-between mb-3">
-          <h1 className="text-xl font-extrabold tracking-tight">Make Your Predictions <span className="text-cp-lime">·</span> <span style={{ color: "var(--cp-text-muted)" }} className="text-sm font-medium">10 pts exact · 6 pts diff · 4 pts outcome</span></h1>
-          {!user && <Link to="/signin" className="cp-btn-primary" data-testid="pred-signin-cta">Sign in to play</Link>}
+        <div className="cp-surface p-4 mb-3 flex flex-wrap items-center gap-3 justify-between">
+          <div>
+            <div className="text-[10px] uppercase tracking-widest" style={{ color: "var(--cp-text-muted)" }}>Predictions</div>
+            <h1 className="text-xl font-extrabold tracking-tight mt-0.5">Make Your Picks</h1>
+            <div className="text-[11px] mt-1" style={{ color: "var(--cp-text-muted)" }}>
+              <span className="text-cp-lime font-bold">10 pts</span> exact · <span className="text-cp-lime font-bold">6 pts</span> goal diff · <span className="text-cp-lime font-bold">4 pts</span> outcome
+            </div>
+          </div>
+          {user ? (
+            <div className="flex items-center gap-4">
+              <div className="text-right">
+                <div className="text-[10px] uppercase tracking-widest" style={{ color: "var(--cp-text-muted)" }}>Your Total</div>
+                <div className="text-2xl font-extrabold text-cp-lime tabular-nums" data-testid="my-points">{myTotalPoints}</div>
+              </div>
+              {myRank && (
+                <div className="text-right">
+                  <div className="text-[10px] uppercase tracking-widest" style={{ color: "var(--cp-text-muted)" }}>Rank</div>
+                  <div className="text-2xl font-extrabold tabular-nums">#{myRank}</div>
+                </div>
+              )}
+              <div className="text-right">
+                <div className="text-[10px] uppercase tracking-widest" style={{ color: "var(--cp-text-muted)" }}>Picks</div>
+                <div className="text-2xl font-extrabold tabular-nums">{predicted}<span className="text-sm font-normal" style={{ color: "var(--cp-text-muted)" }}>/{total}</span></div>
+              </div>
+            </div>
+          ) : (
+            <Link to="/signin" className="cp-btn-primary" data-testid="pred-signin-cta">Sign in to play</Link>
+          )}
         </div>
 
         {err && <div className="cp-surface p-3 text-sm mb-3 flex items-center gap-2" style={{ borderColor: "#FF3D52", color: "#FF3D52" }}><AlertTriangle size={14}/>{err}</div>}
-
         {matches.length === 0 && <div className="cp-surface p-6 text-sm" style={{ color: "var(--cp-text-muted)" }}>No upcoming matches yet. Check back soon.</div>}
 
-        <div className="space-y-2">
-          {matches.map(m => {
-            const p = picks[m.id] || {};
-            const locked = !user;
-            return (
-              <div key={m.id} className="cp-surface p-3" data-testid={`pred-match-${m.id}`}>
-                <div className="text-[10px] uppercase tracking-widest" style={{ color: "var(--cp-text-muted)" }}>{m.league_country} · {m.league_name}</div>
-                <div className="text-[11px] mt-0.5" style={{ color: "var(--cp-text-muted)" }}>{new Date(m.scheduled_at).toLocaleString()}</div>
-                <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-3 mt-2">
-                  <div className="text-right truncate font-medium" data-testid={`pred-home-${m.id}`}>{m.home_team_name}</div>
-                  <div className="flex items-center gap-2">
-                    <input type="number" min="0" max="20" value={p.home ?? ""} disabled={locked} onChange={(e) => setPicks(prev => ({ ...prev, [m.id]: { ...prev[m.id], home: e.target.value } }))} className="cp-input !w-14 text-center" data-testid={`input-home-${m.id}`}/>
-                    <span style={{ color: "var(--cp-text-muted)" }}>:</span>
-                    <input type="number" min="0" max="20" value={p.away ?? ""} disabled={locked} onChange={(e) => setPicks(prev => ({ ...prev, [m.id]: { ...prev[m.id], away: e.target.value } }))} className="cp-input !w-14 text-center" data-testid={`input-away-${m.id}`}/>
-                  </div>
-                  <div className="truncate font-medium" data-testid={`pred-away-${m.id}`}>{m.away_team_name}</div>
-                </div>
-                <div className="flex items-center justify-between mt-2">
-                  <span className="text-[11px]" style={{ color: "var(--cp-text-muted)" }}>
-                    {m.my_prediction ? <><Check size={11} className="inline text-cp-lime mr-1"/>Predicted</> : "Not yet predicted"}
-                  </span>
-                  <button onClick={() => submit(m.id)} disabled={locked || saving[m.id]} className="cp-btn-primary !py-1.5 disabled:opacity-50" data-testid={`pred-submit-${m.id}`}>
-                    {saving[m.id] ? "Saving…" : (m.my_prediction ? "Update Pick" : "Submit Pick")}
-                  </button>
-                </div>
+        <div className="space-y-4">
+          {grouped.map(([date, list]) => (
+            <section key={date}>
+              <h2 className="text-[11px] uppercase tracking-widest mb-2 px-1 flex items-center gap-2" style={{ color: "var(--cp-text-muted)" }}>
+                <Award size={12} className="text-cp-lime"/> {date}
+                <span className="ml-auto">{list.length} match{list.length === 1 ? "" : "es"}</span>
+              </h2>
+              <div className="cp-surface divide-y" style={{ borderColor: "var(--cp-border)" }}>
+                {list.map(m => {
+                  const p = picks[m.id] || {};
+                  const locked = !user || (m.is_live || ["FT","AET","PEN","1H","2H","HT","LIVE","ET"].includes(m.status));
+                  const predicted = !!m.my_prediction;
+                  return (
+                    <div key={m.id} className="px-3 py-3" data-testid={`pred-match-${m.id}`}>
+                      <div className="flex items-center justify-between text-[10px] uppercase tracking-widest mb-2" style={{ color: "var(--cp-text-muted)" }}>
+                        <span className="truncate">{m.league_country} · {m.league_name}</span>
+                        <span className="tabular-nums">{new Date(m.scheduled_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", hour12: false })}</span>
+                      </div>
+                      <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-3">
+                        <div className="flex items-center gap-2 justify-end min-w-0" data-testid={`pred-home-${m.id}`}>
+                          <span className="truncate font-medium text-right">{m.home_team_name}</span>
+                          <TeamLogo src={m.home_team_logo} name={m.home_team_name}/>
+                        </div>
+                        <div className="flex items-center gap-1.5">
+                          <input
+                            type="number" min="0" max="20"
+                            value={p.home ?? ""} disabled={locked}
+                            onChange={(e) => setPicks(prev => ({ ...prev, [m.id]: { ...prev[m.id], home: e.target.value } }))}
+                            className="cp-input !w-12 text-center text-base font-bold tabular-nums"
+                            data-testid={`input-home-${m.id}`}
+                          />
+                          <span className="font-bold" style={{ color: "var(--cp-text-muted)" }}>:</span>
+                          <input
+                            type="number" min="0" max="20"
+                            value={p.away ?? ""} disabled={locked}
+                            onChange={(e) => setPicks(prev => ({ ...prev, [m.id]: { ...prev[m.id], away: e.target.value } }))}
+                            className="cp-input !w-12 text-center text-base font-bold tabular-nums"
+                            data-testid={`input-away-${m.id}`}
+                          />
+                        </div>
+                        <div className="flex items-center gap-2 min-w-0" data-testid={`pred-away-${m.id}`}>
+                          <TeamLogo src={m.away_team_logo} name={m.away_team_name}/>
+                          <span className="truncate font-medium">{m.away_team_name}</span>
+                        </div>
+                      </div>
+                      <div className="flex items-center justify-between mt-2">
+                        <span className="text-[11px] inline-flex items-center gap-1" style={{ color: predicted ? "#A3E635" : "var(--cp-text-muted)" }}>
+                          {locked && !predicted ? (
+                            <><Lock size={11}/> Locked</>
+                          ) : predicted ? (
+                            <><Check size={11}/> Predicted {p.home}-{p.away}{m.my_prediction.points_earned != null ? ` · ${m.my_prediction.points_earned}pts` : ""}</>
+                          ) : (
+                            "Not yet predicted"
+                          )}
+                        </span>
+                        <button
+                          onClick={() => submit(m.id)}
+                          disabled={locked || saving[m.id] || p.home == null || p.away == null || p.home === "" || p.away === ""}
+                          className="cp-btn-primary !py-1 !text-xs disabled:opacity-40"
+                          data-testid={`pred-submit-${m.id}`}
+                        >
+                          {savedMatch === m.id ? "Saved!" : saving[m.id] ? "Saving…" : (predicted ? "Update" : "Submit")}
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })}
               </div>
-            );
-          })}
+            </section>
+          ))}
         </div>
       </div>
 
@@ -90,10 +195,10 @@ export const PredictionsHub = () => {
           <span className="flex items-center gap-2 font-bold" style={{ color: "var(--cp-text)" }}><Trophy size={14} className="text-cp-lime"/> Top Predictors</span>
         </div>
         <ul className="divide-y" style={{ borderColor: "var(--cp-border)" }}>
-          {board.length === 0 && <li className="p-4 text-sm" style={{ color: "var(--cp-text-muted)" }}>No scores yet.</li>}
+          {board.length === 0 && <li className="p-4 text-sm" style={{ color: "var(--cp-text-muted)" }}>No scores yet — be the first!</li>}
           {board.map(r => (
-            <li key={r.user_id} className="px-3 py-2 flex items-center gap-2 text-sm">
-              <span className="cp-logo-circle text-[10px]" style={{ width: 22, height: 22 }}>{r.rank}</span>
+            <li key={r.user_id} className={`px-3 py-2 flex items-center gap-2 text-sm ${user && r.user_id === user.id ? "bg-cp-lime/10" : ""}`}>
+              <span className="cp-logo-circle text-[10px] font-extrabold" style={{ width: 22, height: 22, background: r.rank === 1 ? "#A3E635" : "var(--cp-surface-2)", color: r.rank === 1 ? "#064E3B" : "var(--cp-text)" }}>{r.rank}</span>
               <span className="truncate flex-1">{r.display_name}</span>
               <span className="tabular-nums font-bold text-cp-lime">{r.total_points}</span>
             </li>

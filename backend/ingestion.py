@@ -1141,8 +1141,136 @@ async def sync_statpal_football():
             }
             await db.matches.update_one({"statpal_id": mid, "sport_slug": "football"}, {"$set": doc}, upsert=True)
             seen += 1
-    log.info(f"statpal football: {seen} matches")
+    # Enrich StatPal football matches with logos from existing teams index (API-Sports/Sportmonks have logos for many overlapping clubs)
+    try:
+        fixed = await _enrich_statpal_logos()
+    except Exception as e:
+        log.warning(f"statpal logo enrichment failed: {e}")
+        fixed = 0
+    log.info(f"statpal football: {seen} matches | {fixed} logos enriched")
     return seen
+
+
+async def _enrich_statpal_logos() -> int:
+    """Look up team names in the teams collection (Sportmonks/API-Sports have logos for many overlapping clubs)
+    and copy logo_url onto StatPal match docs missing logos.
+    Uses normalized name + word-token matching to handle abbreviations like 'Bardejov W' vs 'Partizán Bardejov'."""
+    import re as _re
+    db = get_db()
+    teams = await db.teams.find(
+        {"logo_url": {"$nin": [None, ""]}, "sport_slug": "football"},
+        {"_id": 0, "name": 1, "logo_url": 1, "id": 1},
+    ).to_list(length=None)
+
+    STOPWORDS = {
+        "fc", "cf", "sc", "ac", "afc", "sk", "sv", "cd", "ud", "cs", "ss", "club", "us",
+        "de", "del", "la", "el", "the", "al", "do", "da", "y", "i", "e",
+        "u17", "u18", "u19", "u20", "u21", "u23", "ii", "iii", "jr", "w", "women", "youth",
+        "reserves", "reserve", "b", "2", "3",
+    }
+    # Common short-form prefixes used by StatPal — expand to full word to help matching
+    EXPAND = {
+        "atl": "atletico", "ind": "independiente", "dep": "deportivo",
+        "din": "dinamo", "spt": "sporting", "rcd": "real",
+        "est": "estudiantes", "univ": "universidad", "u": "universidad",
+        "ce": "centro", "ad": "atletico",
+    }
+    def _norm(n: str) -> str:
+        n = (n or "").lower().strip()
+        # Strip accents using unicode decomposition
+        try:
+            import unicodedata as _ud
+            n = "".join(c for c in _ud.normalize("NFD", n) if _ud.category(c) != "Mn")
+        except Exception:
+            pass
+        n = _re.sub(r"[\.\,\(\)\'\"\-/]", " ", n)
+        n = _re.sub(r"\s+", " ", n).strip()
+        return n
+
+    def _tokens(n: str) -> list[str]:
+        raw_words = _norm(n).split()
+        # Expand short-form prefixes
+        expanded = []
+        for w in raw_words:
+            expanded.append(w)
+            if w in EXPAND:
+                expanded.append(EXPAND[w])
+        return [w for w in expanded if w not in STOPWORDS and len(w) >= 4]
+
+    # Build keyed indexes — multiple keys per team
+    full_idx: dict[str, str] = {}
+    norm_idx: dict[str, str] = {}
+    # Per-team token sets for intersection lookups
+    team_records: list[tuple[set[str], str]] = []  # (token_set, logo)
+    word_idx: dict[str, list[int]] = {}  # token → list of team_record indices
+    for t in teams:
+        nm = t.get("name") or ""
+        logo = t.get("logo_url")
+        if not nm or not logo:
+            continue
+        full_idx.setdefault(nm.strip().lower(), logo)
+        norm_idx.setdefault(_norm(nm), logo)
+        toks = set(_tokens(nm))
+        if toks:
+            idx = len(team_records)
+            team_records.append((toks, logo))
+            for w in toks:
+                word_idx.setdefault(w, []).append(idx)
+
+    if not full_idx:
+        return 0
+
+    def _lookup(name: str):
+        if not name:
+            return None
+        # 1. exact match
+        v = full_idx.get(name.lower().strip())
+        if v:
+            return v
+        # 2. normalized match
+        norm = _norm(name)
+        v = norm_idx.get(norm)
+        if v:
+            return v
+        # 3. token-set intersection — find teams containing ALL of the source's significant tokens
+        src_toks = set(_tokens(name))
+        if not src_toks:
+            return None
+        # Candidate teams: union of records containing any source token, then filter to those containing ALL tokens
+        candidate_idxs = set()
+        for tok in src_toks:
+            candidate_idxs.update(word_idx.get(tok, []))
+        full_matches = [i for i in candidate_idxs if src_toks.issubset(team_records[i][0])]
+        if len(full_matches) == 1:
+            return team_records[full_matches[0]][1]
+        # 4. Single-token uniqueness fallback — use the longest source token if it maps to exactly one team
+        for tok in sorted(src_toks, key=len, reverse=True):
+            cands_i = word_idx.get(tok, [])
+            cand_logos = {team_records[i][1] for i in cands_i}
+            if len(cand_logos) == 1 and len(tok) >= 5:
+                return next(iter(cand_logos))
+        return None
+
+    broken = await db.matches.find(
+        {"primary_provider": "statpal", "sport_slug": "football",
+         "$or": [{"home_team_logo": ""}, {"away_team_logo": ""}, {"home_team_logo": None}, {"away_team_logo": None}]},
+        {"_id": 0, "id": 1, "home_team_name": 1, "away_team_name": 1, "home_team_logo": 1, "away_team_logo": 1},
+    ).to_list(length=None)
+    fixed = 0
+    for m in broken:
+        upd = {}
+        if not m.get("home_team_logo"):
+            h_logo = _lookup(m.get("home_team_name"))
+            if h_logo:
+                upd["home_team_logo"] = h_logo
+        if not m.get("away_team_logo"):
+            a_logo = _lookup(m.get("away_team_name"))
+            if a_logo:
+                upd["away_team_logo"] = a_logo
+        if upd:
+            await db.matches.update_one({"id": m["id"]}, {"$set": upd})
+            fixed += 1
+    return fixed
 
 
 async def sync_statpal_tennis():
