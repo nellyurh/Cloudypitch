@@ -16,7 +16,8 @@ log = logging.getLogger("ingest")
 
 # ---------- league/team helpers ----------
 def _normalize_country(s):
-    """Title-case country names but preserve uppercase abbreviations like USA, UAE, DR Congo."""
+    """Title-case country names but preserve uppercase abbreviations like USA, UAE, DR Congo.
+    Also collapse provider-specific aliases to a canonical name (e.g. United States → USA)."""
     if not s or not isinstance(s, str):
         return "International"
     parts = s.strip().split()
@@ -26,7 +27,38 @@ def _normalize_country(s):
             out.append(p)
         else:
             out.append(p.title())
-    return " ".join(out) or "International"
+    norm = " ".join(out) or "International"
+    # Canonicalize common aliases across providers
+    ALIASES = {
+        "United States": "USA",
+        "Usa": "USA",
+        "U.S.A.": "USA",
+        "U S A": "USA",
+        "United Arab Emirates": "UAE",
+        "Türkiye": "Turkey",
+        "Turkiye": "Turkey",
+        "Korea Republic": "South Korea",
+        "Republic Of Korea": "South Korea",
+        "Korea Dpr": "North Korea",
+        "Democratic Republic Of Congo": "DR Congo",
+        "Congo Dr": "DR Congo",
+        "Congo Democratic Republic": "DR Congo",
+        "Cote D'Ivoire": "Ivory Coast",
+        "Côte D'Ivoire": "Ivory Coast",
+        "Cote D'ivoire": "Ivory Coast",
+        "Bosnia And Herzegovina": "Bosnia",
+        "Bosnia-Herzegovina": "Bosnia",
+        "Czech Republic": "Czechia",
+        "Czechia": "Czechia",
+        "Russian Federation": "Russia",
+        "Great Britain": "England",
+        "United Kingdom": "England",
+        "Republic Of Ireland": "Ireland",
+        "Trinidad And Tobago": "Trinidad",
+        "Antigua And Barbuda": "Antigua",
+        "Saint Kitts And Nevis": "Saint Kitts",
+    }
+    return ALIASES.get(norm, norm)
 
 
 def _country_score(country: str | None) -> int:
@@ -165,11 +197,81 @@ async def upsert_sportmonks_fixture(fx: dict):
     existing = await db.matches.find_one({"sportmonks_id": fx_id})
     if existing:
         await db.matches.update_one({"sportmonks_id": fx_id}, {"$set": doc})
-        return existing["id"]
-    doc["id"] = new_id()
-    doc["created_at"] = utcnow_iso()
-    await db.matches.insert_one(doc)
-    return doc["id"]
+        match_doc_id = existing["id"]
+    else:
+        doc["id"] = new_id()
+        doc["created_at"] = utcnow_iso()
+        await db.matches.insert_one(doc)
+        match_doc_id = doc["id"]
+
+    # ---------- Events / Statistics / Lineups (Tier-2 data for match detail) ----------
+    events = fx.get("events") or []
+    if isinstance(events, list) and events:
+        await db.match_events.delete_many({"match_id": match_doc_id})
+        evs = []
+        for e in events:
+            if not isinstance(e, dict):
+                continue
+            evs.append({
+                "id": new_id(),
+                "match_id": match_doc_id,
+                "minute": e.get("minute"),
+                "extra_minute": e.get("extra_minute"),
+                "team_id": e.get("participant_id"),
+                "player_id": e.get("player_id"),
+                "player_name": e.get("player_name") or "",
+                "assist_player_name": e.get("related_player_name") or "",
+                "type": (e.get("type") or {}).get("name") if isinstance(e.get("type"), dict) else (e.get("type_id") or "event"),
+                "detail": e.get("info") or e.get("addition") or "",
+                "provider": "sportmonks",
+            })
+        if evs:
+            await db.match_events.insert_many(evs)
+
+    stats = fx.get("statistics") or []
+    if isinstance(stats, list) and stats:
+        await db.match_statistics.delete_many({"match_id": match_doc_id})
+        # Group by team
+        by_team = {}
+        for s in stats:
+            if not isinstance(s, dict):
+                continue
+            tid = s.get("participant_id")
+            type_obj = s.get("type") if isinstance(s.get("type"), dict) else {}
+            key = type_obj.get("developer_name") or type_obj.get("name") or str(s.get("type_id") or "stat")
+            val = (s.get("data") or {}).get("value") if isinstance(s.get("data"), dict) else s.get("value")
+            by_team.setdefault(tid, {})[key] = val
+        for tid, kv in by_team.items():
+            await db.match_statistics.insert_one({
+                "id": new_id(),
+                "match_id": match_doc_id,
+                "team_id": tid,
+                "stats": kv,
+                "provider": "sportmonks",
+            })
+
+    lineups = fx.get("lineups") or []
+    if isinstance(lineups, list) and lineups:
+        await db.match_lineups.delete_many({"match_id": match_doc_id})
+        ls = []
+        for ln in lineups:
+            if not isinstance(ln, dict):
+                continue
+            ls.append({
+                "id": new_id(),
+                "match_id": match_doc_id,
+                "team_id": ln.get("team_id") or ln.get("participant_id"),
+                "formation": ln.get("formation"),
+                "starter": ln.get("type_id") == 11 or ln.get("type") == "lineup",
+                "player_name": ln.get("player_name") or "",
+                "player_number": ln.get("jersey_number"),
+                "player_pos": ((ln.get("position") or {}).get("name") if isinstance(ln.get("position"), dict) else None),
+                "grid": ln.get("formation_position") or ln.get("grid"),
+            })
+        if ls:
+            await db.match_lineups.insert_many(ls)
+
+    return match_doc_id
 
 
 # ---------- API-Sports normalization ----------

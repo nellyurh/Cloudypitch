@@ -39,17 +39,23 @@ async def list_matches(
     if status == "live":
         q["is_live"] = True
     elif status == "upcoming":
-        # Next 7 days
-        now_iso = datetime.now(timezone.utc).isoformat()
-        end_iso = (datetime.now(timezone.utc) + timedelta(days=7)).isoformat()
+        # Matches scheduled later today (user's local day)
+        offset = timedelta(minutes=tz_offset_min)
+        now = datetime.now(timezone.utc)
+        local_now = now + offset
+        local_end_of_day = (local_now.replace(hour=0, minute=0, second=0, microsecond=0) + timedelta(days=1)) - timedelta(seconds=1)
+        end_utc = local_end_of_day - offset
         q["status"] = {"$in": ["NS", "TBD", "POSTP"]}
-        q["scheduled_at"] = {"$gte": now_iso, "$lt": end_iso}
+        q["scheduled_at"] = {"$gte": now.isoformat(), "$lt": end_utc.isoformat()}
     elif status == "finished":
-        # Past 7 days finished
-        start_iso = (datetime.now(timezone.utc) - timedelta(days=7)).isoformat()
-        end_iso = datetime.now(timezone.utc).isoformat()
+        # Matches finished earlier today (user's local day)
+        offset = timedelta(minutes=tz_offset_min)
+        now = datetime.now(timezone.utc)
+        local_now = now + offset
+        local_start_of_day = local_now.replace(hour=0, minute=0, second=0, microsecond=0)
+        start_utc = local_start_of_day - offset
         q["status"] = {"$in": ["FT", "AET", "PEN"]}
-        q["scheduled_at"] = {"$gte": start_iso, "$lt": end_iso}
+        q["scheduled_at"] = {"$gte": start_utc.isoformat(), "$lt": now.isoformat()}
         sort_order = -1
     elif date:
         try:
@@ -118,9 +124,25 @@ async def match_detail(match_id: str):
     m = await db.matches.find_one({"id": match_id}, {"_id": 0})
     if not m:
         raise HTTPException(status_code=404, detail="Match not found")
+    # Lazy-fetch full data on first detail open for Sportmonks football matches
     events = await db.match_events.find({"match_id": match_id}, {"_id": 0}).sort("minute", 1).to_list(length=200)
     stats = await db.match_statistics.find({"match_id": match_id}, {"_id": 0}).to_list(length=4)
     lineups = await db.match_lineups.find({"match_id": match_id}, {"_id": 0}).to_list(length=50)
+    if not events and not stats and not lineups and m.get("primary_provider") == "sportmonks" and m.get("sportmonks_id"):
+        cache_key = f"detail-fetch:{match_id}"
+        if not cget(cache_key):
+            try:
+                from ingestion import upsert_sportmonks_fixture
+                data = await sportmonks.fetch_fixture(m["sportmonks_id"])
+                fx = (data or {}).get("data") if isinstance(data, dict) else None
+                if isinstance(fx, dict):
+                    await upsert_sportmonks_fixture(fx)
+                    events = await db.match_events.find({"match_id": match_id}, {"_id": 0}).sort("minute", 1).to_list(length=200)
+                    stats = await db.match_statistics.find({"match_id": match_id}, {"_id": 0}).to_list(length=4)
+                    lineups = await db.match_lineups.find({"match_id": match_id}, {"_id": 0}).to_list(length=50)
+            except Exception:
+                pass
+            cset(cache_key, True, 60)
     periods = await db.match_periods.find({"match_id": match_id}, {"_id": 0}).sort("period", 1).to_list(length=20)
     return {"match": m, "events": events, "statistics": stats, "lineups": lineups, "periods": periods}
 

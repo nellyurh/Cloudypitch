@@ -1,12 +1,13 @@
-import React, { useEffect, useState, useMemo, useRef } from "react";
+import React, { useEffect, useState, useMemo } from "react";
 import { LeftSidebar } from "../components/LeftSidebar";
 import { RightRail } from "../components/RightRail";
 import { LeagueGroup } from "../components/LeagueGroup";
 import api from "../lib/api";
-import { ChevronLeft, ChevronRight, Calendar, Radio, Filter, Clock, Check } from "lucide-react";
+import { ChevronLeft, ChevronRight, Calendar as CalendarIcon, Radio, Filter, Clock, Check } from "lucide-react";
+import { Popover, PopoverContent, PopoverTrigger } from "../components/ui/popover";
+import { Calendar } from "../components/ui/calendar";
 
 function isoDate(d) {
-  // Local-date ISO string (avoids UTC drift at midnight in non-UTC timezones)
   const y = d.getFullYear();
   const mo = String(d.getMonth() + 1).padStart(2, "0");
   const da = String(d.getDate()).padStart(2, "0");
@@ -22,7 +23,6 @@ function dayLabel(d) {
   return d.toLocaleDateString([], { weekday: "short", day: "numeric", month: "short" });
 }
 
-// Minutes that local time is ahead of UTC (Lagos = 60)
 const TZ_OFFSET_MIN = -new Date().getTimezoneOffset();
 
 export const Dashboard = ({ sport = "football" }) => {
@@ -30,10 +30,9 @@ export const Dashboard = ({ sport = "football" }) => {
   const [count, setCount] = useState(0);
   const today = useMemo(() => { const d = new Date(); d.setHours(0,0,0,0); return d; }, []);
   const [selectedDate, setSelectedDate] = useState(today);
-  // mode: "date" | "live" | "upcoming" | "finished"
   const [mode, setMode] = useState("date");
   const [loading, setLoading] = useState(true);
-  const dateInputRef = useRef(null);
+  const [pickerOpen, setPickerOpen] = useState(false);
 
   const shift = (delta) => {
     const d = new Date(selectedDate);
@@ -41,14 +40,6 @@ export const Dashboard = ({ sport = "football" }) => {
     d.setHours(0,0,0,0);
     setSelectedDate(d);
     setMode("date");
-  };
-
-  const openPicker = () => {
-    if (mode !== "date") setMode("date");
-    const el = dateInputRef.current;
-    if (!el) return;
-    if (typeof el.showPicker === "function") el.showPicker();
-    else el.focus();
   };
 
   useEffect(() => {
@@ -81,35 +72,40 @@ export const Dashboard = ({ sport = "football" }) => {
       </div>
 
       <section data-testid="center-feed">
-        {/* Single-row date + filter control */}
         <div className="cp-surface flex items-center gap-1 px-2 py-1.5 mb-3 flex-wrap" data-testid="date-bar">
           <button onClick={() => shift(-1)} className="cp-btn-ghost !p-1.5" aria-label="Previous day" data-testid="date-prev">
             <ChevronLeft size={16} />
           </button>
-          <button
-            onClick={openPicker}
-            className={`flex items-center justify-center gap-2 px-3 py-1.5 rounded-md text-sm font-bold transition relative min-w-[110px] ${mode === "date" ? "bg-cp-lime text-cp-forest" : "hover:bg-white/5"}`}
-            style={mode !== "date" ? { color: "var(--cp-text-muted)" } : {}}
-            data-testid="date-current"
-          >
-            <Calendar size={14} />
-            <span>{mode === "date" ? dayLabel(selectedDate) : "Date"}</span>
-            <input
-              ref={dateInputRef}
-              type="date"
-              value={isoDate(selectedDate)}
-              onChange={(e) => {
-                const v = e.target.value;
-                if (!v) return;
-                const [y, mo, d] = v.split("-");
-                const dt = new Date(Number(y), Number(mo) - 1, Number(d));
-                setSelectedDate(dt);
-                setMode("date");
-              }}
-              className="absolute opacity-0 pointer-events-none w-px h-px"
-              data-testid="date-input"
-            />
-          </button>
+
+          <Popover open={pickerOpen} onOpenChange={setPickerOpen}>
+            <PopoverTrigger asChild>
+              <button
+                onClick={() => { if (mode !== "date") setMode("date"); }}
+                className={`flex items-center justify-center gap-2 px-3 py-1.5 rounded-md text-sm font-bold transition min-w-[110px] ${mode === "date" ? "bg-cp-lime text-cp-forest" : "hover:bg-white/5"}`}
+                style={mode !== "date" ? { color: "var(--cp-text-muted)" } : {}}
+                data-testid="date-current"
+              >
+                <CalendarIcon size={14} />
+                <span>{mode === "date" ? dayLabel(selectedDate) : "Date"}</span>
+              </button>
+            </PopoverTrigger>
+            <PopoverContent className="w-auto p-0" align="start" data-testid="date-picker-popover" style={{ background: "var(--cp-surface)", borderColor: "var(--cp-border)" }}>
+              <Calendar
+                mode="single"
+                selected={selectedDate}
+                onSelect={(d) => {
+                  if (!d) return;
+                  const nd = new Date(d);
+                  nd.setHours(0,0,0,0);
+                  setSelectedDate(nd);
+                  setMode("date");
+                  setPickerOpen(false);
+                }}
+                initialFocus
+              />
+            </PopoverContent>
+          </Popover>
+
           <button onClick={() => shift(1)} className="cp-btn-ghost !p-1.5" aria-label="Next day" data-testid="date-next">
             <ChevronRight size={16} />
           </button>
@@ -152,7 +148,7 @@ export const Dashboard = ({ sport = "football" }) => {
         {!loading && grouped.length === 0 && (
           <div className="cp-surface p-6 text-sm" style={{ color: "var(--cp-text-muted)" }}>
             <Filter className="inline mr-2" size={14} />
-            {mode === "live" ? "No live matches right now." : mode === "upcoming" ? "No upcoming matches in the next 7 days." : mode === "finished" ? "No finished matches in the past 7 days." : `No matches for ${dayLabel(selectedDate)}.`}
+            {mode === "live" ? "No live matches right now." : mode === "upcoming" ? "No matches in the next 24 hours." : mode === "finished" ? "No finished matches in the past 24 hours." : `No matches for ${dayLabel(selectedDate)}.`}
           </div>
         )}
         {grouped.map(g => <LeagueGroup key={g.league_id} group={g} sport={sport} />)}
