@@ -88,7 +88,9 @@ async def upsert_sportmonks_league(league: dict, sport_slug: str = "football"):
         "logo_url": league.get("image_path") or league.get("image_url") or "",
         "type": league.get("type") or "domestic",
         "season": league.get("currentseason", {}).get("name") if isinstance(league.get("currentseason"), dict) else None,
+        "current_season_id": (league.get("currentseason") or {}).get("id") if isinstance(league.get("currentseason"), dict) else None,
         "sportmonks_id": sid,
+        "sportmonks_league_id": sid,
         "tier_score": league_tier_score(league.get("name", "")),
         "country_priority": _country_score(country),
         "primary_provider": "sportmonks",
@@ -127,7 +129,12 @@ async def upsert_sportmonks_fixture(fx: dict):
 
     # League
     league = fx.get("league") if isinstance(fx.get("league"), dict) else None
+    # If season is included separately at fx root, attach as currentseason on league dict so upsert captures it
+    if league and isinstance(fx.get("season"), dict):
+        league = {**league, "currentseason": fx.get("season")}
     league_doc_id = await upsert_sportmonks_league(league, "football") if league else None
+    # Also separately persist season_id on the match for fast lookup
+    season_id = (fx.get("season") or {}).get("id") if isinstance(fx.get("season"), dict) else fx.get("season_id")
     # Country from league (could be nested object after include=league.country)
     league_country = None
     if league:
@@ -190,6 +197,7 @@ async def upsert_sportmonks_fixture(fx: dict):
         "venue_city": (venue or {}).get("city_name"),
         "primary_provider": "sportmonks",
         "sportmonks_id": fx_id,
+        "season_id": season_id,
         "last_polled_at": utcnow_iso(),
         "is_live": status in ("1H", "2H", "HT", "ET", "BR", "LIVE", "PEN_LIVE"),
     }
@@ -714,22 +722,50 @@ async def upsert_standing(row: dict, league_doc_id: str):
     participant = row.get("participant") or {}
     team_id = await upsert_sportmonks_team(participant, "football") if isinstance(participant, dict) and participant else None
     details = row.get("details") or []
-    # details is an array of {type_id, value} — we leave it for raw; canonical fields below
+    # Sportmonks v3 standings detail type IDs (overall stat_group)
+    # 129=played 130=won 131=drawn 132=lost 133=goals_for 134=goals_against 179=goal_diff 187=points
+    DETAIL_MAP = {129:"played",130:"won",131:"drawn",132:"lost",133:"goals_for",134:"goals_against",179:"goal_diff",187:"points"}
+    parsed = {}
+    if isinstance(details, list):
+        for d in details:
+            if not isinstance(d, dict):
+                continue
+            # Only consume overall stat_group (skip home/away breakdowns)
+            type_obj = d.get("type") if isinstance(d.get("type"), dict) else {}
+            grp = (type_obj or {}).get("stat_group")
+            if grp and grp != "overall":
+                continue
+            key = DETAIL_MAP.get(d.get("type_id"))
+            if key:
+                try:
+                    parsed[key] = int(d.get("value") or 0)
+                except (TypeError, ValueError):
+                    parsed[key] = 0
     doc = {
         "id": f"sm-st-{row.get('id')}",
         "league_id": league_doc_id,
         "season_id": row.get("season_id"),
+        "group_id": row.get("group_id"),
         "team_id": team_id,
         "team_name": participant.get("name") if isinstance(participant, dict) else None,
         "team_logo": participant.get("image_path") if isinstance(participant, dict) else None,
+        "position": row.get("position"),
         "rank": row.get("position"),
-        "points": row.get("points") or 0,
-        "GF": (row.get("scores") or {}).get("goals_scored") if isinstance(row.get("scores"), dict) else None,
-        "GA": (row.get("scores") or {}).get("goals_against") if isinstance(row.get("scores"), dict) else None,
-        "MP": (row.get("overall") or {}).get("games_played") if isinstance(row.get("overall"), dict) else None,
-        "W": (row.get("overall") or {}).get("wins") if isinstance(row.get("overall"), dict) else None,
-        "D": (row.get("overall") or {}).get("draws") if isinstance(row.get("overall"), dict) else None,
-        "L": (row.get("overall") or {}).get("losses") if isinstance(row.get("overall"), dict) else None,
+        "played": parsed.get("played", 0),
+        "won": parsed.get("won", 0),
+        "drawn": parsed.get("drawn", 0),
+        "lost": parsed.get("lost", 0),
+        "goals_for": parsed.get("goals_for", 0),
+        "goals_against": parsed.get("goals_against", 0),
+        "goal_diff": parsed.get("goal_diff", parsed.get("goals_for", 0) - parsed.get("goals_against", 0)),
+        "points": parsed.get("points", row.get("points", 0)),
+        # Legacy/back-compat fields (do not remove — admin UI uses them)
+        "MP": parsed.get("played", 0),
+        "W": parsed.get("won", 0),
+        "D": parsed.get("drawn", 0),
+        "L": parsed.get("lost", 0),
+        "GF": parsed.get("goals_for", 0),
+        "GA": parsed.get("goals_against", 0),
         "form": row.get("form"),
         "raw_details": details,
         "updated_at": utcnow_iso(),

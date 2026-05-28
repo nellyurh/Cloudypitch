@@ -1,0 +1,34 @@
+{
+  "summary": "Iteration 4 — Backend (standings, topscorers, cards-per-game cap with idempotency + Final special cap) all 12 pytest tests PASS. Frontend MatchRow Sofascore-style layout verified: grid 60px/1fr/40px/28px, 184 rows render, all required data-testids present, 15 live matches show #FF3D52 RED status+scores with class 'live', 62 finished matches show 'FT' in muted slate-400, upcoming matches show '-' for scores and no match-status element. Regression: /predictions, /fantasy, /worldcup-hub, /match/{id} loaded without console errors. CRITICAL BUG: Favorite star POST/DELETE call wrong URL — MatchRow.jsx hits /api/me/favorites/match/{id} but backend exposes /api/users/me/favorites/match/{id} (profile router has prefix='/api/users').",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [
+      {"component": "MatchRow FavStar", "issue": "POST/DELETE /me/favorites/match/{id} returns 404. Backend route is mounted under /api/users prefix (profile.py line 7: APIRouter(prefix='/api/users')). MatchRow.jsx lines 68-69 use `/me/favorites/match/${m.id}` which resolves to /api/me/favorites/match/{id} — missing '/users' segment. Fix: change to `/users/me/favorites/match/${m.id}`.", "selector": "[data-testid=fav-{id}]", "priority": "CRITICAL"}
+    ],
+    "integration_issues": [
+      {"flow": "Add/remove favorite from match list", "issue": "All star clicks 404. UI doesn't visibly update either (no error toast surfaced).", "affected_selectors": ["[data-testid^=fav-]"]}
+    ],
+    "design_issues": []
+  },
+  "test_report_links": ["/app/backend/tests/test_iteration4.py", "/app/test_reports/pytest/iteration4.xml"],
+  "action_items": [
+    "Fix MatchRow.jsx FavStar URLs: change `/me/favorites/match/${m.id}` to `/users/me/favorites/match/${m.id}` on both POST (line 68) and DELETE (line 69). Add user-visible error handling (toast) so failures aren't silent.",
+    "Optional: spec referenced /football route, but no such route exists ('No routes matched location /football'). Matches render at root /. Consider adding /football route or update spec.",
+    "Consider adding visual fav-active state (filled star) — currently class stays 'cp-fav-cell ' with no aria-pressed change visible."
+  ],
+  "critical_code_review_comments": [
+    "FavStar onClick toggles optimistically without rollback on API failure — 404s leave UI in inconsistent state.",
+    "Backend /api/cards/use enforces caps correctly and is idempotent; SPECIAL_CAPS round:final is case-insensitive as designed.",
+    "Standings ingestion fix (type_id 187=points, 179=goal_diff) verified — Egyptian Premier League returns 18 rows all with non-None numeric fields.",
+    "Topscorers endpoint returns expected shape; sm-l-1122 (Copa Libertadores) returns 200 with possibly empty scorers (off-season acceptable).",
+    "MatchRow.jsx line 68-69 missing '/users' prefix on favorites — same pattern likely exists elsewhere if other components hit /me/* paths; recommend a quick grep audit."
+  ],
+  "updated_files": ["/app/backend/tests/test_iteration4.py"],
+  "success_rate": {"backend": "100% (12/12)", "frontend": "85% (layout + live indicator + regression OK; favorite toggle broken)"},
+  "test_credentials": "admin@cloudypitch.com / CloudyAdmin2026! (note: admin doesn't have starter cards; we use a fresh signup user instead — see test_iteration4.py)",
+  "seed_data_creation": "Tests create a fresh signup user per pytest module (TEST_iter4_<timestamp>@example.com) to get the 5-card starter pack. card_usages collection is auto-populated by /api/cards/use calls.",
+  "retest_needed": true,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "After main agent fixes MatchRow.jsx favorites URL, re-test by logging in then clicking a star — expect POST 200 + class change + reload persistence via /api/users/me/favorites GET. Backend test_iteration4.py is fully reusable as regression suite. The /football route was missing — confirm what spec intends.",
+  "rca of the issue": "Profile router mounted at prefix='/api/users' (backend/routes/profile.py:7). All favorites endpoints live at /api/users/me/favorites/*. MatchRow.jsx FavStar uses relative '/me/favorites/...' against axios baseURL '/api', producing /api/me/favorites/... → 404. Reproduce: signin → root '/' → click any [data-testid^=fav-] → Network tab shows POST /api/me/favorites/match/{id} 404. Mitigation: prefix URL with '/users' in MatchRow.jsx (one-line fix on lines 68 and 69)."
+}

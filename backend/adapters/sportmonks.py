@@ -40,6 +40,22 @@ async def fetch_all_leagues(page: int = 1):
     return await _get("/leagues", {"include": "country", "per_page": 50, "page": page})
 
 
+async def fetch_standings_by_season(season_id: int):
+    """Fetch league standings for a given season — includes participant, details, rule."""
+    return await _get(
+        f"/standings/seasons/{season_id}",
+        {"include": "participant;details.type;form;rule"},
+    )
+
+
+async def fetch_topscorers_by_season(season_id: int):
+    """Fetch top goal scorers + assists for a season."""
+    return await _get(
+        f"/topscorers/seasons/{season_id}",
+        {"include": "player;participant;type"},
+    )
+
+
 async def fetch_today_livescores():
     return await _get(
         "/livescores",
@@ -55,9 +71,10 @@ async def fetch_fixture(fixture_id: int):
 
 
 async def fetch_standings(league_id: int, season_id: int | None = None):
+    inc = "participant;details.type;form;rule"
     if season_id:
-        return await _get(f"/standings/seasons/{season_id}", {"include": "participant;rule"})
-    return await _get(f"/standings/live/leagues/{league_id}", {"include": "participant;rule"})
+        return await _get(f"/standings/seasons/{season_id}", {"include": inc})
+    return await _get(f"/standings/live/leagues/{league_id}", {"include": inc})
 
 
 async def fetch_top_scorers(season_id: int):

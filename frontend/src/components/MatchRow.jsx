@@ -1,29 +1,40 @@
-import React from "react";
+import React, { useState } from "react";
 import { Link } from "react-router-dom";
+import { Star } from "lucide-react";
+import api from "../lib/api";
+import { useAuth } from "../lib/auth";
 
-function statusText(m) {
-  if (m.is_live) return { text: m.minute ? `${m.minute}'` : (["HT"].includes(m.status) ? "HT" : (m.status_long || "LIVE")), live: true };
-  if (["FT", "AET", "PEN"].includes(m.status)) return { text: "FT", live: false };
-  if (["HT"].includes(m.status)) return { text: "HT", live: true };
-  if (["POSTP"].includes(m.status)) return { text: "PP", live: false };
-  if (["CANCL", "ABAN"].includes(m.status)) return { text: "—", live: false };
+function kickoffTime(m) {
   try {
     const d = new Date(m.scheduled_at);
-    return { text: d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", hour12: false }), live: false };
-  } catch (_) { return { text: "—", live: false }; }
+    return d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", hour12: false });
+  } catch (_) { return "—"; }
+}
+
+function statusLine(m) {
+  // Returns { text, live } — shown UNDER the kickoff time (Sofascore-style)
+  if (m.is_live) {
+    if (m.status === "HT") return { text: "HT", live: true };
+    if (m.minute != null) return { text: `${m.minute}'`, live: true };
+    return { text: m.status_long || "LIVE", live: true };
+  }
+  if (["FT", "AET", "PEN"].includes(m.status)) return { text: m.status === "AET" ? "AET" : m.status === "PEN" ? "PEN" : "FT", live: false };
+  if (m.status === "HT") return { text: "HT", live: true };
+  if (m.status === "POSTP") return { text: "PP", live: false };
+  if (["CANCL", "ABAN"].includes(m.status)) return { text: m.status === "ABAN" ? "AB" : "CA", live: false };
+  return null; // upcoming — no second line
 }
 
 const TeamLogo = ({ src, name }) => {
-  if (src) return <img src={src} alt="" className="w-[18px] h-[18px] object-contain shrink-0" onError={(e) => { e.target.style.display = "none"; }} />;
+  if (src) return <img src={src} alt="" className="cp-team-logo" onError={(e) => { e.target.style.display = "none"; }} />;
   return (
-    <span className="inline-flex items-center justify-center w-[18px] h-[18px] rounded-sm text-[9px] font-bold shrink-0" style={{ background: "var(--cp-surface-2)", color: "var(--cp-text-muted)" }}>
+    <span className="cp-team-logo inline-flex items-center justify-center rounded-sm text-[10px] font-bold" style={{ background: "var(--cp-surface-2)", color: "var(--cp-text-muted)" }}>
       {(name || "?").slice(0, 1).toUpperCase()}
     </span>
   );
 };
 
-// Inline periods cell — shows the per-period scores between team name and main score column
-// Used for basketball quarters, NBA linescore, hockey periods
+// Period chips for basketball / hockey
 const PeriodChips = ({ periods, side }) => {
   if (!periods || !Array.isArray(periods) || periods.length === 0) return null;
   return (
@@ -42,8 +53,33 @@ const PeriodChips = ({ periods, side }) => {
   );
 };
 
+const FavStar = ({ m }) => {
+  const { user } = useAuth();
+  const [fav, setFav] = useState(!!m.is_favorite);
+  const [busy, setBusy] = useState(false);
+  const toggle = async (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (!user || busy) return;
+    setBusy(true);
+    const next = !fav;
+    setFav(next);
+    try {
+      if (next) await api.post(`/me/favorites/match/${m.id}`);
+      else await api.delete(`/me/favorites/match/${m.id}`);
+    } catch (_) { setFav(!next); }
+    setBusy(false);
+  };
+  return (
+    <button onClick={toggle} className={`cp-fav-cell ${fav ? "active" : ""}`} title={user ? "Favorite" : "Sign in to favorite"} data-testid={`fav-${m.id}`}>
+      <Star size={14} fill={fav ? "#FFC857" : "transparent"} />
+    </button>
+  );
+};
+
 export const MatchRow = ({ m, sport = "football" }) => {
-  const st = statusText(m);
+  const ko = kickoffTime(m);
+  const sl = statusLine(m);
   const started = !["NS", "TBD", "POSTP", "CANCL", "ABAN"].includes(m.status);
   const finished = ["FT", "AET", "PEN"].includes(m.status);
   const hs = m.home_score ?? 0;
@@ -56,22 +92,31 @@ export const MatchRow = ({ m, sport = "football" }) => {
   const isCricket = sport === "cricket";
   const isMMA = sport === "mma";
 
-  // MMA pill: show "R2 2:34" + method
   const mmaInfo = (isMMA && Array.isArray(m.periods) && m.periods[0])
     ? `${m.periods[0].period_name || ""}${m.periods[0].time ? " " + m.periods[0].time : ""}${m.periods[0].method ? " · " + m.periods[0].method : ""}`.trim()
     : null;
 
-  // Cricket: pull innings text from raw_data if available
   const homeCricket = isCricket && m.raw_data ? (m.raw_data.home_innings || m.raw_data.team_a_innings || null) : null;
   const awayCricket = isCricket && m.raw_data ? (m.raw_data.away_innings || m.raw_data.team_b_innings || null) : null;
 
   return (
-    <Link to={`/match/${m.id}`} className="cp-match-row hover:bg-white/5" style={{ borderBottom: "1px solid var(--cp-border)" }} data-testid={`match-row-${m.id}`}>
+    <Link
+      to={`/match/${m.id}`}
+      className="cp-match-row hover:bg-white/5 relative"
+      style={{ borderBottom: "1px solid var(--cp-border)" }}
+      data-testid={`match-row-${m.id}`}
+    >
+      {/* Time / Status — Sofascore-style stacked */}
       <div className="cp-time-cell">
-        {st.live && <span className="cp-live-dot mb-0.5" />}
-        <span className={st.live ? "cp-time-live" : ""} data-testid={`match-time-${m.id}`}>{st.text}</span>
+        <span className="cp-time-kickoff" data-testid={`match-time-${m.id}`}>{ko}</span>
+        {sl && (
+          <span className={`cp-time-status ${sl.live ? "live" : ""}`} data-testid={`match-status-${m.id}`}>
+            {sl.text}
+          </span>
+        )}
       </div>
 
+      {/* Home row */}
       <div className="cp-team-cell home">
         <TeamLogo src={m.home_team_logo} name={m.home_team_name} />
         <span className={`cp-team-name ${homeWin ? "winner" : awayWin ? "loser" : ""}`} data-testid={`home-name-${m.id}`}>
@@ -95,6 +140,7 @@ export const MatchRow = ({ m, sport = "football" }) => {
         )}
       </div>
 
+      {/* Away row */}
       <div className="cp-team-cell away">
         <TeamLogo src={m.away_team_logo} name={m.away_team_name} />
         <span className={`cp-team-name ${awayWin ? "winner" : homeWin ? "loser" : ""}`} data-testid={`away-name-${m.id}`}>
@@ -118,10 +164,21 @@ export const MatchRow = ({ m, sport = "football" }) => {
         )}
       </div>
 
-      {!isTennis && started && (
+      {/* Scores — Sofascore-style stacked column, red when live */}
+      {!isTennis && (
         <>
-          <span className={`cp-score-cell home ${homeWin ? "winner" : awayWin ? "loser" : ""}`} data-testid={`home-score-${m.id}`}>{hs}</span>
-          <span className={`cp-score-cell away ${awayWin ? "winner" : homeWin ? "loser" : ""}`} data-testid={`away-score-${m.id}`}>{as}</span>
+          <span
+            className={`cp-score-cell home ${m.is_live ? "live" : homeWin ? "winner" : awayWin ? "loser" : ""}`}
+            data-testid={`home-score-${m.id}`}
+          >
+            {started ? hs : "-"}
+          </span>
+          <span
+            className={`cp-score-cell away ${m.is_live ? "live" : awayWin ? "winner" : homeWin ? "loser" : ""}`}
+            data-testid={`away-score-${m.id}`}
+          >
+            {started ? as : "-"}
+          </span>
         </>
       )}
       {isTennis && started && (
@@ -136,6 +193,9 @@ export const MatchRow = ({ m, sport = "football" }) => {
           {mmaInfo}
         </span>
       )}
+
+      {/* Favorite Star */}
+      <FavStar m={m} />
     </Link>
   );
 };

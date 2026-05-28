@@ -24,6 +24,8 @@ from routes.worldcup import router as worldcup_router
 from routes.predictions import router as predictions_router
 from routes.fantasy import router as fantasy_router
 from routes.cards import router as cards_router
+from routes.card_usage import router as card_usage_router
+from routes.leagues import router as leagues_router
 from routes.prize_pools import router as pools_router
 from routes.profile import router as profile_router
 from routes.search import router as search_router
@@ -86,6 +88,7 @@ async def health():
 
 # Mount routers
 for r in (auth_router, catalog_router, matches_router, worldcup_router,
-          predictions_router, fantasy_router, cards_router, pools_router,
+          predictions_router, fantasy_router, cards_router, card_usage_router,
+          leagues_router, pools_router,
           profile_router, search_router, admin_router):
     app.include_router(r)
