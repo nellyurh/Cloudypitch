@@ -1,7 +1,9 @@
-"""Fantasy: WC2026 squad builder."""
+"""Fantasy: WC2026 squad builder + gameweek settlement."""
 from fastapi import APIRouter, Depends, HTTPException
 from db import get_db, utcnow_iso
 from models import FantasySquadIn, new_id
+from fantasy_scoring import compute_player_points, aggregate_player_stats_from_events
+from scoring import compute_card_boost
 import auth as a
 
 router = APIRouter(prefix="/api/fantasy", tags=["fantasy"])
@@ -100,3 +102,122 @@ async def fantasy_leaderboard(limit: int = 50):
             "gw_points": r.get("gw_points", 0),
         })
     return {"leaderboard": out}
+
+
+
+@router.post("/settle/gameweek")
+async def settle_gameweek(gameweek: int = 1, user: dict = Depends(a.require_admin)):
+    """Admin trigger: compute gameweek points for every squad based on FT matches.
+    Walks each squad's players, finds matching match_events/lineups/statistics, applies
+    captain ×2 (vice ×2 fallback), and updates total_points + writes a snapshot."""
+    db = get_db()
+    squads = await db.fantasy_squads.find({"competition_id": "fantasy-wc2026"}, {"_id": 0}).to_list(length=10000)
+    finished = await db.matches.find(
+        {"status": {"$in": ["FT", "AET", "PEN"]}, "sport_slug": "football"},
+        {"_id": 0, "id": 1, "home_team_id": 1, "away_team_id": 1, "home_score": 1, "away_score": 1},
+    ).to_list(length=5000)
+    finished_ids = [m["id"] for m in finished]
+    events_by_match = {}
+    lineups_by_match = {}
+    if finished_ids:
+        ev = await db.match_events.find({"match_id": {"$in": finished_ids}}, {"_id": 0}).to_list(length=20000)
+        for e in ev:
+            events_by_match.setdefault(e["match_id"], []).append(e)
+        ln = await db.match_lineups.find({"match_id": {"$in": finished_ids}}, {"_id": 0}).to_list(length=20000)
+        for ln_row in ln:
+            lineups_by_match.setdefault(ln_row["match_id"], []).append(ln_row)
+    # Clean sheets per (match_id, team_id)
+    clean = {}
+    for m in finished:
+        h, a_ = m.get("home_score") or 0, m.get("away_score") or 0
+        clean[(m["id"], m.get("home_team_id"))] = (a_ == 0)
+        clean[(m["id"], m.get("away_team_id"))] = (h == 0)
+
+    settled = 0
+    for sq in squads:
+        gw_total = 0
+        per_player = []
+        cap_played = False
+        cap_pts = 0
+        vice_pts = 0
+        for sp in sq.get("players", []):
+            if not sp.get("is_starting"):
+                continue
+            player = await db.players.find_one({"id": sp.get("player_id")}, {"_id": 0})
+            if not player:
+                continue
+            name = player.get("name") or ""
+            team_id = player.get("team_id")
+            position = sp.get("position") or player.get("position") or "MID"
+            # Accumulate across matches the team played
+            agg_stats = {"goals":0,"assists":0,"yellow_cards":0,"red_cards":0,"own_goals":0,"missed_penalties":0,"minutes":0,"saves":0,"penalty_saves":0}
+            for m in finished:
+                if team_id not in (m.get("home_team_id"), m.get("away_team_id")):
+                    continue
+                events = events_by_match.get(m["id"], [])
+                s = aggregate_player_stats_from_events(events, name, team_id)
+                # Lineup gives minutes via starter status (assume 90 if starter present)
+                lin = next((x for x in lineups_by_match.get(m["id"], []) if (x.get("player_name") or "").strip().lower() == name.strip().lower()), None)
+                if lin:
+                    agg_stats["minutes"] += 90 if lin.get("starter") else 30
+                    if s.get("substituted_out"):
+                        agg_stats["minutes"] = max(0, agg_stats["minutes"] - 30)
+                for k in ("goals", "assists", "yellow_cards", "red_cards", "own_goals", "missed_penalties"):
+                    agg_stats[k] += s.get(k, 0)
+            # Clean sheet across team's finished matches
+            had_cs = any(clean.get((m["id"], team_id), False) for m in finished if team_id in (m.get("home_team_id"), m.get("away_team_id")))
+            res = compute_player_points(
+                position=position,
+                minutes_played=agg_stats["minutes"],
+                goals=agg_stats["goals"], assists=agg_stats["assists"],
+                yellow_cards=agg_stats["yellow_cards"], red_cards=agg_stats["red_cards"],
+                own_goals=agg_stats["own_goals"], missed_penalties=agg_stats["missed_penalties"],
+                saves=agg_stats["saves"], penalty_saves=agg_stats["penalty_saves"],
+                team_clean_sheet=had_cs,
+            )
+            p_pts = res["points"]
+            is_cap = (sq.get("captain_id") == sp.get("player_id"))
+            is_vice = (sq.get("vice_captain_id") == sp.get("player_id"))
+            if is_cap and agg_stats["minutes"] > 0:
+                cap_played = True
+                cap_pts = p_pts * 2
+                p_pts = cap_pts
+            elif is_vice and not cap_played:
+                vice_pts = p_pts * 2
+                p_pts = vice_pts
+            per_player.append({
+                "player_id": sp.get("player_id"), "name": name, "position": position,
+                "points": p_pts, "breakdown": res["breakdown"],
+                "minutes": agg_stats["minutes"], "captain": is_cap, "vice": is_vice,
+            })
+            gw_total += p_pts
+        # Snapshot
+        await db.fantasy_gameweek_points.update_one(
+            {"squad_id": sq.get("id"), "gameweek": gameweek},
+            {"$set": {
+                "id": sq.get("id") + f"-gw{gameweek}",
+                "squad_id": sq.get("id"), "user_id": sq.get("user_id"),
+                "gameweek": gameweek, "points": gw_total, "players": per_player,
+                "settled_at": utcnow_iso(),
+            }},
+            upsert=True,
+        )
+        await db.fantasy_squads.update_one(
+            {"id": sq.get("id")},
+            {"$inc": {"total_points": gw_total}, "$set": {"gw_points": gw_total, "last_gw": gameweek}},
+        )
+        settled += 1
+    return {"settled": settled, "gameweek": gameweek}
+
+
+@router.get("/squad/me/breakdown")
+async def my_squad_breakdown(user: dict = Depends(a.get_current_user)):
+    """Latest gameweek breakdown for the signed-in user's squad."""
+    db = get_db()
+    sq = await db.fantasy_squads.find_one({"user_id": user["id"], "competition_id": "fantasy-wc2026"}, {"_id": 0})
+    if not sq:
+        return {"snapshot": None}
+    snap = await db.fantasy_gameweek_points.find_one(
+        {"squad_id": sq.get("id")}, {"_id": 0}, sort=[("gameweek", -1)],
+    )
+    return {"snapshot": snap, "squad_id": sq.get("id")}

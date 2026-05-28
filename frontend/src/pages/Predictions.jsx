@@ -89,7 +89,9 @@ export const PredictionsHub = () => {
             <div className="text-[10px] uppercase tracking-widest" style={{ color: "var(--cp-text-muted)" }}>Predictions</div>
             <h1 className="text-xl font-extrabold tracking-tight mt-0.5">Make Your Picks</h1>
             <div className="text-[11px] mt-1" style={{ color: "var(--cp-text-muted)" }}>
-              <span className="text-cp-lime font-bold">10 pts</span> exact · <span className="text-cp-lime font-bold">6 pts</span> goal diff · <span className="text-cp-lime font-bold">4 pts</span> outcome
+              <span className="text-cp-lime font-bold">30 pts</span> exact · <span className="text-cp-lime font-bold">15 pts</span> goal diff · <span className="text-cp-lime font-bold">10 pts</span> outcome
+              <br/>
+              <span className="opacity-80">WC stage × up to 4.0 · 3-correct streak +10 · 5-streak +25 · 10-streak +100</span>
             </div>
           </div>
           {user ? (

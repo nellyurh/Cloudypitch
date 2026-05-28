@@ -1,0 +1,51 @@
+{
+  "summary": "Iteration 5 — Cloudy Pitch full 7-phase backend + frontend tested. 17/18 pytest backend tests pass. Frontend loads all new routes (/wallet, /payment/callback) without runtime errors. Predictions page shows new 30/15/10 + stage × multiplier + streak bonus copy. Dashboard renders MTN direct sponsor via AdSlot. Paystack endpoints behave per contract (configured=false, 503 unconfigured, webhook rejects bad sig with 503 since no key set). One critical schema mismatch found in prize-pool settle.",
+  "backend_issues": {
+    "critical": [
+      {"endpoint": "POST /api/prize-pools/{id}/settle", "issue": "500 'str object has no attribute get' at routes/prize_pools.py:68. Settle code iterates tier.get(rank_min/rank_max/pct) — i.e. expects payout_structure to be a LIST of dicts. But seed_data.py:226,239 stores it as a DICT {'1st': 0.30, '2nd': 0.15, ...}. Schema/seed mismatch — settle is unusable on seeded pools.", "priority": "HIGH"}
+    ],
+    "minor": [
+      {"endpoint": "POST /api/payments/paystack/webhook", "issue": "Returns 503 (no key) instead of 401 for bad signatures when PAYSTACK_SECRET_KEY is unset. Acceptable for now since contract test accepts either, but once a key is provided this becomes the real 401 path."},
+      {"endpoint": "POST /api/predictions/settle", "issue": "_outcome_streak counts ALL previously-settled outcomes including failed ones earlier in history (loops most-recent-first until a False). Correct logic, but `streak_count=streak+1` is passed even for predictions that turn out to be wrong — those wrong preds will still receive a streak_bonus tied to the prior streak (because score_prediction internally only awards bonus when base>0, per scoring.py). Verify scoring.py honours that gate."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [
+      {"flow": "Sign-up via UI", "issue": "Automated signup form fill found no submit button via 'button[type=submit]' selector in test env (may be styled <button>); add data-testid='signup-submit' to make E2E robust", "affected_selectors": ["button[type='submit']"]}
+    ],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iteration5.py",
+    "/app/test_reports/pytest/iteration5.xml"
+  ],
+  "action_items": [
+    "FIX prize-pool settle: either change seed payout_structure to list-of-dicts ([{rank_min:1,rank_max:1,pct:30}, ...]) OR rewrite settle_pool to consume the existing dict shape ({'1st':0.30,'4-10':0.20,...}). Cleaner: normalize to list-of-dicts in seed.",
+    "Add data-testid attributes to signup form (signup-email, signup-password, signup-name, signup-submit) and AgeGateModal (agegate-dob, agegate-confirm) for robust automated testing.",
+    "Once user supplies PAYSTACK_SECRET_KEY + PAYSTACK_PUBLIC_KEY, retest /initialize (expect 200 with authorization_url for >=18 age-verified user) and /webhook (expect 401 on bad sig, 200 on valid sig)."
+  ],
+  "critical_code_review_comments": [
+    "routes/prize_pools.py:68 — payout_structure handling assumes list-of-dicts but seed inserts dict. Pick ONE schema and enforce in both places.",
+    "routes/payments.py uses PAYSTACK_SECRET_KEY captured at module import — if env var is set later via supervisor restart it works, but if set via hot-reload .env it won't pick up. Acceptable since .env changes need restart anyway.",
+    "routes/ads.py reward/claim card_uses path raises 400 'No cards to top up' when user has no cards; this blocks the rate-limit test path. UX: should fallback to prediction_points or return ok=false.",
+    "routes/compliance.py check_can_spend self_excluded_until comparison `until > now_iso` should be `until < now_iso` to detect expiry (line 144). As written, expired self-exclusion will still BLOCK users (because until_iso > now_iso means not-yet-expired → block is correct; recheck: if until is in the FUTURE, still excluded → blocked; if until in PAST, NOT blocked — but current code: `if not until or until > now: return False` which blocks if until is in the future, allows if until is in the past — correct, withdraw the concern).",
+    "routes/predictions.py:201 _outcome_streak counts only outcome_correct=True consecutively. Good. But settle pipeline doesn't sort by match scheduled_at — it sorts by settled_at which is filled in by settle. Sorting by settled_at desc may not equal chronological match order. Minor — acceptable for MVP.",
+    "scoring.py compute_card_boost cap at +1.0 verified via test.",
+    "fantasy_scoring.py compute_player_points formula matches spec (GK saves /3, CS=4 for GK/DEF, goal=4 for FWD)."
+  ],
+  "updated_files": ["/app/backend/tests/test_iteration5.py"],
+  "success_rate": {"backend": "94% (17/18)", "frontend": "90% (routes load; signup automation selector gap)"},
+  "test_credentials": "admin@cloudypitch.com / CloudyAdmin2026! (from /app/memory/test_credentials.md). Created TEST_iter5_* throwaway users via /api/auth/signup during tests.",
+  "seed_data_creation": "None new beyond what test creates (TEST_ prefixed throwaway users + a TEST_iter5_sponsor ad placement created and deleted in test_ads_crud_admin).",
+  "retest_needed": true,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Backend coverage is in /app/backend/tests/test_iteration5.py (18 tests, junitxml at /app/test_reports/pytest/iteration5.xml). One failing test (test_prize_pool_settle) — fixable by aligning seed payout_structure with settle code. Paystack tests are contract-only (no live key); once a key is set, expand to live initialize/verify happy path. Frontend signin/signup UI automation needs data-testid markers — current selectors fall through. AgeGateModal verified visually on /wallet (modal blocks UI when DOB not set); needs targeted E2E once testid added.",
+  "rca_of_issue": {
+    "bug": "POST /api/prize-pools/{id}/settle returns 500 on seeded pools",
+    "reproduction": "1) signin as admin, 2) GET /api/prize-pools (returns seeded pools), 3) POST /api/prize-pools/{first_pool_id}/settle → 500 AttributeError",
+    "rca": "settle_pool iterates `for tier in structure:` then calls `tier.get('rank_min')`. seed_data.py inserts payout_structure as a dict like {'1st':0.30,'2nd':0.15,'4-10':0.20} so iterating yields STRING keys, hence str.get(...) crashes.",
+    "mitigation": "Change seed to: payout_structure=[{'rank_min':1,'rank_max':1,'pct':30}, {'rank_min':2,'rank_max':2,'pct':15}, {'rank_min':4,'rank_max':10,'pct':20}, ...]. OR add a parser in settle_pool that converts the dict form into ranges (key like '4-10' → rank_min=4, rank_max=10)."
+  },
+  "mocked_apis": ["Paystack — INTEGRATION PENDING USER KEYS. /config returns configured:false; /initialize 503; /webhook 503 without secret. Cannot exercise live initialize/verify/transfer flows."]
+}

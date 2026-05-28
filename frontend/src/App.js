@@ -19,6 +19,8 @@ import { SearchPage } from "./pages/Search";
 import { SignIn } from "./pages/SignIn";
 import { SignUp } from "./pages/SignUp";
 import { AdminPanel } from "./pages/Admin";
+import { WalletPage } from "./pages/Wallet";
+import { PaymentCallback } from "./pages/PaymentCallback";
 
 function App() {
   return (
@@ -43,6 +45,8 @@ function App() {
               <Route path="/signin" element={<SignIn />} />
               <Route path="/signup" element={<SignUp />} />
               <Route path="/admin" element={<AdminPanel />} />
+              <Route path="/wallet" element={<WalletPage />} />
+              <Route path="/payment/callback" element={<PaymentCallback />} />
             </Routes>
           </Layout>
         </BrowserRouter>

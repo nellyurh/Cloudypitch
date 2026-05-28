@@ -30,6 +30,10 @@ from routes.prize_pools import router as pools_router
 from routes.profile import router as profile_router
 from routes.search import router as search_router
 from routes.admin import router as admin_router
+from routes.wallet import router as wallet_router
+from routes.compliance import router as compliance_router
+from routes.ads import router as ads_router
+from routes.payments import router as payments_router
 
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
@@ -90,5 +94,6 @@ async def health():
 for r in (auth_router, catalog_router, matches_router, worldcup_router,
           predictions_router, fantasy_router, cards_router, card_usage_router,
           leagues_router, pools_router,
-          profile_router, search_router, admin_router):
+          profile_router, search_router, admin_router,
+          wallet_router, compliance_router, ads_router, payments_router):
     app.include_router(r)

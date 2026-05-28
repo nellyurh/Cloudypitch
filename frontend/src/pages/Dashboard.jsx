@@ -6,6 +6,7 @@ import api from "../lib/api";
 import { ChevronLeft, ChevronRight, Calendar as CalendarIcon, Radio, Filter, Clock, Check } from "lucide-react";
 import { Popover, PopoverContent, PopoverTrigger } from "../components/ui/popover";
 import { Calendar } from "../components/ui/calendar";
+import AdSlot from "../components/AdSlot";
 
 function isoDate(d) {
   const y = d.getFullYear();
@@ -152,6 +153,8 @@ export const Dashboard = ({ sport = "football" }) => {
           </div>
         )}
         {grouped.map(g => <LeagueGroup key={g.league_id} group={g} sport={sport} />)}
+
+        <AdSlot placementKey="home_bottom_banner" className="mt-3"/>
       </section>
 
       <div className="hidden lg:block">

@@ -94,6 +94,9 @@ export const Header = () => {
                 <Link to="/profile" className="flex items-center gap-2 px-2 py-2 text-sm hover:bg-white/5 rounded" data-testid="menu-profile">
                   <User size={14} /> Profile
                 </Link>
+                <Link to="/wallet" className="flex items-center gap-2 px-2 py-2 text-sm hover:bg-white/5 rounded" data-testid="menu-wallet">
+                  <Coins size={14} className="text-cp-lime"/> Wallet
+                </Link>
                 {user.role === "admin" && (
                   <Link to="/admin" className="flex items-center gap-2 px-2 py-2 text-sm hover:bg-white/5 rounded" data-testid="menu-admin">
                     <ShieldCheck size={14} /> Admin
@@ -154,6 +157,7 @@ export const Header = () => {
             {user ? (
               <>
                 <Link to="/profile" onClick={() => setDrawer(false)} className="cp-btn-ghost justify-start" data-testid="drawer-profile"><User size={14}/> Profile</Link>
+                <Link to="/wallet" onClick={() => setDrawer(false)} className="cp-btn-ghost justify-start" data-testid="drawer-wallet"><Coins size={14} className="text-cp-lime"/> Wallet</Link>
                 {user.role === "admin" && <Link to="/admin" onClick={() => setDrawer(false)} className="cp-btn-ghost justify-start" data-testid="drawer-admin"><ShieldCheck size={14}/> Admin</Link>}
                 <button onClick={async () => { await signout(); setDrawer(false); nav("/"); }} className="cp-btn-ghost justify-start" data-testid="drawer-signout"><LogOut size={14}/> Sign out</button>
               </>
