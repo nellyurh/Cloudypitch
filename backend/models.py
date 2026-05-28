@@ -82,6 +82,8 @@ def public_user(user: dict | None) -> dict | None:
         "timezone": user.get("timezone"),
         "email_verified": user.get("email_verified", False),
         "is_active": user.get("is_active", True),
+        "is_premium": user.get("is_premium", False),
+        "premium_until": user.get("premium_until"),
         "created_at": user.get("created_at"),
         "last_login_at": user.get("last_login_at"),
     }

@@ -21,6 +21,8 @@ import { SignUp } from "./pages/SignUp";
 import { AdminPanel } from "./pages/Admin";
 import { WalletPage } from "./pages/Wallet";
 import { PaymentCallback } from "./pages/PaymentCallback";
+import { PremiumPage } from "./pages/Premium";
+import { InterstitialAd } from "./components/InterstitialAd";
 
 function App() {
   return (
@@ -46,8 +48,10 @@ function App() {
               <Route path="/signup" element={<SignUp />} />
               <Route path="/admin" element={<AdminPanel />} />
               <Route path="/wallet" element={<WalletPage />} />
+              <Route path="/premium" element={<PremiumPage />} />
               <Route path="/payment/callback" element={<PaymentCallback />} />
             </Routes>
+            <InterstitialAd />
           </Layout>
         </BrowserRouter>
       </AuthProvider>

@@ -4,6 +4,7 @@ import { Link } from "react-router-dom";
 import { Trophy, Coins, Calendar, Layers, Users2 } from "lucide-react";
 import { MatchRow } from "../components/MatchRow";
 import { flagUrl } from "../lib/flags";
+import AdSlot from "../components/AdSlot";
 
 function CountdownLarge({ to }) {
   const [now, setNow] = useState(() => Date.now());
@@ -153,37 +154,71 @@ export const WorldCupHub = () => {
 
       <div className="mt-4">
         {tab === "groups" && (
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3" data-testid="groups-grid">
-            {(data?.groups || []).map(g => (
-              <div key={g.group} className="cp-surface p-3" data-testid={`group-${g.group}`}>
-                <div className="flex items-center justify-between mb-2">
-                  <span className="text-[10px] uppercase tracking-widest" style={{ color: "var(--cp-text-muted)" }}>Group</span>
-                  <span className="text-2xl font-extrabold text-cp-lime">{g.group}</span>
+          <>
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3" data-testid="groups-grid">
+              {(data?.groups || []).slice(0, 6).map(g => (
+                <div key={g.group} className="cp-surface p-3" data-testid={`group-${g.group}`}>
+                  <div className="flex items-center justify-between mb-2">
+                    <span className="text-[10px] uppercase tracking-widest" style={{ color: "var(--cp-text-muted)" }}>Group</span>
+                    <span className="text-2xl font-extrabold text-cp-lime">{g.group}</span>
+                  </div>
+                  <div className="grid grid-cols-[1fr_auto_auto_auto_auto] text-[10px] uppercase tracking-widest border-b pb-1 mb-1" style={{ color: "var(--cp-text-muted)", borderColor: "var(--cp-border)" }}>
+                    <span>Team</span><span>P</span><span>W</span><span>D</span><span>Pts</span>
+                  </div>
+                  <ul className="divide-y" style={{ borderColor: "var(--cp-border)" }}>
+                    {(g.teams || []).map(t => (
+                      <li key={t} className="grid grid-cols-[1fr_auto_auto_auto_auto] items-center gap-2 py-1.5 text-sm">
+                        <div className="flex items-center gap-2 truncate">
+                          {flagUrl(t, 40) ? (
+                            <img src={flagUrl(t, 40)} className="w-5 h-3.5 object-cover rounded-sm shrink-0 ring-1 ring-black/30" alt="" />
+                          ) : (
+                            <span className="w-5 h-3.5 rounded-sm shrink-0" style={{ background: "var(--cp-surface-2)" }} />
+                          )}
+                          <span className="truncate text-xs">{t}</span>
+                        </div>
+                        <span className="text-[10px] font-mono tabular-nums" style={{ color: "var(--cp-text-muted)" }}>0</span>
+                        <span className="text-[10px] font-mono tabular-nums" style={{ color: "var(--cp-text-muted)" }}>0</span>
+                        <span className="text-[10px] font-mono tabular-nums" style={{ color: "var(--cp-text-muted)" }}>0</span>
+                        <span className="text-[10px] font-bold tabular-nums">0</span>
+                      </li>
+                    ))}
+                  </ul>
                 </div>
-                <div className="grid grid-cols-[1fr_auto_auto_auto_auto] text-[10px] uppercase tracking-widest border-b pb-1 mb-1" style={{ color: "var(--cp-text-muted)", borderColor: "var(--cp-border)" }}>
-                  <span>Team</span><span>P</span><span>W</span><span>D</span><span>Pts</span>
+              ))}
+            </div>
+            <AdSlot placementKey="wc_hub_sponsor" className="my-4"/>
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3">
+              {(data?.groups || []).slice(6).map(g => (
+                <div key={g.group} className="cp-surface p-3" data-testid={`group-${g.group}`}>
+                  <div className="flex items-center justify-between mb-2">
+                    <span className="text-[10px] uppercase tracking-widest" style={{ color: "var(--cp-text-muted)" }}>Group</span>
+                    <span className="text-2xl font-extrabold text-cp-lime">{g.group}</span>
+                  </div>
+                  <div className="grid grid-cols-[1fr_auto_auto_auto_auto] text-[10px] uppercase tracking-widest border-b pb-1 mb-1" style={{ color: "var(--cp-text-muted)", borderColor: "var(--cp-border)" }}>
+                    <span>Team</span><span>P</span><span>W</span><span>D</span><span>Pts</span>
+                  </div>
+                  <ul className="divide-y" style={{ borderColor: "var(--cp-border)" }}>
+                    {(g.teams || []).map(t => (
+                      <li key={t} className="grid grid-cols-[1fr_auto_auto_auto_auto] items-center gap-2 py-1.5 text-sm">
+                        <div className="flex items-center gap-2 truncate">
+                          {flagUrl(t, 40) ? (
+                            <img src={flagUrl(t, 40)} className="w-5 h-3.5 object-cover rounded-sm shrink-0 ring-1 ring-black/30" alt="" />
+                          ) : (
+                            <span className="w-5 h-3.5 rounded-sm shrink-0" style={{ background: "var(--cp-surface-2)" }} />
+                          )}
+                          <span className="truncate text-xs">{t}</span>
+                        </div>
+                        <span className="text-[10px] font-mono tabular-nums" style={{ color: "var(--cp-text-muted)" }}>0</span>
+                        <span className="text-[10px] font-mono tabular-nums" style={{ color: "var(--cp-text-muted)" }}>0</span>
+                        <span className="text-[10px] font-mono tabular-nums" style={{ color: "var(--cp-text-muted)" }}>0</span>
+                        <span className="text-[10px] font-bold tabular-nums">0</span>
+                      </li>
+                    ))}
+                  </ul>
                 </div>
-                <ul className="divide-y" style={{ borderColor: "var(--cp-border)" }}>
-                  {(g.teams || []).map(t => (
-                    <li key={t} className="grid grid-cols-[1fr_auto_auto_auto_auto] items-center gap-2 py-1.5 text-sm">
-                      <div className="flex items-center gap-2 truncate">
-                        {flagUrl(t, 40) ? (
-                          <img src={flagUrl(t, 40)} className="w-5 h-3.5 object-cover rounded-sm shrink-0 ring-1 ring-black/30" alt="" />
-                        ) : (
-                          <span className="w-5 h-3.5 rounded-sm shrink-0" style={{ background: "var(--cp-surface-2)" }} />
-                        )}
-                        <span className="truncate text-xs">{t}</span>
-                      </div>
-                      <span className="text-[10px] font-mono tabular-nums" style={{ color: "var(--cp-text-muted)" }}>0</span>
-                      <span className="text-[10px] font-mono tabular-nums" style={{ color: "var(--cp-text-muted)" }}>0</span>
-                      <span className="text-[10px] font-mono tabular-nums" style={{ color: "var(--cp-text-muted)" }}>0</span>
-                      <span className="text-[10px] font-bold tabular-nums">0</span>
-                    </li>
-                  ))}
-                </ul>
-              </div>
-            ))}
-          </div>
+              ))}
+            </div>
+          </>
         )}
 
         {tab === "bracket" && <BracketView />}

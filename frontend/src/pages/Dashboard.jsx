@@ -152,7 +152,15 @@ export const Dashboard = ({ sport = "football" }) => {
             {mode === "live" ? "No live matches right now." : mode === "upcoming" ? "No matches in the next 24 hours." : mode === "finished" ? "No finished matches in the past 24 hours." : `No matches for ${dayLabel(selectedDate)}.`}
           </div>
         )}
-        {grouped.map(g => <LeagueGroup key={g.league_id} group={g} sport={sport} />)}
+        {grouped.map((g, idx) => (
+          <React.Fragment key={g.league_id}>
+            <LeagueGroup group={g} sport={sport} />
+            {/* Inline ad after every 3rd league group */}
+            {(idx + 1) % 3 === 0 && idx < grouped.length - 1 && (
+              <AdSlot placementKey="match_list_inline" className="mb-3"/>
+            )}
+          </React.Fragment>
+        ))}
 
         <AdSlot placementKey="home_bottom_banner" className="mt-3"/>
       </section>

@@ -2,7 +2,8 @@ import React, { useEffect, useMemo, useState } from "react";
 import api from "../lib/api";
 import { useAuth, formatApiErr } from "../lib/auth";
 import { Link } from "react-router-dom";
-import { Trophy, Check, AlertTriangle, Lock, Award } from "lucide-react";
+import { Trophy, Check, AlertTriangle, Lock, Award, Sparkles } from "lucide-react";
+import CardPickerModal from "../components/CardPickerModal";
 
 const TeamLogo = ({ src, name }) => {
   if (src) return <img src={src} alt="" className="w-6 h-6 object-contain shrink-0" onError={(e) => { e.target.style.display = "none"; }}/>;
@@ -29,6 +30,8 @@ export const PredictionsHub = () => {
   const [matches, setMatches] = useState([]);
   const [board, setBoard] = useState([]);
   const [picks, setPicks] = useState({});
+  const [cardSel, setCardSel] = useState({}); // match_id → [user_card_ids]
+  const [pickerFor, setPickerFor] = useState(null); // match_id or null
   const [saving, setSaving] = useState({});
   const [savedMatch, setSavedMatch] = useState(null);
   const [err, setErr] = useState("");
@@ -57,7 +60,12 @@ export const PredictionsHub = () => {
     setSaving(s => ({ ...s, [matchId]: true }));
     setErr("");
     try {
-      await api.post("/predictions", { match_id: matchId, home_score_predicted: Number(p.home), away_score_predicted: Number(p.away) });
+      await api.post("/predictions", {
+        match_id: matchId,
+        home_score_predicted: Number(p.home),
+        away_score_predicted: Number(p.away),
+        card_ids: cardSel[matchId] || [],
+      });
       setSavedMatch(matchId);
       setTimeout(() => setSavedMatch(null), 1800);
     } catch (e) { setErr(formatApiErr(e)); }
@@ -174,14 +182,26 @@ export const PredictionsHub = () => {
                             "Not yet predicted"
                           )}
                         </span>
-                        <button
-                          onClick={() => submit(m.id)}
-                          disabled={locked || saving[m.id] || p.home == null || p.away == null || p.home === "" || p.away === ""}
-                          className="cp-btn-primary !py-1 !text-xs disabled:opacity-40"
-                          data-testid={`pred-submit-${m.id}`}
-                        >
-                          {savedMatch === m.id ? "Saved!" : saving[m.id] ? "Saving…" : (predicted ? "Update" : "Submit")}
-                        </button>
+                        <div className="flex items-center gap-1.5">
+                          {user && !locked && (
+                            <button
+                              onClick={() => setPickerFor(m.id)}
+                              className={`cp-pill text-[10px] font-bold inline-flex items-center gap-1 ${(cardSel[m.id] || []).length > 0 ? "ring-1 ring-cp-lime" : ""}`}
+                              style={{ background: (cardSel[m.id] || []).length > 0 ? "rgba(163,230,53,0.15)" : "var(--cp-surface-2)", color: (cardSel[m.id] || []).length > 0 ? "#A3E635" : "var(--cp-text-muted)" }}
+                              data-testid={`pred-boost-${m.id}`}
+                            >
+                              <Sparkles size={10}/> {(cardSel[m.id] || []).length > 0 ? `${(cardSel[m.id] || []).length} boost` : "Apply boost"}
+                            </button>
+                          )}
+                          <button
+                            onClick={() => submit(m.id)}
+                            disabled={locked || saving[m.id] || p.home == null || p.away == null || p.home === "" || p.away === ""}
+                            className="cp-btn-primary !py-1 !text-xs disabled:opacity-40"
+                            data-testid={`pred-submit-${m.id}`}
+                          >
+                            {savedMatch === m.id ? "Saved!" : saving[m.id] ? "Saving…" : (predicted ? "Update" : "Submit")}
+                          </button>
+                        </div>
                       </div>
                     </div>
                   );
@@ -207,6 +227,18 @@ export const PredictionsHub = () => {
           ))}
         </ul>
       </aside>
+
+      {pickerFor && (
+        <CardPickerModal
+          match={matches.find(m => m.id === pickerFor)}
+          basePoints={30}
+          stageMult={1.0}
+          selectedIds={cardSel[pickerFor] || []}
+          maxCards={2}
+          onSave={(ids) => setCardSel(prev => ({ ...prev, [pickerFor]: ids }))}
+          onClose={() => setPickerFor(null)}
+        />
+      )}
     </div>
   );
 };
