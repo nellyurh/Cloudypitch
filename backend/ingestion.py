@@ -212,16 +212,29 @@ async def upsert_sportmonks_fixture(fx: dict):
         for e in events:
             if not isinstance(e, dict):
                 continue
+            type_obj = e.get("type") if isinstance(e.get("type"), dict) else None
+            type_id = e.get("type_id")
+            type_name = (type_obj or {}).get("name") if type_obj else None
+            if not type_name and type_id is not None:
+                try:
+                    type_name = sportmonks.EVENT_TYPE_NAMES.get(int(type_id))
+                except (TypeError, ValueError):
+                    type_name = None
+            if not type_name:
+                type_name = f"Event {type_id}" if type_id else "Event"
+            part_id = e.get("participant_id")
+            related_player = e.get("related_player") if isinstance(e.get("related_player"), dict) else None
             evs.append({
                 "id": new_id(),
                 "match_id": match_doc_id,
                 "minute": e.get("minute"),
                 "extra_minute": e.get("extra_minute"),
-                "team_id": e.get("participant_id"),
+                "team_id": f"sm-t-{part_id}" if part_id else None,
                 "player_id": e.get("player_id"),
                 "player_name": e.get("player_name") or "",
-                "assist_player_name": e.get("related_player_name") or "",
-                "type": (e.get("type") or {}).get("name") if isinstance(e.get("type"), dict) else (e.get("type_id") or "event"),
+                "assist_player_name": e.get("related_player_name") or (related_player or {}).get("name") or "",
+                "type": type_name,
+                "type_id": type_id,
                 "detail": e.get("info") or e.get("addition") or "",
                 "provider": "sportmonks",
             })
@@ -238,14 +251,22 @@ async def upsert_sportmonks_fixture(fx: dict):
                 continue
             tid = s.get("participant_id")
             type_obj = s.get("type") if isinstance(s.get("type"), dict) else {}
-            key = type_obj.get("developer_name") or type_obj.get("name") or str(s.get("type_id") or "stat")
+            type_id = s.get("type_id")
+            type_name = type_obj.get("name") if type_obj else None
+            if not type_name and type_id is not None:
+                try:
+                    type_name = sportmonks.STAT_TYPE_NAMES.get(int(type_id))
+                except (TypeError, ValueError):
+                    type_name = None
+            if not type_name:
+                type_name = type_obj.get("developer_name") or f"Stat {type_id}"
             val = (s.get("data") or {}).get("value") if isinstance(s.get("data"), dict) else s.get("value")
-            by_team.setdefault(tid, {})[key] = val
+            by_team.setdefault(tid, {})[type_name] = val
         for tid, kv in by_team.items():
             await db.match_statistics.insert_one({
                 "id": new_id(),
                 "match_id": match_doc_id,
-                "team_id": tid,
+                "team_id": f"sm-t-{tid}" if tid else None,
                 "stats": kv,
                 "provider": "sportmonks",
             })
@@ -257,16 +278,25 @@ async def upsert_sportmonks_fixture(fx: dict):
         for ln in lineups:
             if not isinstance(ln, dict):
                 continue
+            player_obj = ln.get("player") if isinstance(ln.get("player"), dict) else None
+            pos_obj = ln.get("position") if isinstance(ln.get("position"), dict) else None
+            type_obj = ln.get("type") if isinstance(ln.get("type"), dict) else None
+            type_id = ln.get("type_id")
+            # type_id 11 = starting XI, 12 = bench
+            is_starter = (type_id == 11) or ((type_obj or {}).get("developer_name") == "LINEUP")
+            tid = ln.get("team_id") or ln.get("participant_id")
             ls.append({
                 "id": new_id(),
                 "match_id": match_doc_id,
-                "team_id": ln.get("team_id") or ln.get("participant_id"),
+                "team_id": f"sm-t-{tid}" if tid else None,
                 "formation": ln.get("formation"),
-                "starter": ln.get("type_id") == 11 or ln.get("type") == "lineup",
-                "player_name": ln.get("player_name") or "",
+                "starter": is_starter,
+                "player_name": ln.get("player_name") or (player_obj or {}).get("name") or "",
+                "player_image": (player_obj or {}).get("image_path") or "",
                 "player_number": ln.get("jersey_number"),
-                "player_pos": ((ln.get("position") or {}).get("name") if isinstance(ln.get("position"), dict) else None),
-                "grid": ln.get("formation_position") or ln.get("grid"),
+                "player_pos": (pos_obj or {}).get("name") if pos_obj else None,
+                "position_code": (pos_obj or {}).get("code") if pos_obj else None,
+                "grid": ln.get("formation_position") or ln.get("formation_field") or ln.get("grid"),
             })
         if ls:
             await db.match_lineups.insert_many(ls)
@@ -1080,10 +1110,15 @@ async def sync_statpal_football():
                         pass
             status_raw = (m.get("status") or "").strip()
             sl = status_raw.lower()
-            if "finished" in sl or "ended" in sl or "ft" in sl:
+            import re as _re
+            if "finished" in sl or "ended" in sl or sl == "ft":
                 short = "FT"
                 is_live = False
-            elif sl and ("half" in sl or "min" in sl or sl[0].isdigit()):
+            elif _re.match(r"^\d{1,2}:\d{2}$", sl):
+                # Status is just the scheduled kickoff time (e.g. "18:00") — not live
+                short = "NS"
+                is_live = False
+            elif "half" in sl or " min" in sl or sl.endswith("min") or "ht" in sl.split() or "live" in sl:
                 short = "LIVE"
                 is_live = True
             else:

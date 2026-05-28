@@ -1,0 +1,31 @@
+{
+  "summary": "Verified human-readable Sportmonks event/stat mapping + pitch formation feature on match c6d230b2 (Racing Club 2-0 Independiente Petrolero). Backend /api/matches/{id}?refresh=1 now returns readable type names (Goal, Yellowcard, Substitution) and readable stat keys (Accurate Crosses, Shots Total, Big Chances Missed, etc) with no raw numeric IDs. team_id is correctly prefixed with sm-t- on match doc, events, statistics and lineups (45 lineup docs, 16 events, 2 stat blocks). Frontend MatchDetail renders all 3 new tabs: EVENTS (16 rows with icons + home/away split), STATS (42 side-by-side bar rows with readable labels + percentages), LINEUPS (11 home + 11 away player badges on green pitch with derived formations 4-3-3 / 4-5-1 and 2 bench blocks). Refresh button works. /api/matches list (sport=football) still returns matches (5 sample, grouped).",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "MatchDetail / EVENTS tab", "issues": ["When event.team_id matches home or away, only the icon + player name + assist is rendered — the readable type name (e.g. 'Yellow Card', 'Substitution') is NOT shown as text. Icons alone may not be self-explanatory for all event types (esp. VAR, Penalty, Yellow-Red). Consider adding the type name as a small label or a title/tooltip attribute."]}
+    ]
+  },
+  "test_report_links": ["/app/backend/tests/backend_test.py"],
+  "action_items": [
+    "(Optional UX) Show pretty type name as text or tooltip in EventsList rows for home/away events, not only icon.",
+    "(Optional) Sportmonks fixture include did not return `formation` on lineup docs; LineupPitch already derives it from row counts, which works (4-3-3 / 4-5-1 in test match), but if `formation` field becomes available later, frontend will use it directly."
+  ],
+  "critical_code_review_comments": [
+    "ingestion.py: stale-data detection in matches.py:131-141 reads `events[:1] + stats[:1] + lineups[:1]` after the truthy check — fine, but `d.get('team_id')` on a stats doc returns a string OR None; the `isinstance(t, str)` guard handles None safely. OK.",
+    "EventsList.jsx covers both raw Sportmonks names ('Yellowcard') and pretty IDs ('Yellow Card') in ICONS map — good defensive coverage.",
+    "LineupPitch.jsx: column ordering uses `grid` (formation_position 1-11). Sportmonks `grid` values are flat indices not row/column tuples, so sorting within a row produces correct L→R ordering only if grid numbering is monotonic per row — confirmed visually in screenshot.",
+    "MatchDetail.jsx polls every 15s with load(false); fine for finished matches but for live matches consider lighter polling and avoid full lineup reload (lineups are static once kickoff).",
+    "matches.py:135 stale check `k.startswith('Stat ') or k.isdigit()` is good; ingestion.py:262 fallback writes `Stat {type_id}` only when type_obj.developer_name is also missing — defensive."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "100% (match detail + list endpoints verified)", "frontend": "100% (events, stats, lineups, refresh)"},
+  "test_credentials": "n/a (match detail is public)",
+  "seed_data_creation": "Used existing finished match c6d230b2-92f7-4d38-acac-6186192a6153 (Racing Club vs Independiente Petrolero, Copa Sudamericana, FT 2-0). 16 events, 2 stat blocks, 45 lineup rows after refresh=1.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Match c6d230b2-92f7-4d38-acac-6186192a6153 has full events/stats/lineups loaded via Sportmonks fixture include. All team_ids prefixed sm-t-. Stat blocks keyed by readable names from STAT_TYPE_NAMES (plus what Sportmonks `type.name` returns directly when include works). Frontend testids confirmed: match-detail, match-refresh, tab-{events,stats,lineups,h2h}, events-list, event-{i}, stats-bars, stat-{label}, lineup-pitch, player-home-{i}, player-away-{i}, bench-{team-name}. Note: bench testid uses full team name (e.g. bench-Racing Club, bench-Independiente Petrolero), not 'home'/'away' — request spec said bench-{label} which currently matches.",
+  "rca of the issue": "n/a — feature works end-to-end."
+}

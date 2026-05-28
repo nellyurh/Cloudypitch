@@ -32,7 +32,7 @@ async def fetch_fixtures_by_date(date_str: str, page: int = 1):
 async def fetch_live():
     return await _get(
         "/livescores/inplay",
-        {"include": "participants;scores;state;events;statistics;periods;league.country"},
+        {"include": "participants;scores;state;events.type;statistics.type;periods;league.country"},
     )
 
 
@@ -50,7 +50,7 @@ async def fetch_today_livescores():
 async def fetch_fixture(fixture_id: int):
     return await _get(
         f"/fixtures/{fixture_id}",
-        {"include": "participants;scores;state;events;statistics;periods;lineups;venue;league;referees"},
+        {"include": "participants;scores;state;events.type;statistics.type;periods;lineups.player;lineups.type;lineups.position;venue;league;referees"},
     )
 
 
@@ -141,3 +141,73 @@ def extract_minute(periods: list | None) -> int | None:
         if p.get("ticking"):
             return p.get("minutes")
     return None
+
+
+# Sportmonks v3 event type ID → human-readable name (fallback when `events.type` include is missing)
+EVENT_TYPE_NAMES = {
+    14: "Goal",
+    15: "Own Goal",
+    16: "Penalty",
+    17: "Missed Penalty",
+    18: "Substitution",
+    19: "Yellow Card",
+    20: "Red Card",
+    21: "Yellow-Red Card",
+    26: "Penalty Shootout Goal",
+    27: "Penalty Shootout Miss",
+    28: "VAR",
+    52: "Goal",
+    83: "Var Card",
+    1697: "VAR Goal Cancelled",
+    10027: "Pen. Shootout Goal",
+    10028: "Pen. Shootout Miss",
+}
+
+# Sportmonks v3 statistic type ID → human-readable name
+STAT_TYPE_NAMES = {
+    41: "Shots Total",
+    42: "Shots on Target",
+    43: "Attacks",
+    44: "Dangerous Attacks",
+    45: "Ball Possession %",
+    46: "Ball Safe",
+    47: "Penalties",
+    49: "Shots off Target",
+    50: "Shots Blocked",
+    51: "Offsides",
+    52: "Goals",
+    53: "Saves",
+    54: "Corners",
+    55: "Hit Woodwork",
+    56: "Fouls",
+    57: "Tackles",
+    58: "Passes Total",
+    59: "Successful Passes",
+    60: "Passes %",
+    61: "Free Kicks",
+    62: "Goal Kicks",
+    63: "Throw Ins",
+    64: "Successful Headers",
+    65: "Yellow Cards",
+    66: "Substitutions",
+    78: "Counter Attacks",
+    79: "Long Balls",
+    80: "Cross Total",
+    82: "Successful Crosses",
+    84: "Successful Long Balls",
+    86: "Shots Inside Box",
+    87: "Shots Outside Box",
+    88: "Successful Dribbles",
+    96: "Goal Attempts",
+    99: "Tackles Successful",
+    105: "Total Crosses",
+    106: "Long Pass Accuracy %",
+    108: "Key Passes",
+    109: "Errors Leading to Goal",
+    110: "Big Chances Created",
+    117: "Yellow Cards",
+    118: "Red Cards",
+    119: "Injuries",
+    194: "Expected Goals (xG)",
+    214: "Total Headed Goals",
+}

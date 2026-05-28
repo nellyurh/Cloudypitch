@@ -1,7 +1,10 @@
 import React, { useEffect, useState } from "react";
 import { useParams, Link } from "react-router-dom";
 import api from "../lib/api";
-import { ChevronLeft, MapPin, User2 } from "lucide-react";
+import { ChevronLeft, MapPin, User2, RefreshCw } from "lucide-react";
+import EventsList from "../components/match/EventsList";
+import StatsBars from "../components/match/StatsBars";
+import LineupPitch from "../components/match/LineupPitch";
 
 const TABS = ["events", "stats", "lineups", "h2h"];
 
@@ -13,27 +16,34 @@ export const MatchDetail = () => {
   const [lineups, setLineups] = useState([]);
   const [h2h, setH2H] = useState([]);
   const [tab, setTab] = useState("events");
+  const [refreshing, setRefreshing] = useState(false);
+
+  const load = async (refresh = false) => {
+    try {
+      const url = refresh ? `/matches/${id}?refresh=1` : `/matches/${id}`;
+      const { data } = await api.get(url);
+      setM(data.match);
+      setEvents(data.events || []);
+      setStats(data.statistics || []);
+      setLineups(data.lineups || []);
+    } catch (_) {}
+    try {
+      const { data: h } = await api.get(`/matches/${id}/h2h`);
+      setH2H(h.matches || []);
+    } catch (_) {}
+  };
 
   useEffect(() => {
-    let cancel = false;
-    const load = async () => {
-      try {
-        const { data } = await api.get(`/matches/${id}`);
-        if (cancel) return;
-        setM(data.match);
-        setEvents(data.events || []);
-        setStats(data.statistics || []);
-        setLineups(data.lineups || []);
-      } catch (_) {}
-      try {
-        const { data: h } = await api.get(`/matches/${id}/h2h`);
-        if (!cancel) setH2H(h.matches || []);
-      } catch (_) {}
-    };
     load();
-    const t = setInterval(load, 15000);
-    return () => { cancel = true; clearInterval(t); };
+    const t = setInterval(() => load(false), 15000);
+    return () => clearInterval(t);
   }, [id]);
+
+  const handleRefresh = async () => {
+    setRefreshing(true);
+    await load(true);
+    setRefreshing(false);
+  };
 
   if (!m) return <div className="cp-surface p-6 text-sm" style={{ color: "var(--cp-text-muted)" }}>Loading match…</div>;
 
@@ -41,7 +51,21 @@ export const MatchDetail = () => {
 
   return (
     <div className="max-w-4xl mx-auto" data-testid="match-detail">
-      <Link to="/" className="inline-flex items-center gap-1 text-sm mb-2 hover:text-cp-lime"><ChevronLeft size={14}/> Back</Link>
+      <div className="flex items-center justify-between mb-2">
+        <Link to="/" className="inline-flex items-center gap-1 text-sm hover:text-cp-lime">
+          <ChevronLeft size={14}/> Back
+        </Link>
+        <button
+          onClick={handleRefresh}
+          disabled={refreshing}
+          className="inline-flex items-center gap-1 text-xs px-2 py-1 rounded hover:bg-white/5"
+          style={{ color: "var(--cp-text-muted)" }}
+          data-testid="match-refresh"
+        >
+          <RefreshCw size={12} className={refreshing ? "animate-spin" : ""}/>
+          Refresh
+        </button>
+      </div>
 
       <div className="cp-surface p-5">
         <div className="text-[10px] uppercase tracking-widest" style={{ color: "var(--cp-text-muted)" }}>
@@ -93,28 +117,35 @@ export const MatchDetail = () => {
 
       <div className="cp-surface mt-3 p-4 min-h-[160px]">
         {tab === "events" && (
-          events.length === 0 ? <div className="text-sm" style={{ color: "var(--cp-text-muted)" }}>No events yet.</div> :
-            <ul className="space-y-2">
-              {events.map((e, i) => (
-                <li key={i} className="flex items-center gap-3 text-sm" data-testid={`event-${i}`}>
-                  <span className="w-10 text-xs tabular-nums" style={{ color: "var(--cp-text-muted)" }}>{e.minute || 0}'</span>
-                  <span className="cp-pill" style={{ background: "var(--cp-surface-2)", color: "var(--cp-text)" }}>{e.type}</span>
-                  <span>{e.player_name || e.detail}</span>
-                </li>
-              ))}
-            </ul>
+          <EventsList
+            events={events}
+            homeTeamId={m.home_team_id}
+            awayTeamId={m.away_team_id}
+            homeName={m.home_team_name}
+            awayName={m.away_team_name}
+          />
         )}
         {tab === "stats" && (
-          stats.length === 0 ? <div className="text-sm" style={{ color: "var(--cp-text-muted)" }}>No stats yet.</div> :
-          <div className="text-sm" style={{ color: "var(--cp-text-muted)" }}>{stats.length} stat blocks loaded.</div>
+          <StatsBars
+            statistics={stats}
+            homeTeamId={m.home_team_id}
+            awayTeamId={m.away_team_id}
+            homeName={m.home_team_name}
+            awayName={m.away_team_name}
+          />
         )}
         {tab === "lineups" && (
-          lineups.length === 0 ? <div className="text-sm" style={{ color: "var(--cp-text-muted)" }}>No lineups yet.</div> :
-          <div className="text-sm">{lineups.length} players in lineup.</div>
+          <LineupPitch
+            lineups={lineups}
+            homeTeamId={m.home_team_id}
+            awayTeamId={m.away_team_id}
+            homeName={m.home_team_name}
+            awayName={m.away_team_name}
+          />
         )}
         {tab === "h2h" && (
           h2h.length === 0 ? <div className="text-sm" style={{ color: "var(--cp-text-muted)" }}>No prior head-to-head found.</div> :
-          <ul className="space-y-1">
+          <ul className="space-y-1" data-testid="h2h-list">
             {h2h.map(p => (
               <li key={p.id} className="flex items-center justify-between text-sm py-1 border-b" style={{ borderColor: "var(--cp-border)" }}>
                 <span>{new Date(p.scheduled_at).toLocaleDateString()}</span>

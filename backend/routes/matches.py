@@ -119,7 +119,7 @@ async def live_matches():
 
 
 @router.get("/matches/{match_id}")
-async def match_detail(match_id: str):
+async def match_detail(match_id: str, refresh: int = 0):
     db = get_db()
     m = await db.matches.find_one({"id": match_id}, {"_id": 0})
     if not m:
@@ -128,9 +128,21 @@ async def match_detail(match_id: str):
     events = await db.match_events.find({"match_id": match_id}, {"_id": 0}).sort("minute", 1).to_list(length=200)
     stats = await db.match_statistics.find({"match_id": match_id}, {"_id": 0}).to_list(length=4)
     lineups = await db.match_lineups.find({"match_id": match_id}, {"_id": 0}).to_list(length=50)
-    if not events and not stats and not lineups and m.get("primary_provider") == "sportmonks" and m.get("sportmonks_id"):
+    # Detect stale legacy data (numeric type IDs, missing team_id prefix) and force a refresh
+    stale = False
+    if events and any((isinstance(e.get("type"), int) or (isinstance(e.get("type"), str) and e.get("type").isdigit())) for e in events):
+        stale = True
+    if not stale and stats and any(any(k.startswith("Stat ") or k.isdigit() for k in (s.get("stats") or {}).keys()) for s in stats):
+        stale = True
+    if not stale and (events or stats or lineups):
+        # Old docs had numeric team_id without sm-t- prefix
+        sample = (events[:1] + stats[:1] + lineups[:1])
+        if any(t and not (isinstance(t, str) and t.startswith("sm-t-")) for t in [d.get("team_id") for d in sample]):
+            stale = True
+    need_fetch = refresh == 1 or stale or (not events and not stats and not lineups)
+    if need_fetch and m.get("primary_provider") == "sportmonks" and m.get("sportmonks_id"):
         cache_key = f"detail-fetch:{match_id}"
-        if not cget(cache_key):
+        if refresh == 1 or stale or not cget(cache_key):
             try:
                 from ingestion import upsert_sportmonks_fixture
                 data = await sportmonks.fetch_fixture(m["sportmonks_id"])
