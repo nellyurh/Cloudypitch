@@ -52,6 +52,67 @@ Three integrated products:
 - ✅ New LineupPitch component: green pitch with center circle/penalty boxes/goals, player number badges (lime home / white away), formation auto-derived from position_code, full bench list
 - ✅ Verified by testing agent (iteration 2): 100% backend + frontend pass
 
+## Iteration 5 — Full 7-Phase Spec Implementation (2026-05-28) — "do all"
+
+User dumped the complete product playbook (ad revenue, prediction scoring, legend card mechanic, fantasy points, prize-pool distribution, wallet, compliance). All 7 phases shipped in one batch.
+
+### Phase A — Prediction Scoring v2
+- `/app/backend/scoring.py`: base 30/15/10 + stage multipliers (Group 1.0× → Final 4.0×) + streak bonuses (3/+10, 5/+25, 10/+100) + card boost (sum of matching cards' multiplier-1.0, capped +1.0)
+- `compute_stage()` auto-detects WC stage from match.round.name / match.stage.name
+- `card_matches()` supports both new spec (`country_boost/continent_boost/position_boost/role_boost/flat_boost`) AND legacy seeded vocabulary (`score_boost/outcome_boost/captain_boost/defense_boost`) using `card.country_code`
+- `POST /api/predictions` accepts optional `card_ids[]` (capped at 2 per match)
+- `POST /api/predictions/settle` (admin) rescores all finished matches with new engine, consumes 1 use per applied card
+- `GET /api/predictions/leaderboard?scope=global|weekly|country|competition` with optional `country=NG` or `competition_id=`
+
+### Phase B — Legend Card mechanic complete
+- `POST /api/cards/purchase` creates user_card with 5 uses + writes card_transactions row
+- `POST /api/cards/recharge` adds +5 uses for ₦200
+
+### Phase C — Fantasy Scoring Engine
+- `/app/backend/fantasy_scoring.py`: per-position points (GK/DEF goals×6, MID×5, FWD×4, assists×3, clean sheets, GK saves /3, MOTM +3, yellow -1, red -3, own goal -2, missed pen -2, minutes 1/2)
+- `POST /api/fantasy/settle/gameweek` walks each squad's starting XI, finds matching `match_events`, aggregates stats, applies captain ×2 / vice ×2 fallback, writes `fantasy_gameweek_points` snapshot, updates squad `total_points`
+- `GET /api/fantasy/squad/me/breakdown` returns latest snapshot
+
+### Phase D — Wallet + Prize Pool Settlement
+- New `user_wallets` + `wallet_transactions` collections
+- `GET /api/wallet/me`, `POST /api/wallet/deposit`, `POST /api/wallet/spend`, `GET /api/wallet/transactions`, `POST /api/wallet/credit-winnings` (admin)
+- `POST /api/prize-pools/{id}/settle` parses payout_structure in BOTH dict and list-of-dicts formats (post-test fix), reads final leaderboard, computes per-rank payouts, writes `prize_pool_winners` with `payout_status='pending'`
+
+### Phase E — Paystack Integration (keys deferred)
+- `/app/backend/routes/payments.py` with `/config`, `/initialize`, `/verify/{ref}`, `/webhook` (HMAC SHA-512 sig verification), `/transfer` (admin payout to user bank)
+- Spending-cap pre-flight on `initialize`
+- `_fulfill()` handles wallet_deposit / card_purchase / card_recharge / premium_sub purposes idempotently
+- Frontend `/payment/callback` page verifies reference on redirect
+- **INTEGRATION PENDING**: needs `PAYSTACK_SECRET_KEY` + `PAYSTACK_PUBLIC_KEY` in `/app/backend/.env`. Endpoints return 503 gracefully without keys.
+
+### Phase F — Compliance Gate
+- `compliance_profiles` collection auto-created on first access
+- `GET /api/compliance/me`, `POST /api/compliance/age-gate` (DOB verified, must be ≥18), `POST /api/compliance/caps` (lowering immediate, raising delayed 24h), `POST /api/compliance/self-exclude`, `GET /api/compliance/can-spend?amount_ngn=…`
+- Defaults: ₦5K/day, ₦20K/month
+- `AgeGateModal` component blocks `/wallet` until verified
+
+### Phase G — Ad System
+- `ad_placements` collection with placement_key + network (admob/adsense/meta/direct) + sponsor fields + date window + weight
+- `GET /api/ads/placements` filters by placement_key + premium subscribers
+- Admin CRUD `POST/PATCH/DELETE /api/ads/placements`
+- Impression + click tracking endpoints
+- `POST /api/ads/reward/claim` for opt-in rewarded video: `card_uses` adds +5 uses to user's most-used card, `prediction_points` adds +50 via synthetic settled row (rate-limited 1/60s)
+- `AdSlot` React component handles direct (image banner) + network (placeholder for AdMob SDK script tag); dismissible; impression+click tracking
+- Seeded sample direct sponsor (MTN Nigeria) for `home_bottom_banner`
+
+### Frontend
+- New pages: `/wallet`, `/payment/callback`
+- New components: `AgeGateModal`, `AdSlot`
+- Predictions header updated to advertise 30/15/10 + stage multipliers + streak bonuses
+- Header dropdown + drawer have Wallet link with Coins icon
+- AdSlot embedded at bottom of Dashboard match list
+
+### Test Results (iteration 5)
+- Backend: **17/18** pytest pass (94%) → after fix, expected 18/18
+- Frontend: routes load, AdSlot renders MTN sponsor, AgeGateModal blocks `/wallet`, regressions clean
+- 1 critical bug found & fixed: prize-pool settle schema mismatch (dict vs list payout_structure) → now handles both
+- Test file: `/app/backend/tests/test_iteration5.py`
+
 ## Iteration 4 — Sofascore MatchRow, Standings, Top Scorers, Cards-per-Game Caps (2026-05-28)
 - ✅ **MatchRow visual rewrite** to mirror Sofascore screenshots: time + status stacked on left (kickoff HH:MM top, FT/HT/minute' below with red color for live), team logos + names stacked vertically (home top / away bottom), scores stacked on right (red for live), thin vertical dividers between cells, **favorite star** at far right with optimistic POST/DELETE to `/api/users/me/favorites/match/{id}`
 - ✅ **Standings endpoint** `GET /api/leagues/{league_id}/standings?refresh=1`: fixed Sportmonks v3 type_id mapping (187=points, 179=goal_diff, 129/130/131/132/133/134) and added `details.type;form;rule` to fetch include — returns position, played, won, drawn, lost, goals_for, goals_against, goal_diff, points, form, team_logo

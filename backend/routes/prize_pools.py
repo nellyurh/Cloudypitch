@@ -44,6 +44,40 @@ async def settle_pool(pool_id: str, admin: dict = Depends(a.require_admin)):
     if total <= 0 or not structure:
         raise HTTPException(status_code=400, detail="Pool has no amount or payout_structure")
 
+    # Accept either list-of-dicts ([{rank_min, rank_max, pct}, ...]) or legacy dict ({"1st":0.40,"4-10":0.20})
+    tiers: list[dict] = []
+    if isinstance(structure, list):
+        for t in structure:
+            if isinstance(t, dict):
+                tiers.append({
+                    "rank_min": int(t.get("rank_min") or 0),
+                    "rank_max": int(t.get("rank_max") or 0),
+                    "pct": float(t.get("pct") or 0),
+                })
+    elif isinstance(structure, dict):
+        ORDINAL_TO_RANK = {"1st": 1, "2nd": 2, "3rd": 3}
+        for key, frac in structure.items():
+            # `frac` is a fraction (0.40) or percentage (40) — we normalise to percentage
+            pct = float(frac) * 100 if float(frac) <= 1 else float(frac)
+            rmin = rmax = None
+            if isinstance(key, str) and "-" in key:
+                parts = key.split("-")
+                try:
+                    rmin, rmax = int(parts[0]), int(parts[1])
+                except ValueError:
+                    continue
+            elif key in ORDINAL_TO_RANK:
+                rmin = rmax = ORDINAL_TO_RANK[key]
+            else:
+                try:
+                    rmin = rmax = int(key)
+                except (ValueError, TypeError):
+                    continue
+            tiers.append({"rank_min": rmin, "rank_max": rmax, "pct": pct})
+
+    if not tiers:
+        raise HTTPException(status_code=400, detail="payout_structure parse failed — invalid format")
+
     # Pull final leaderboard
     if pool_type == "fantasy":
         comp_id = pool.get("competition_id", "fantasy-wc2026")
@@ -64,14 +98,14 @@ async def settle_pool(pool_id: str, admin: dict = Depends(a.require_admin)):
     await db.prize_pool_winners.delete_many({"pool_id": pool_id})
 
     winners = []
-    for tier in structure:
-        rmin = int(tier.get("rank_min") or 0)
-        rmax = int(tier.get("rank_max") or 0)
-        pct = float(tier.get("pct") or 0)
+    for tier in tiers:
+        rmin = tier["rank_min"]
+        rmax = tier["rank_max"]
+        pct = tier["pct"]
         slice_rows = rows[rmin - 1:rmax]
         if not slice_rows:
             continue
-        per_user = int((total * pct / 100.0))
+        per_user = int((total * pct / 100.0) / max(1, len(slice_rows)))
         for offset, r in enumerate(slice_rows):
             rank = rmin + offset
             w = {
