@@ -5,7 +5,13 @@ import { LeagueGroup } from "../components/LeagueGroup";
 import api from "../lib/api";
 import { ChevronLeft, ChevronRight, Calendar, Radio, Filter, Clock, Check } from "lucide-react";
 
-function isoDate(d) { return d.toISOString().slice(0, 10); }
+function isoDate(d) {
+  // Local-date ISO string (avoids UTC drift at midnight in non-UTC timezones)
+  const y = d.getFullYear();
+  const mo = String(d.getMonth() + 1).padStart(2, "0");
+  const da = String(d.getDate()).padStart(2, "0");
+  return `${y}-${mo}-${da}`;
+}
 function dayLabel(d) {
   const today = new Date(); today.setHours(0,0,0,0);
   const t = new Date(d); t.setHours(0,0,0,0);
