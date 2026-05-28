@@ -47,6 +47,22 @@ Three integrated products:
 - ✅ Sportmonks event/stat type IDs mapped to human-readable names (Goal, Yellow Card, Substitution, Ball Possession %, Shots on Target, etc.) via nested `events.type` / `statistics.type` includes + `EVENT_TYPE_NAMES` & `STAT_TYPE_NAMES` fallback dicts in `adapters/sportmonks.py`
 - ✅ `team_id` normalized to `sm-t-{id}` prefix across events/stats/lineups → enables correct home/away split on frontend
 - ✅ Stale-data detection in `GET /api/matches/{id}` auto-refreshes legacy fixtures with numeric type IDs; also supports `?refresh=1` query param + UI refresh button
+- ✅ New EventsList component: home-on-left / away-on-right layout, icons for Goal/Yellow Card/Red Card/Substitution/VAR, sub assist line, minute pill in center
+- ✅ New StatsBars component: Sofascore-style mirrored bar charts, lime fill for winning side, % stats normalised, priority ordering
+- ✅ New LineupPitch component: green pitch with center circle/penalty boxes/goals, player number badges (lime home / white away), formation auto-derived from position_code, full bench list
+- ✅ Verified by testing agent (iteration 2): 100% backend + frontend pass
+
+## Iteration 3 — WC Hub, Predictions/Fantasy UX, Logo Enrichment (2026-05-28)
+- ✅ **World Cup Hub UI** redesigned with 4 tabs (Groups · Knockout · Schedule · Prize Pool): hero banner with large live countdown, 12 group cards (A-L) showing country flags via flagcdn.com + 4 teams + standings table placeholders, full knockout bracket visualization (12 R32 + 8 R16 + QF/SF/Final cards)
+- ✅ **Country flag lookup**: `/app/frontend/src/lib/flags.js` with 45 ISO-3166 alpha-2 codes for WC2026 nations
+- ✅ **Predictions hub UX**: matches grouped by date headers ("Mon, Mar 15"), team logos beside names, score number inputs with kickoff-time pill, Lock icon for locked matches, "Predicted X-Y · Npts" status row, signed-in header shows total points / rank / picks count, leaderboard sidebar highlights current user
+- ✅ **Fantasy hub UX**: live squad stats bar (squad N/15 · starters/11 · bank/spent + budget progress bar), position-colored player pills (GK gold, DEF lime, MID blue, FWD pink), search + position filter, **MiniPitch component** showing starting XI on green pitch with C/V badges, squad list grouped by position with captain star / vice button / remove X per player
+- ✅ **StatPal logo enrichment** (`ingestion._enrich_statpal_logos`): token-set intersection fuzzy matching against existing teams collection — fills missing logos for ~57% of statpal football matches (72/127); auto-runs after each statpal poll. Includes prefix expansion (Atl→Atletico, Ind→Independiente, Dep→Deportivo) and unicode-accent stripping
+- ✅ Verified by testing agent (iteration 3): 100% backend (5/5 pytest) + 100% frontend (all testids + flows)
+- 🧹 Test file added: `/app/backend/tests/test_iteration3.py`
+- ✅ Sportmonks event/stat type IDs mapped to human-readable names (Goal, Yellow Card, Substitution, Ball Possession %, Shots on Target, etc.) via nested `events.type` / `statistics.type` includes + `EVENT_TYPE_NAMES` & `STAT_TYPE_NAMES` fallback dicts in `adapters/sportmonks.py`
+- ✅ `team_id` normalized to `sm-t-{id}` prefix across events/stats/lineups → enables correct home/away split on frontend
+- ✅ Stale-data detection in `GET /api/matches/{id}` auto-refreshes legacy fixtures with numeric type IDs; also supports `?refresh=1` query param + UI refresh button
 - ✅ New EventsList component (`/app/frontend/src/components/match/EventsList.jsx`): home-on-left / away-on-right layout, icons for Goal/Yellow Card/Red Card/Substitution/VAR, sub assist line, minute pill in center
 - ✅ New StatsBars component (`/app/frontend/src/components/match/StatsBars.jsx`): Sofascore-style side-by-side mirrored bar charts, lime fill for winning side, % stats normalised, priority ordering (possession → shots → corners → fouls → cards)
 - ✅ New LineupPitch component (`/app/frontend/src/components/match/LineupPitch.jsx`): green pitch with center circle/penalty boxes/goals, player number badges (lime home / white away), formation auto-derived from position_code row counts (4-3-3 / 4-5-1 etc.), full bench list below
