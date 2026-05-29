@@ -1,13 +1,36 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, useMemo } from "react";
 import { useParams, Link } from "react-router-dom";
 import api from "../lib/api";
 import { ChevronLeft, MapPin, User2, RefreshCw } from "lucide-react";
 import EventsList from "../components/match/EventsList";
 import StatsBars from "../components/match/StatsBars";
 import LineupPitch from "../components/match/LineupPitch";
+import BoxScore from "../components/match/BoxScore";
+import Sets from "../components/match/Sets";
+import Innings from "../components/match/Innings";
 import { AnimatedBrand } from "../components/Brand";
 
-const TABS = ["events", "stats", "lineups", "h2h"];
+/**
+ * Sport-aware tab map. Each sport gets its own tab order + label set so the
+ * Match Detail page renders the right data shape for football / basketball /
+ * tennis / cricket / etc.
+ */
+const SPORT_TABS = {
+  football:          [{ k: "events",   l: "Events" }, { k: "stats", l: "Stats" }, { k: "lineups", l: "Lineups" }, { k: "h2h", l: "H2H" }],
+  basketball:        [{ k: "box",      l: "Box Score" }, { k: "stats", l: "Team Stats" }, { k: "h2h", l: "H2H" }],
+  basketball_nba:    [{ k: "box",      l: "Box Score" }, { k: "stats", l: "Team Stats" }, { k: "h2h", l: "H2H" }],
+  "american-football": [{ k: "box",    l: "Box Score" }, { k: "stats", l: "Team Stats" }, { k: "h2h", l: "H2H" }],
+  tennis:            [{ k: "sets",     l: "Sets" }, { k: "stats", l: "Stats" }, { k: "h2h", l: "H2H" }],
+  volleyball:        [{ k: "sets",     l: "Sets" }, { k: "stats", l: "Stats" }, { k: "h2h", l: "H2H" }],
+  "table-tennis":    [{ k: "sets",     l: "Games" }, { k: "h2h",   l: "H2H" }],
+  badminton:         [{ k: "sets",     l: "Games" }, { k: "h2h",   l: "H2H" }],
+  cricket:           [{ k: "innings",  l: "Innings" }, { k: "h2h", l: "H2H" }],
+  baseball:          [{ k: "box",      l: "Box Score" }, { k: "stats", l: "Stats" }, { k: "h2h", l: "H2H" }],
+  hockey:            [{ k: "box",      l: "Periods" }, { k: "stats", l: "Stats" }, { k: "h2h", l: "H2H" }],
+  rugby:             [{ k: "events",   l: "Events" }, { k: "stats", l: "Stats" }, { k: "h2h", l: "H2H" }],
+  mma:               [{ k: "stats",    l: "Fight Stats" }, { k: "h2h", l: "H2H" }],
+  default:           [{ k: "events",   l: "Events" }, { k: "stats", l: "Stats" }, { k: "h2h", l: "H2H" }],
+};
 
 export const MatchDetail = () => {
   const { id } = useParams();
@@ -16,7 +39,7 @@ export const MatchDetail = () => {
   const [stats, setStats] = useState([]);
   const [lineups, setLineups] = useState([]);
   const [h2h, setH2H] = useState([]);
-  const [tab, setTab] = useState("events");
+  const [tab, setTab] = useState(null);
   const [refreshing, setRefreshing] = useState(false);
 
   const load = async (refresh = false) => {
@@ -40,6 +63,14 @@ export const MatchDetail = () => {
     return () => clearInterval(t);
   }, [id]);
 
+  const sportSlug = m?.sport_slug || "football";
+  const tabs = useMemo(() => SPORT_TABS[sportSlug] || SPORT_TABS.default, [sportSlug]);
+
+  // Initialise tab once the match loads (defaults to first sport tab)
+  useEffect(() => {
+    if (m && !tab) setTab(tabs[0]?.k || "events");
+  }, [m, tab, tabs]);
+
   const handleRefresh = async () => {
     setRefreshing(true);
     await load(true);
@@ -52,7 +83,9 @@ export const MatchDetail = () => {
     </div>
   );
 
-  const finished = ["FT", "AET", "PEN"].includes(m.status);
+  const finished = ["FT", "AET", "PEN", "Ended", "Finished"].includes(m.status);
+  // For tennis/baseball/cricket the "score" line is set count / runs / etc.
+  // The numeric match.home_score / away_score is already normalised across sports.
 
   return (
     <div className="max-w-4xl mx-auto" data-testid="match-detail">
@@ -113,41 +146,26 @@ export const MatchDetail = () => {
       </div>
 
       <div className="flex gap-1 mt-4 cp-surface p-1" data-testid="match-tabs">
-        {TABS.map(t => (
-          <button key={t} onClick={() => setTab(t)} className={`px-3 py-1.5 text-sm rounded transition ${tab === t ? "bg-cp-lime text-cp-forest font-bold" : "hover:bg-white/5"}`} data-testid={`tab-${t}`}>
-            {t.toUpperCase()}
+        {tabs.map(t => (
+          <button key={t.k} onClick={() => setTab(t.k)} className={`px-3 py-1.5 text-sm rounded transition ${tab === t.k ? "bg-cp-lime text-cp-forest font-bold" : "hover:bg-white/5"}`} data-testid={`tab-${t.k}`}>
+            {t.l.toUpperCase()}
           </button>
         ))}
       </div>
 
       <div className="cp-surface mt-3 p-4 min-h-[160px]">
         {tab === "events" && (
-          <EventsList
-            events={events}
-            homeTeamId={m.home_team_id}
-            awayTeamId={m.away_team_id}
-            homeName={m.home_team_name}
-            awayName={m.away_team_name}
-          />
+          <EventsList events={events} homeTeamId={m.home_team_id} awayTeamId={m.away_team_id} homeName={m.home_team_name} awayName={m.away_team_name}/>
         )}
         {tab === "stats" && (
-          <StatsBars
-            statistics={stats}
-            homeTeamId={m.home_team_id}
-            awayTeamId={m.away_team_id}
-            homeName={m.home_team_name}
-            awayName={m.away_team_name}
-          />
+          <StatsBars statistics={stats} homeTeamId={m.home_team_id} awayTeamId={m.away_team_id} homeName={m.home_team_name} awayName={m.away_team_name}/>
         )}
         {tab === "lineups" && (
-          <LineupPitch
-            lineups={lineups}
-            homeTeamId={m.home_team_id}
-            awayTeamId={m.away_team_id}
-            homeName={m.home_team_name}
-            awayName={m.away_team_name}
-          />
+          <LineupPitch lineups={lineups} homeTeamId={m.home_team_id} awayTeamId={m.away_team_id} homeName={m.home_team_name} awayName={m.away_team_name}/>
         )}
+        {tab === "box" && <BoxScore match={m} lineups={lineups}/>}
+        {tab === "sets" && <Sets match={m}/>}
+        {tab === "innings" && <Innings match={m}/>}
         {tab === "h2h" && (
           h2h.length === 0 ? <div className="text-sm" style={{ color: "var(--cp-text-muted)" }}>No prior head-to-head found.</div> :
           <ul className="space-y-1" data-testid="h2h-list">

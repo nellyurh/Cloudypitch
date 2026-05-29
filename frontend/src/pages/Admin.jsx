@@ -79,15 +79,61 @@ export const AdminPanel = () => {
       </div>
 
       {tab === "dashboard" && stats && (
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-          <Card icon={Users} label="Users" value={stats.users}/>
-          <Card icon={Activity} label="Active Sessions" value={stats.active_sessions}/>
-          <Card icon={Database} label="Matches" value={stats.matches}/>
-          <Card icon={Radio} label="Live Now" value={stats.live_matches}/>
-          <Card icon={Database} label="Leagues" value={stats.leagues}/>
-          <Card icon={Database} label="Teams" value={stats.teams}/>
-          <Card icon={Trophy} label="Predictions" value={stats.predictions}/>
-          <Card icon={Trophy} label="Fantasy Squads" value={stats.fantasy_squads}/>
+        <div className="space-y-3">
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+            <Card icon={Users} label="Users" value={stats.users}/>
+            <Card icon={Activity} label="Active Sessions" value={stats.active_sessions}/>
+            <Card icon={Database} label="Matches" value={stats.matches}/>
+            <Card icon={Radio} label="Live Now" value={stats.live_matches}/>
+            <Card icon={Database} label="Leagues" value={stats.leagues}/>
+            <Card icon={Database} label="Teams" value={stats.teams}/>
+            <Card icon={Trophy} label="Predictions" value={stats.predictions}/>
+            <Card icon={Trophy} label="Fantasy Squads" value={stats.fantasy_squads}/>
+          </div>
+          <div className="cp-surface p-4" data-testid="admin-cleanup-card">
+            <h3 className="text-sm font-extrabold mb-1">DB Cleanup</h3>
+            <p className="text-xs mb-3" style={{ color: "var(--cp-text-muted)" }}>
+              Remove cross-provider duplicate matches & merge duplicate league rows. Sportmonks always wins ties.
+            </p>
+            <div className="flex gap-2 flex-wrap">
+              {["football", "basketball", "tennis", "cricket", "baseball", "hockey"].map(sport => (
+                <button
+                  key={sport}
+                  onClick={async () => {
+                    if (!confirm(`Run live duplicate cleanup for ${sport}?`)) return;
+                    setBusy(true);
+                    try {
+                      const { data } = await api.post(`/admin/cleanup/duplicate-matches?sport_slug=${sport}&dry_run=false`);
+                      setMsg(`${sport}: deleted ${data.duplicates_found} dupes from ${data.total_matches_scanned} matches`);
+                    } catch (e) { setMsg(e?.response?.data?.detail || "Cleanup failed"); }
+                    setBusy(false);
+                  }}
+                  disabled={busy}
+                  className="cp-btn-ghost text-xs disabled:opacity-50"
+                  data-testid={`cleanup-${sport}`}
+                >
+                  Dedupe {sport}
+                </button>
+              ))}
+              <button
+                onClick={async () => {
+                  if (!confirm("Merge all duplicate league rows? Matches in losing leagues will be reassigned.")) return;
+                  setBusy(true);
+                  try {
+                    const { data } = await api.post("/admin/cleanup/duplicate-leagues?dry_run=false");
+                    setMsg(`Merged ${data.leagues_merged} leagues across ${data.duplicate_clusters} clusters`);
+                  } catch (e) { setMsg(e?.response?.data?.detail || "Merge failed"); }
+                  setBusy(false);
+                }}
+                disabled={busy}
+                className="cp-btn-primary text-xs disabled:opacity-50"
+                data-testid="cleanup-leagues"
+              >
+                Merge Leagues
+              </button>
+            </div>
+            {msg && <div className="text-xs mt-3 font-mono p-2 rounded" style={{ background: "var(--cp-surface-2)", color: "var(--cp-text-muted)" }}>{msg}</div>}
+          </div>
         </div>
       )}
 

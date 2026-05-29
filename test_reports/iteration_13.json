@@ -1,0 +1,35 @@
+{
+  "summary": "Iteration 13 — sport-aware Match Detail tabs + DB Cleanup endpoints. All 15 pytest assertions PASS in /app/backend/tests/test_iteration13.py (24.4s). Verified end-to-end: (1) Provider rank order sportmonks(100) > manual(80) > apisports(50) > statpal(30) imported from routes.admin_cleanup.PROVIDER_RANK. (2) Auth guard: unauthenticated POST to both /api/admin/cleanup/duplicate-matches and /api/admin/cleanup/duplicate-leagues returns 401/403; non-admin authenticated user returns 403 on both. (3) Admin dry-run /api/admin/cleanup/duplicate-matches?sport_slug=football&dry_run=true returns full report with keys {dry_run:true, sport_slug, total_matches_scanned, duplicates_found, kept, sample[]}; admin/stats matches count is unchanged before/after dry-run. (4) Sample rows contain {delete_id, delete_provider, kept_id, kept_provider}; verified kept_provider rank >= delete_provider rank on a fresh duplicate (Sportmonks wins). (5) Admin dry-run /api/admin/cleanup/duplicate-leagues?dry_run=true returns {dry_run:true, total_leagues_scanned, duplicate_clusters, leagues_merged, sample[]}; admin/stats league count unchanged after dry-run; sample rows contain {delete_league_id, delete_name, kept_league_id, kept_name, matches_reassigned}. (6) Live (dry_run=false) deletion does decrease match count (or stays equal if no dupes remain). (7) Match detail endpoint /api/matches/{id} returns correct sport_slug for the 3 sample IDs (football/basketball/tennis). FRONTEND verified via Playwright: (a) /match/44511de4-79b4-46cd-811f-7679ec806ef1 renders 4 football tabs (tab-events, tab-stats, tab-lineups, tab-h2h) — all clickable. (b) /match/7c7459b1-99d9-4a5c-8e68-98ad4deaff62 renders 3 tennis tabs (tab-sets, tab-stats, tab-h2h); tab-events and tab-lineups absent; Sets-tab fallback text present. (c) /match/878f188e-753e-417f-8953-090cee745f9b renders 3 basketball tabs (tab-box, tab-stats, tab-h2h); Box-tab fallback present. (d) /match/{invalid-id} renders [data-testid='matchdetail-loading'] with cp-loader-wrap/cp-loader-spin loader (unchanged from iteration 12). (e) /admin Dashboard shows [data-testid='admin-cleanup-card'] with all 6 sport-specific dedupe buttons (cleanup-football/basketball/tennis/cricket/baseball/hockey) + cleanup-leagues; clicking each triggers a window.confirm dialog with the expected text ('Run live duplicate cleanup for football?' / 'Merge all duplicate league rows? Matches in losing leagues will be reassigned.').",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "/admin Dashboard DB Cleanup card", "issues": ["Result banner under buttons is reused for non-cleanup actions too — it's the shared `msg` state. Minor — same pattern as other admin tabs, not a bug."]}
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iteration13.py",
+    "/app/test_reports/pytest/iteration13.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "routes/admin_cleanup.py uses native window.confirm() from the frontend (Admin.jsx lines 103, 120) rather than a styled confirm modal — works but inconsistent with the rest of the design system which uses shadcn dialogs. Cosmetic. Non-blocking.",
+    "Admin.jsx DB Cleanup card always invokes dry_run=false on click. There is no UI affordance for an admin to first see a dry-run report. Backend supports it; UI does not. Worth adding a `Dry run` toggle for safety before destructive ops.",
+    "Frontend Admin.jsx shares one `msg` state across ALL admin tabs (ingest, pools, wcconfig, wcgames, cleanup). A success message from one tab can show in another. Minor UX — consider per-card state.",
+    "MatchDetail.jsx SPORT_TABS map covers football/basketball/basketball_nba/american-football/tennis/volleyball/table-tennis/badminton/cricket/baseball/hockey/rugby/mma + default. mma has only 2 tabs (Fight Stats + H2H) — matches the spec. table-tennis/badminton have 2 tabs (Games + H2H), no Stats — intentional per spec.",
+    "BoxScore.jsx / Sets.jsx / Innings.jsx are NEW components; the empty-state fallback text is present and verified in DOM (substring matches 'box-score-empty', 'sets-empty' or similar). Implementation matches spec."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iteration13.py",
+    "/app/test_reports/pytest/iteration13.xml",
+    "/app/test_reports/iteration_13.json"
+  ],
+  "success_rate": {"backend": "100% (15/15)", "frontend": "100% (match tabs + admin cleanup card verified)"},
+  "test_credentials": "Admin: admin@cloudypitch.com / CloudyAdmin2026! (worked). Test user created at runtime via /api/auth/signup with random email — confirmed non-admin 403 on both cleanup endpoints.",
+  "seed_data_creation": "None — created an ephemeral test user via /api/auth/signup for 403 verification; can be cleaned up later.",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Iteration 13 complete. /app/backend/tests/test_iteration13.py has 15 assertions covering PROVIDER_RANK, auth guards, dedup matches dry-run + live, dedup leagues dry-run, and match detail sport_slug. Tests gracefully skip if duplicates are already cleaned. Sample match IDs: football=44511de4-79b4-46cd-811f-7679ec806ef1, basketball=878f188e-753e-417f-8953-090cee745f9b, tennis=7c7459b1-99d9-4a5c-8e68-98ad4deaff62. Match-detail data-testids: matchdetail-loading, match-detail, match-tabs, match-refresh, match-score, match-home-name, match-away-name, tab-events/stats/lineups/h2h/box/sets/innings, h2h-list. Admin cleanup data-testids: admin-cleanup-card, cleanup-{football,basketball,tennis,cricket,baseball,hockey}, cleanup-leagues. The cleanup buttons currently call dry_run=false directly (no UI dry-run preview) — flagged as a UX improvement.",
+  "rca_of_the_issue": "N/A — no bugs found. Implementation matches spec across all 9 listed test items."
+}
