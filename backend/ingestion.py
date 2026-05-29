@@ -1504,15 +1504,16 @@ async def generate_wc_games() -> int:
             continue
         # All matches where BOTH teams are in this group
         group_matches = [m for m in sorted_wc if m.get("home_team_id") in tids and m.get("away_team_id") in tids]
-        group_matches.sort(key=lambda m: m.get("scheduled_at") or "")
-        # Group into matchdays of 2 matches each
+        group_matches.sort(key=lambda m: m.get("scheduled_at") or "")        # Group into matchdays of 2 matches each
         matchdays: list[list[dict]] = []
         cur: list[dict] = []
         for m in group_matches:
             cur.append(m)
             if len(cur) == 2:
-                matchdays.append(cur); cur = []
-        if cur: matchdays.append(cur)
+                matchdays.append(cur)
+                cur = []
+        if cur:
+            matchdays.append(cur)
         for idx, day_matches in enumerate(matchdays[:3], start=1):
             stage = f"group_md{idx}"
             cfg = cfg_by.get(("group", stage))
@@ -1545,21 +1546,30 @@ async def generate_wc_games() -> int:
     for m in sorted_wc:
         for tid in (m.get("home_team_id"), m.get("away_team_id")):
             if tid and tid not in seen_t:
-                seen_t.add(tid); all_team_ids.append(tid)
+                seen_t.add(tid)
+                all_team_ids.append(tid)
     # Stage → (anchor function over sorted_wc, opens_hours_before fallback)
     # Group stages: anchor at first match of MD1/2/3 chunk
     stage_anchors: dict[str, str] = {}
     if sorted_wc:
         try:
             # MD1 → match[0], MD2 → match[24], MD3 → match[48], R32 → match[72]…
-            if len(sorted_wc) > 0:  stage_anchors["group_md1"] = sorted_wc[0]["scheduled_at"]
-            if len(sorted_wc) > 24: stage_anchors["group_md2"] = sorted_wc[24]["scheduled_at"]
-            if len(sorted_wc) > 48: stage_anchors["group_md3"] = sorted_wc[48]["scheduled_at"]
-            if len(sorted_wc) > 72: stage_anchors["r32"]       = sorted_wc[72]["scheduled_at"]
-            if len(sorted_wc) > 88: stage_anchors["r16"]       = sorted_wc[88]["scheduled_at"]
-            if len(sorted_wc) > 96: stage_anchors["qf"]        = sorted_wc[96]["scheduled_at"]
-            if len(sorted_wc) > 100: stage_anchors["sf"]       = sorted_wc[100]["scheduled_at"]
-            if len(sorted_wc) > 102: stage_anchors["finals"]   = sorted_wc[102]["scheduled_at"]
+            if len(sorted_wc) > 0:
+                stage_anchors["group_md1"] = sorted_wc[0]["scheduled_at"]
+            if len(sorted_wc) > 24:
+                stage_anchors["group_md2"] = sorted_wc[24]["scheduled_at"]
+            if len(sorted_wc) > 48:
+                stage_anchors["group_md3"] = sorted_wc[48]["scheduled_at"]
+            if len(sorted_wc) > 72:
+                stage_anchors["r32"] = sorted_wc[72]["scheduled_at"]
+            if len(sorted_wc) > 88:
+                stage_anchors["r16"] = sorted_wc[88]["scheduled_at"]
+            if len(sorted_wc) > 96:
+                stage_anchors["qf"] = sorted_wc[96]["scheduled_at"]
+            if len(sorted_wc) > 100:
+                stage_anchors["sf"] = sorted_wc[100]["scheduled_at"]
+            if len(sorted_wc) > 102:
+                stage_anchors["finals"] = sorted_wc[102]["scheduled_at"]
         except Exception:
             pass
     for stage, anchor_iso in stage_anchors.items():

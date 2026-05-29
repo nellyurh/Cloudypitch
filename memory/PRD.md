@@ -52,6 +52,30 @@ Three integrated products:
 - ✅ New LineupPitch component: green pitch with center circle/penalty boxes/goals, player number badges (lime home / white away), formation auto-derived from position_code, full bench list
 - ✅ Verified by testing agent (iteration 2): 100% backend + frontend pass
 
+## Iteration 10 — Real WC2026 Schedule from Sportmonks + Card Per-Game Uniqueness (2026-05-29)
+
+### Bug fix: WC schedule was pulling ALL historical seasons
+- `sync_sportmonks_league_schedule(league_id)` was using `fixtureLeagues:{id}` filter which returned every season ever played in that league (league 732 yields 2006/2010/2014/2018/2022 + 2026). DB was filled with 125 historical fixtures and 134 wc_games dated 2006-2022.
+- Fix: First resolve `currentseason.id` via `fetch_league_detail(league_id)` (returns 26618 for WC2026), then call NEW adapter `fetch_fixtures_by_season(26618)` using `/seasons/{id}?include=fixtures.*` which returns exactly the 104 WC2026 fixtures. All matches stamped with `sportmonks_season_id=26618`, `competition_id=wc-2026`, `is_world_cup=true`.
+- Result: WC Hub Schedule tab now shows the REAL opener (Mexico vs South Africa · 2026-06-11 19:00 · Estadio Banorte), Brazil vs Morocco, USA vs Paraguay, Canada vs Bosnia, Germany — flags, venues, kickoff all correct.
+
+### Card uniqueness per game entry
+- `POST /api/wc/games/{id}/enter` — added duplicate-card-id detection: if `cards_used[]` contains the same `user_card_id` more than once, returns `400 "Each card can only be used once per game"`. Enforces the requirement that each card has one use per game.
+
+### Round-game generator coverage upgraded 3→8 stages
+- `generate_wc_games()` previously only created round games for `group_md1/2/3`. Now anchors all 8 stages chronologically from the sorted fixture list: group_md1 → match[0], md2 → match[24], md3 → match[48], r32 → match[72], r16 → match[88], qf → match[96], sf → match[100], finals → match[102]. Card limits: 5/5/6/6/7/8/9/10 as specified.
+
+### Group games — dynamic clustering
+- Group resolver was matching the (stale) seed `wc2026_groups.teams[]` against db.teams by name. Since the real FIFA draw shifts, the seed-based matcher returned 0 hits in many cases. Fix: derive groups DYNAMICALLY by pairing consecutive MD1 fixtures (each group plays 2 matches on MD1) and clustering the 4 teams. Falls back to seeded groups if dynamic clustering fails.
+
+### Admin Generate-Tick button enhanced
+- `/api/admin/wc/refresh-bracket` now runs the full pipeline: Sportmonks pull → generator → state tick. Returns `{ingested, created, transitions}`.
+
+### Results: 104 Match games + 12 Group MD1 + 3 Group MD2/3 + 8 Round games = **130/148 wc_games created** automatically. MD2/3 group games fill in as sportmonks provides resolved participants for those days.
+
+### Test Results (iteration 10)
+- Backend: **7/7 pass** · Frontend: **6/6 pass** · No retest needed
+
 ## Iteration 9 — User-Driven Restructure (2026-05-29)
 
 User feedback batch — all resolved:
