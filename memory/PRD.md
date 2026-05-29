@@ -52,6 +52,49 @@ Three integrated products:
 - ✅ New LineupPitch component: green pitch with center circle/penalty boxes/goals, player number badges (lime home / white away), formation auto-derived from position_code, full bench list
 - ✅ Verified by testing agent (iteration 2): 100% backend + frontend pass
 
+## Iteration 8 — WC Fantasy Game Structure (148 games) + Auth-extras UI + Premium Tabs + Admin (2026-05-29)
+
+### NEW — WC2026 Fantasy Game System (148 games)
+Three game types now live, end-to-end:
+  - **Match Game** (104 total): pick 11 from both teams, 2 cards default
+  - **Group Game** (36 total = 12 groups × 3 matchdays): pick 11 from 4 teams, 4 cards
+  - **Round Game** (8 total): pick 11 from all teams alive, 5→10 cards by stage, 1.0×→4.0× multiplier
+
+**Collections added:**
+- `wc_game_config` — 12 default rows (seeded idempotently in `seed_data.py`). Admin-editable card limits + multipliers + opens_hours_before.
+- `wc_games` — auto-generated per match/group/round with status machine (`upcoming → open → closed → settling → settled`).
+- `wc_game_entries` — user picks (11 players + captain/vice + cards_used).
+
+**Cron added (in `ingestion.py`):**
+- `wc_games_generator_loop` — daily generator (runs once at boot, then every 24h)
+- `wc_games_state_loop` — 5-minute state-machine tick
+
+**Routes (`/app/backend/routes/wc_games.py`):**
+- USER: `GET /api/wc/games/today | upcoming | {id} | {id}/leaderboard`, `POST /api/wc/games/{id}/enter`, `GET /api/wc/user/entries | wc/groups | wc/leaderboard/overall`
+- ADMIN: `GET/PATCH /api/admin/wc/config`, `POST /api/admin/wc/config/reset`, `GET/PATCH /api/admin/wc/games/{id}`, `PATCH /api/admin/wc/groups/{letter}`, `POST /api/admin/wc/refresh-bracket`
+
+**Frontend:**
+- New `/wc/games` page (`WcGames.jsx`) with Open Now / Upcoming tabs, GameCard, GameEntryView modal with position-grouped 11-pick interface + card multi-select up to stage cap
+- Header nav + mobile drawer link "WC Games"
+- Admin POOLS tab: inline pool editor (title, USD cents, payout structure JSON, start/end ISO) hooked to `PATCH /api/prize-pools/{id}`; one-click "Settle"
+- Admin WCCONFIG tab: 12-row table inline editor for card_limit_current / points_multiplier / opens_hours_before / is_active + "Reset to Defaults" button
+- Admin WCGAMES tab: filterable game list (type/status) with status-override dropdown + "Generate / Tick" button
+
+### Email verification + password reset + KYC UI
+- New pages: `/forgot-password`, `/reset-password?token=…`, `/verify-email?token=…`
+- "Forgot password?" link added to SignIn
+- New `KycModal` component on Wallet page collecting legal name, DOB, bank name, account, optional BVN — submits to `/api/auth-extras/kyc/submit`
+- `RewardedVideoButton` wired in Wallet (card_uses reward) + Predictions sidebar (prediction_points reward)
+
+### Premium-only side leaderboard + early predictions window
+- `/predictions` sidebar now has 3 tabs: Global / Weekly / **Premium** (premium-only — uses existing `scope=premium` backend filter)
+- Premium subscribers already get 14-day prediction horizon vs. 7-day for free users (existing backend)
+
+### Test Results (iteration 8)
+- Backend: **28/28 pass** (testing_agent_v3_fork iteration 8)
+- Frontend: All pages render correctly, no critical bugs, no retest needed
+- WC fixture ingestion for league 732 confirmed via `sync_sportmonks_league_schedule(732)` — 125 historical WC matches ingested + 134 wc_games rows auto-generated
+
 ## Iteration 7 — WC-Only, Referrals, USD Pricing, Pool Funding, Admin Pool Editing (2026-05-29)
 
 ### Scope changes
