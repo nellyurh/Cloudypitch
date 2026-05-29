@@ -4,7 +4,8 @@ import { useAuth, formatApiErr } from "../lib/auth";
 import { Link } from "react-router-dom";
 import { Crown, Check, X, ShieldCheck, AlertTriangle } from "lucide-react";
 
-const PREMIUM_PRICE_NGN = 2000;
+const PREMIUM_PRICE_USD_CENTS = 200; // $2.00
+const PREMIUM_PRICE_DISPLAY = "$2.00";
 const PREMIUM_FEATURES = [
   { name: "Zero ads", desc: "No banners, interstitials, or sponsor cards anywhere", on: ["premium"], off: ["free"] },
   { name: "Priority match polling", desc: "Live scores update at 5s rate instead of 15s for free", on: ["premium"], off: ["free"] },
@@ -35,8 +36,9 @@ export const PremiumPage = () => {
     if (!user) { window.location.href = "/signin"; return; }
     setBusy(true); setErr("");
     try {
-      // Compliance check first — premium subscribe is a real-money transaction
-      const check = await api.get(`/compliance/can-spend?amount_ngn=${PREMIUM_PRICE_NGN}`);
+      // Compliance check first — premium subscribe is a real-money transaction.
+      // We pass the USD-cent amount to the backend cap check (cents are tracked in wallet ledger).
+      const check = await api.get(`/compliance/can-spend?amount_ngn=${PREMIUM_PRICE_USD_CENTS}`);
       if (!check.data.ok) {
         setErr(check.data.reason || "Cannot proceed");
         setBusy(false);
@@ -45,7 +47,7 @@ export const PremiumPage = () => {
       const callback_url = `${window.location.origin}/payment/callback`;
       const { data } = await api.post("/payments/paystack/initialize", {
         purpose: "premium_sub",
-        amount_ngn: PREMIUM_PRICE_NGN,
+        amount_ngn: PREMIUM_PRICE_USD_CENTS,
         callback_url,
       });
       window.location.href = data.authorization_url;
@@ -75,7 +77,7 @@ export const PremiumPage = () => {
             Get the smoothest Cloudy Pitch experience — zero ads, priority polling, 5 weekly card-uses on the house, and exclusive Premium pools.
           </p>
           <div className="flex items-baseline gap-2 mt-5">
-            <span className="text-4xl font-extrabold text-cp-lime">₦{PREMIUM_PRICE_NGN.toLocaleString()}</span>
+            <span className="text-4xl font-extrabold text-cp-lime">{PREMIUM_PRICE_DISPLAY}</span>
             <span className="text-base" style={{ color: "rgba(255,255,255,0.7)" }}>/ month</span>
           </div>
           {isPremium ? (
@@ -90,7 +92,7 @@ export const PremiumPage = () => {
                 className="cp-btn-primary text-base px-6 py-2.5"
                 data-testid="premium-subscribe"
               >
-                {busy ? "Initialising…" : `Subscribe for ₦${PREMIUM_PRICE_NGN.toLocaleString()}/mo`}
+                {busy ? "Initialising…" : `Subscribe for ${PREMIUM_PRICE_DISPLAY}/mo`}
               </button>
               {!paystackConfigured && (
                 <div className="mt-2 text-xs inline-flex items-center gap-1" style={{ color: "#FBBF24" }}>

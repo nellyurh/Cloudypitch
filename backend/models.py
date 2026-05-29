@@ -16,6 +16,7 @@ class SignupIn(BaseModel):
     password: str = Field(min_length=8, max_length=128)
     display_name: str = Field(min_length=2, max_length=64)
     country_code: Optional[str] = None
+    referral_code: Optional[str] = None
 
 
 class SigninIn(BaseModel):
@@ -84,6 +85,7 @@ def public_user(user: dict | None) -> dict | None:
         "is_active": user.get("is_active", True),
         "is_premium": user.get("is_premium", False),
         "premium_until": user.get("premium_until"),
+        "referral_code": user.get("referral_code"),
         "created_at": user.get("created_at"),
         "last_login_at": user.get("last_login_at"),
     }

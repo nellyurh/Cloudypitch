@@ -10,7 +10,7 @@ export const Layout = ({ children }) => {
         {children}
       </main>
       <footer className="max-w-[1400px] mx-auto px-3 md:px-5 py-6 text-xs hidden lg:block" style={{ color: "var(--cp-text-muted)" }}>
-        © 2026 Cloudy Pitch · Built in Lagos · v1.0
+        © 2026 Cloudy Pitch · Global Football, Predictions & Fantasy
       </footer>
       <BottomNav />
     </div>

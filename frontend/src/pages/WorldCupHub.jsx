@@ -247,7 +247,7 @@ export const WorldCupHub = () => {
                 <div className="flex-1">
                   <div className="text-[10px] uppercase tracking-widest" style={{ color: "var(--cp-text-muted)" }}>Grand Prize Pool</div>
                   <div className="text-lg font-bold">{data.prize_pool.title}</div>
-                  <div className="text-3xl font-extrabold text-cp-lime mt-1">₦{(data.prize_pool.amount_total_ngn || 0).toLocaleString()}</div>
+                  <div className="text-3xl font-extrabold text-cp-lime mt-1">${(((data.prize_pool.amount_usd_cents || 0) / 100)).toLocaleString(undefined, { minimumFractionDigits: 2 })}</div>
                 </div>
                 <Link to={`/prize-pool/${data.prize_pool.id}`} className="cp-btn-primary" data-testid="wc-prize-cta">View Payouts</Link>
               </div>

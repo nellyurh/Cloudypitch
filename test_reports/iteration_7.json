@@ -1,0 +1,43 @@
+{
+  "summary": "Iteration 7 end-to-end test of USD pricing, WC-only predictions, referral system, prize-pool admin PATCH + contributions, signup w/ ref code, and frontend USD conversion. 15/15 backend tests PASS. Frontend mostly PASS — all USD conversion (cards, wallet, premium) works; referrals signed-in page works (code, copy, stat cards INVITED/ACTIVE/SPEND/CREDIT); footer Lagos removed; WC-only predictions empty state correct; mobile drawer has Invite & Earn. Minor: the path mentioned in the requirements is `/legend-cards` but the actual registered route in App.js is `/cards` (header link uses /cards correctly). No critical bugs found.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [
+      {"component": "Route path mismatch", "issue": "Requirements/header label uses 'Legend Cards' and request specifies path '/legend-cards', but App.js only registers '/cards'. Direct navigation to '/legend-cards' shows React Router warning 'No routes matched location /legend-cards' — page renders empty (only header + footer + InterstitialAd). The header anchor itself correctly routes to '/cards'.", "selector": "/legend-cards", "priority": "LOW"},
+      {"component": "PrizePool ($5,000) display formatting", "issue": "Referral pool shows '$5000.00' without thousands separator. Cosmetic; spec says $5,000.", "selector": "[data-testid='referral-leaderboard'] pool amount", "priority": "LOW"},
+      {"component": "InterstitialAd modal", "issue": "Bet9ja interstitial overlays the page on EVERY navigation and intercepts clicks on form submit buttons (signin form unable to submit while open). Auto-dismiss is needed or it should not appear on signin/auth flows. Tests had to bypass by using the /api/auth/signin endpoint directly.", "selector": "[data-testid='interstitial-ad']", "priority": "MEDIUM"}
+    ],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iteration7.py",
+    "/app/test_reports/pytest/iteration7.xml"
+  ],
+  "action_items": [
+    "Either add '/legend-cards' as an alias route in App.js, or update requirement docs to use '/cards' (preferred since header already links to /cards).",
+    "Format USD amounts with thousands separator in PrizePool display (e.g. '$5,000.00' not '$5000.00').",
+    "Consider not showing the Bet9ja InterstitialAd on /signin and /signup, or auto-dismiss after timeout — it currently blocks user form submission.",
+    "(Optional) Add data-testid='menu-referrals' on the desktop header dropdown link to /referrals (only data-testid='drawer-referrals' is currently rendered for mobile)."
+  ],
+  "critical_code_review_comments": [
+    "Backend code looks solid — pool contribution math (50%) and referrer credit (10%) verified via Create→GET pattern with delta assertions on amount_usd_cents.",
+    "public_user model correctly exposes referral_code (8-char Crockford Base32, verified subset of '23456789ABCDEFGHJKMNPQRSTUVWXYZ').",
+    "Predictions endpoint correctly returns scope='world_cup_2026' and 403 on POST to non-WC matches with detail 'Predictions are only available for FIFA World Cup 2026 matches.'",
+    "Admin PATCH /api/prize-pools/:id correctly enforces auth (non-admin gets 401/403) and persists amount_usd_cents + payout_structure (list form).",
+    "Frontend referral page is well-built: copies code, stat cards render INVITED/ACTIVE/THEIR SPEND/CREDIT with USD formatting."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iteration7.py (new file, 15 pytest cases — kept the existing test_iteration3.py / test_iteration5.py / backend_test.py untouched)"
+  ],
+  "success_rate": {"backend": "100%", "frontend": "95%"},
+  "test_credentials": "admin@cloudypitch.com / CloudyAdmin2026!  (also created ephemeral testuser-<hex>@example.com / TestPass123! during tests)",
+  "seed_data_creation": "Test runs create 1-2 testuser-<hex>@example.com accounts per session via signup with referral_code; 2-3 TEST_REF_* and TEST_RC_* card_transactions / contributions rows; modifies pool-wc2026-fantasy.amount_usd_cents (test PATCH set it to 5,000,000 cents = $50,000). Recommend admin cleanup if needed.",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "All 15 backend tests in /app/backend/tests/test_iteration7.py pass. Backend signin endpoint is POST /api/auth/signin (NOT /login). /api/auth/me returns {'user': {...}} not the user directly — unwrap via .get('user'). The /legend-cards path mentioned in iteration 7 spec doesn't exist — use /cards. The InterstitialAd consistently blocks UI form submits in Playwright — best to use page.request.post on /api/auth/signin to establish session cookie, then navigate. Pool-referrals seed exists with amount_usd_cents=500000. Referral code format is 8-char Crockford Base32 ('23456789ABCDEFGHJKMNPQRSTUVWXYZ').",
+  "rca_of_the_issue": "The /legend-cards 'empty page' observed during testing is NOT a real bug — it's a path that was never registered in App.js. The Legend Cards page is registered at /cards. React Router silently rendered Layout + InterstitialAd when no route matched. Confirmed by grep: line 42 of /app/frontend/src/App.js: <Route path='/cards' element={<LegendCards />} />."
+}

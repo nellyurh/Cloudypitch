@@ -22,6 +22,7 @@ import { AdminPanel } from "./pages/Admin";
 import { WalletPage } from "./pages/Wallet";
 import { PaymentCallback } from "./pages/PaymentCallback";
 import { PremiumPage } from "./pages/Premium";
+import { ReferralsPage } from "./pages/Referrals";
 import { InterstitialAd } from "./components/InterstitialAd";
 
 function App() {
@@ -49,6 +50,7 @@ function App() {
               <Route path="/admin" element={<AdminPanel />} />
               <Route path="/wallet" element={<WalletPage />} />
               <Route path="/premium" element={<PremiumPage />} />
+              <Route path="/referrals" element={<ReferralsPage />} />
               <Route path="/payment/callback" element={<PaymentCallback />} />
             </Routes>
             <InterstitialAd />

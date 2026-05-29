@@ -35,13 +35,31 @@ def _outcome(h: int, a: int) -> str:
     return "D"
 
 
+# Sportmonks league IDs that count as "World Cup 2026" matches
+# 732 = FIFA World Cup 2026 (qualifiers + finals).
+# For dev/staging we also accept any league flagged `is_world_cup=true`.
+WC_SPORTMONKS_LEAGUE_IDS = [732]
+
+
+def _wc_match_filter() -> dict:
+    """Mongo filter clause that matches ONLY World Cup matches."""
+    return {
+        "sport_slug": "football",
+        "$or": [
+            {"is_world_cup": True},
+            {"league_id": {"$in": [f"sm-l-{lid}" for lid in WC_SPORTMONKS_LEAGUE_IDS]}},
+            {"sportmonks_league_id": {"$in": WC_SPORTMONKS_LEAGUE_IDS}},
+            {"competition_id": "wc-2026"},
+        ],
+    }
+
+
 @router.get("/upcoming")
 async def upcoming_for_user(limit: int = 50, user: dict = Depends(a.get_optional_user)):
     db = get_db()
-    rows = await db.matches.find(
-        {"status": {"$in": ["NS", "TBD"]}, "sport_slug": "football"},
-        {"_id": 0, "raw_data": 0},
-    ).sort("scheduled_at", 1).to_list(length=limit)
+    base = _wc_match_filter()
+    base["status"] = {"$in": ["NS", "TBD"]}
+    rows = await db.matches.find(base, {"_id": 0, "raw_data": 0}).sort("scheduled_at", 1).to_list(length=limit)
     if user:
         ids = [m["id"] for m in rows]
         preds = await db.predictions.find(
@@ -50,7 +68,7 @@ async def upcoming_for_user(limit: int = 50, user: dict = Depends(a.get_optional
         by_match = {p["match_id"]: p for p in preds}
         for m in rows:
             m["my_prediction"] = by_match.get(m["id"])
-    return {"matches": rows}
+    return {"matches": rows, "scope": "world_cup_2026"}
 
 
 @router.post("")
@@ -59,6 +77,15 @@ async def submit_prediction(payload: PredictionWithCardsIn, user: dict = Depends
     m = await db.matches.find_one({"id": payload.match_id}, {"_id": 0})
     if not m:
         raise HTTPException(status_code=404, detail="Match not found")
+    # WC-only enforcement
+    is_wc = (
+        m.get("is_world_cup")
+        or m.get("competition_id") == "wc-2026"
+        or m.get("sportmonks_league_id") in WC_SPORTMONKS_LEAGUE_IDS
+        or m.get("league_id") in [f"sm-l-{lid}" for lid in WC_SPORTMONKS_LEAGUE_IDS]
+    )
+    if not is_wc:
+        raise HTTPException(status_code=403, detail="Predictions are only available for FIFA World Cup 2026 matches.")
     if m.get("status") not in ("NS", "TBD"):
         raise HTTPException(status_code=400, detail="Predictions closed for this match")
 

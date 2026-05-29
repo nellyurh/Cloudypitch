@@ -2,12 +2,53 @@
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException
+from pydantic import BaseModel, Field
 
 import auth as a
 from db import get_db
 from models import new_id
 
 router = APIRouter(prefix="/api/prize-pools", tags=["prize-pools"])
+
+
+class PoolPatch(BaseModel):
+    title: str | None = None
+    description: str | None = None
+    amount_usd_cents: int | None = Field(default=None, ge=0)
+    amount_total_ngn: int | None = Field(default=None, ge=0)
+    payout_structure: list | dict | None = None
+    starts_at: str | None = None
+    ends_at: str | None = None
+    is_active: bool | None = None
+
+
+@router.patch("/{pool_id}")
+async def admin_update_pool(pool_id: str, body: PoolPatch, admin: dict = Depends(a.require_admin)):
+    db = get_db()
+    upd = {k: v for k, v in body.model_dump().items() if v is not None}
+    if not upd:
+        raise HTTPException(status_code=400, detail="No fields to update")
+    upd["updated_at"] = datetime.now(timezone.utc).isoformat()
+    res = await db.prize_pools.update_one({"id": pool_id}, {"$set": upd})
+    if res.matched_count == 0:
+        raise HTTPException(status_code=404, detail="Pool not found")
+    pool = await db.prize_pools.find_one({"id": pool_id}, {"_id": 0})
+    return {"ok": True, "pool": pool}
+
+
+@router.get("/{pool_id}/contributions")
+async def pool_contributions(pool_id: str, limit: int = 50, admin: dict = Depends(a.require_admin)):
+    """Audit log of all incoming card-revenue contributions to this pool."""
+    db = get_db()
+    rows = await db.prize_pool_contributions.find(
+        {"pool_id": pool_id}, {"_id": 0},
+    ).sort("created_at", -1).limit(limit).to_list(length=limit)
+    total = await db.prize_pool_contributions.aggregate([
+        {"$match": {"pool_id": pool_id}},
+        {"$group": {"_id": None, "total": {"$sum": "$amount_usd_cents"}, "count": {"$sum": 1}}},
+    ]).to_list(length=1)
+    summary = total[0] if total else {"total": 0, "count": 0}
+    return {"contributions": rows, "total_usd_cents": summary["total"], "count": summary["count"]}
 
 
 @router.get("")

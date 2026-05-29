@@ -107,7 +107,7 @@ export const RightRail = () => {
             <div className="flex-1">
               <div className="text-[10px] uppercase tracking-widest" style={{ color: "var(--cp-text-muted)" }}>Featured Prize Pool</div>
               <div className="text-sm font-bold leading-tight mt-0.5">{pool.title}</div>
-              <div className="text-xl font-extrabold mt-1 text-cp-lime">₦{(pool.amount_total_ngn || 0).toLocaleString()}</div>
+              <div className="text-xl font-extrabold mt-1 text-cp-lime">${(((pool.amount_usd_cents || 0) / 100)).toLocaleString(undefined, { minimumFractionDigits: 2 })}</div>
             </div>
             <ChevronRight size={16} className="mt-1" />
           </div>

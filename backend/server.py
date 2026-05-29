@@ -30,6 +30,7 @@ from routes.prize_pools import router as pools_router
 from routes.profile import router as profile_router
 from routes.search import router as search_router
 from routes.admin import router as admin_router
+from routes.referrals import router as referrals_router
 from routes.wallet import router as wallet_router
 from routes.compliance import router as compliance_router
 from routes.ads import router as ads_router
@@ -95,5 +96,6 @@ for r in (auth_router, catalog_router, matches_router, worldcup_router,
           predictions_router, fantasy_router, cards_router, card_usage_router,
           leagues_router, pools_router,
           profile_router, search_router, admin_router,
-          wallet_router, compliance_router, ads_router, payments_router):
+          wallet_router, compliance_router, ads_router, payments_router,
+          referrals_router):
     app.include_router(r)

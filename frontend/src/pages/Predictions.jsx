@@ -94,12 +94,12 @@ export const PredictionsHub = () => {
       <div>
         <div className="cp-surface p-4 mb-3 flex flex-wrap items-center gap-3 justify-between">
           <div>
-            <div className="text-[10px] uppercase tracking-widest" style={{ color: "var(--cp-text-muted)" }}>Predictions</div>
+            <div className="text-[10px] uppercase tracking-widest" style={{ color: "var(--cp-text-muted)" }}>FIFA World Cup 2026 · Predictions</div>
             <h1 className="text-xl font-extrabold tracking-tight mt-0.5">Make Your Picks</h1>
             <div className="text-[11px] mt-1" style={{ color: "var(--cp-text-muted)" }}>
               <span className="text-cp-lime font-bold">30 pts</span> exact · <span className="text-cp-lime font-bold">15 pts</span> goal diff · <span className="text-cp-lime font-bold">10 pts</span> outcome
               <br/>
-              <span className="opacity-80">WC stage × up to 4.0 · 3-correct streak +10 · 5-streak +25 · 10-streak +100</span>
+              <span className="opacity-80">WC stage × up to 4.0 · 3-streak +10 · 5-streak +25 · 10-streak +100 · Apply boost cards for additional %</span>
             </div>
           </div>
           {user ? (
@@ -125,7 +125,15 @@ export const PredictionsHub = () => {
         </div>
 
         {err && <div className="cp-surface p-3 text-sm mb-3 flex items-center gap-2" style={{ borderColor: "#FF3D52", color: "#FF3D52" }}><AlertTriangle size={14}/>{err}</div>}
-        {matches.length === 0 && <div className="cp-surface p-6 text-sm" style={{ color: "var(--cp-text-muted)" }}>No upcoming matches yet. Check back soon.</div>}
+        {matches.length === 0 && (
+          <div className="cp-surface p-8 text-center" data-testid="predictions-empty">
+            <Trophy size={36} className="mx-auto text-cp-lime opacity-60"/>
+            <h3 className="text-base font-bold mt-3">FIFA WC 2026 fixtures load on draw day</h3>
+            <p className="text-xs mt-1 max-w-md mx-auto" style={{ color: "var(--cp-text-muted)" }}>
+              Predictions are available exclusively for World Cup 2026 matches. The first batch of fixtures will appear here when FIFA publishes the official draw.
+            </p>
+          </div>
+        )}
 
         <div className="space-y-4">
           {grouped.map(([date, list]) => (

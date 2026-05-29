@@ -61,9 +61,13 @@ def league_tier_score(name: str) -> int:
 
 # ===== Legend Cards Catalog (100 cards) =====
 def _card(name, player_name, country, tier, price, effect_type, effect_value, description, image_url=""):
+    # Pricing in USD cents (stored as integer to avoid float issues). $2 = 200, $1 = 100, $0.50 = 50.
+    USD_BY_TIER = {1: 200, 2: 100, 3: 50}
     return {
         "id": new_id(), "name": name, "player_name": player_name,
-        "country_code": country, "tier": tier, "price_ngn": price,
+        "country_code": country, "tier": tier,
+        "price_ngn": price,                          # legacy field, kept for back-compat
+        "price_usd_cents": USD_BY_TIER.get(tier, 50),
         "effect_type": effect_type, "effect_value": effect_value,
         "description": description, "image_url": image_url,
     }
@@ -220,25 +224,36 @@ PRIZE_POOLS = [
         "id": "pool-wc2026-fantasy",
         "kind": "fantasy_wc2026",
         "competition_id": "fantasy-wc2026",
-        "title": "FIFA WC 2026 Grand Fantasy Pool",
+        "title": "FIFA WC 2026 Grand Prize Pool",
         "amount_total_ngn": 50_000_000,
-        "currency": "NGN",
-        "payout_structure": {"1st": 0.30, "2nd": 0.15, "3rd": 0.10, "4-10": 0.20, "11-100": 0.25},
+        "amount_usd_cents": 3_000_000,   # $30,000 seed; auto-grows from card revenue
+        "currency": "USD",
+        "payout_structure": [
+            {"rank_min": 1, "rank_max": 1, "pct": 40},
+            {"rank_min": 2, "rank_max": 3, "pct": 15},
+            {"rank_min": 4, "rank_max": 10, "pct": 3},
+            {"rank_min": 11, "rank_max": 100, "pct": 0.1},
+        ],
         "starts_at": "2026-06-11T18:00:00+00:00",
         "ends_at": "2026-07-19T22:00:00+00:00",
         "status": "upcoming",
         "image_url": "https://images.unsplash.com/photo-1705593973313-75de7bf95b56?crop=entropy&cs=srgb&fm=jpg&ixid=M3w3NTY2NjZ8MHwxfHNlYXJjaHwxfHxmb290YmFsbCUyMHN0YWRpdW0lMjBjcm93ZHxlbnwwfHx8fDE3Nzk5MTk4MTF8MA&ixlib=rb-4.1.0&q=85",
     },
     {
-        "id": "pool-weekly-predictions",
-        "kind": "predictions_weekly",
+        "id": "pool-referrals",
+        "kind": "referrals",
         "competition_id": None,
-        "title": "Weekly Predictions Jackpot",
-        "amount_total_ngn": 500_000,
-        "currency": "NGN",
-        "payout_structure": {"1st": 0.50, "2nd": 0.25, "3rd": 0.15, "4-10": 0.10},
+        "title": "Referral Champions Pool",
+        "amount_total_ngn": 0,
+        "amount_usd_cents": 500_000,   # $5,000 seed
+        "currency": "USD",
+        "payout_structure": [
+            {"rank_min": 1, "rank_max": 1, "pct": 40},
+            {"rank_min": 2, "rank_max": 3, "pct": 15},
+            {"rank_min": 4, "rank_max": 10, "pct": 3},
+        ],
         "starts_at": "2026-02-09T00:00:00+00:00",
-        "ends_at": "2026-02-15T23:59:00+00:00",
+        "ends_at": "2026-07-19T22:00:00+00:00",
         "status": "active",
         "image_url": "",
     },
@@ -256,8 +271,16 @@ async def seed_all():
         )
     # Legend Cards
     for c in ALL_CARDS:
+        # $setOnInsert without the dynamic price fields (which also go to $set so it works on existing rows too)
+        on_insert = {k: v for k, v in c.items() if k not in ("price_usd_cents", "tier")}
+        on_insert["created_at"] = utcnow_iso()
         await db.legend_cards.update_one(
-            {"name": c["name"]}, {"$setOnInsert": {**c, "created_at": utcnow_iso()}}, upsert=True
+            {"name": c["name"]},
+            {
+                "$setOnInsert": on_insert,
+                "$set": {"price_usd_cents": c["price_usd_cents"], "tier": c["tier"]},
+            },
+            upsert=True,
         )
     # Fantasy comp
     await db.fantasy_competitions.update_one(

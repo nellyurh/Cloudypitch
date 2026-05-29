@@ -17,6 +17,15 @@ async def signup(payload: SignupIn, request: Request, response: Response):
     if existing:
         await a.audit_log("signup_conflict", None, email, ip)
         raise HTTPException(status_code=409, detail="Email already registered")
+    # Look up referrer if a referral code was provided
+    referred_by_user_id = None
+    if payload.referral_code:
+        ref_user = await db.users.find_one(
+            {"referral_code": payload.referral_code.upper().strip()},
+            {"_id": 0, "id": 1},
+        )
+        if ref_user:
+            referred_by_user_id = ref_user["id"]
     user = {
         "id": new_id(),
         "email": email,
@@ -30,10 +39,26 @@ async def signup(payload: SignupIn, request: Request, response: Response):
         "country_code": payload.country_code or "NG",
         "locale": "en-NG",
         "timezone": "Africa/Lagos",
+        "referred_by_user_id": referred_by_user_id,
+        "referred_by_code": payload.referral_code.upper().strip() if payload.referral_code else None,
         "created_at": utcnow_iso(),
         "last_login_at": None,
     }
     await db.users.insert_one(user)
+    # Generate referral code for the new user
+    from routes.referrals import ensure_referral_code
+    await ensure_referral_code(user["id"])
+    # Create the referral row for the inviter (with $0 spend; counts toward referred_count)
+    if referred_by_user_id:
+        await db.referrals.insert_one({
+            "id": new_id(),
+            "referrer_user_id": referred_by_user_id,
+            "referred_user_id": user["id"],
+            "joined_at": utcnow_iso(),
+            "credit_earned_usd_cents": 0,
+            "referred_spend_usd_cents": 0,
+            "status": "pending",  # becomes "active" once they spend
+        })
     # Grant 5 free Star cards (starter pack)
     star_cards = await db.legend_cards.find({"tier": 3}, {"_id": 0}).to_list(length=200)
     import random as _r

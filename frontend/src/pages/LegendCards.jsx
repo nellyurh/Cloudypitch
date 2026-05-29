@@ -21,8 +21,8 @@ export const LegendCards = () => {
       <h1 className="text-2xl font-extrabold mb-1">Legend Cards</h1>
       <p className="text-sm mb-4" style={{ color: "var(--cp-text-muted)" }}>Boost your predictions & fantasy points with deterministic legendary effects. 100 cards across 3 tiers. <span className="text-cp-lime">Not gambling</span> — fixed effects, no random packs.</p>
 
-      <div className="flex gap-2 mb-4">
-        {[{ id: 0, label: "All" }, { id: 1, label: "GOAT · ₦2,000" }, { id: 2, label: "Elite · ₦1,000" }, { id: 3, label: "Star · ₦500" }].map(f => (
+      <div className="flex gap-2 mb-4 flex-wrap">
+        {[{ id: 0, label: "All" }, { id: 1, label: "GOAT · $2.00" }, { id: 2, label: "Elite · $1.00" }, { id: 3, label: "Star · $0.50" }].map(f => (
           <button key={f.id} onClick={() => setFilter(f.id)} className={`px-3 py-1.5 rounded text-xs font-bold ${filter === f.id ? "bg-cp-lime text-cp-forest" : "cp-surface hover:bg-white/5"}`} data-testid={`tier-filter-${f.id}`}>{f.label}</button>
         ))}
       </div>
@@ -31,6 +31,7 @@ export const LegendCards = () => {
         {visible.map(c => {
           const meta = TIER_META[c.tier];
           const Icon = meta.icon;
+          const priceUsd = ((c.price_usd_cents || 0) / 100).toFixed(2);
           return (
             <div key={c.id} className="cp-surface overflow-hidden hover:scale-[1.02] transition-transform cursor-pointer" data-testid={`card-${c.id}`} style={{ background: meta.bg }}>
               <div className="p-3 flex flex-col h-full min-h-[180px]">
@@ -38,7 +39,7 @@ export const LegendCards = () => {
                   <span className="cp-pill" style={{ background: meta.color, color: c.tier === 2 ? "#fff" : "#064E3B" }}>
                     <Icon size={10} className="mr-0.5"/> {meta.label}
                   </span>
-                  <span className="text-[11px] font-bold tabular-nums" style={{ color: meta.color }}>₦{c.price_ngn.toLocaleString()}</span>
+                  <span className="text-[11px] font-bold tabular-nums" style={{ color: meta.color }}>${priceUsd}</span>
                 </div>
                 <div className="font-extrabold text-sm mt-3 leading-tight">{c.name}</div>
                 <div className="text-[11px] mt-0.5" style={{ color: "var(--cp-text-muted)" }}>{c.player_name}</div>

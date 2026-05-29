@@ -197,7 +197,9 @@ async def upsert_sportmonks_fixture(fx: dict):
         "venue_city": (venue or {}).get("city_name"),
         "primary_provider": "sportmonks",
         "sportmonks_id": fx_id,
+        "sportmonks_league_id": (league or {}).get("id") if isinstance(league, dict) else None,
         "season_id": season_id,
+        "is_world_cup": ((league or {}).get("id") == 732) if isinstance(league, dict) else False,
         "last_polled_at": utcnow_iso(),
         "is_live": status in ("1H", "2H", "HT", "ET", "BR", "LIVE", "PEN_LIVE"),
     }

@@ -18,11 +18,12 @@ export const WalletPage = () => {
   const [wallet, setWallet] = useState(null);
   const [txs, setTxs] = useState([]);
   const [compliance, setCompliance] = useState(null);
-  const [amount, setAmount] = useState(1000);
-  const [daily, setDaily] = useState(5000);
-  const [monthly, setMonthly] = useState(20000);
+  const [amount, setAmount] = useState(500);  // $5.00 default deposit (stored as cents)
+  const [daily, setDaily] = useState(500);    // $5.00 daily default
+  const [monthly, setMonthly] = useState(2000); // $20.00 monthly default
   const [err, setErr] = useState("");
   const [msg, setMsg] = useState("");
+  const fmtUsd = (cents) => `$${((cents || 0) / 100).toFixed(2)}`;
 
   const load = async () => {
     try {
@@ -35,8 +36,8 @@ export const WalletPage = () => {
       setTxs(t.data.transactions || []);
       setCompliance(c.data.profile);
       if (c.data.profile) {
-        setDaily(c.data.profile.daily_cap_ngn || 5000);
-        setMonthly(c.data.profile.monthly_cap_ngn || 20000);
+        setDaily(c.data.profile.daily_cap_ngn || 500);
+        setMonthly(c.data.profile.monthly_cap_ngn || 2000);
       }
     } catch (e) { setErr(formatApiErr(e)); }
   };
@@ -62,7 +63,7 @@ export const WalletPage = () => {
     setErr(""); setMsg("");
     try {
       await api.post("/wallet/deposit", { amount_ngn: amount });
-      setMsg(`₦${amount.toLocaleString()} credited (test mode)`);
+      setMsg(`${fmtUsd(amount)} credited (test mode)`);
       load();
     } catch (e) { setErr(formatApiErr(e)); }
   };
@@ -94,21 +95,21 @@ export const WalletPage = () => {
             <WalletIcon size={28} className="text-cp-lime"/>
             <div>
               <div className="text-[10px] uppercase tracking-widest" style={{ color: "var(--cp-text-muted)" }}>Wallet Balance</div>
-              <div className="text-3xl font-extrabold tabular-nums text-cp-lime">₦{(wallet.balance_ngn || 0).toLocaleString()}</div>
+              <div className="text-3xl font-extrabold tabular-nums text-cp-lime">{fmtUsd(wallet.balance_ngn || 0)}</div>
             </div>
           </div>
           <div className="grid grid-cols-3 gap-3 mt-5 text-center">
             <div>
               <div className="text-[10px] uppercase tracking-widest" style={{ color: "var(--cp-text-muted)" }}>Deposited</div>
-              <div className="text-base font-bold tabular-nums">₦{(wallet.total_deposited || 0).toLocaleString()}</div>
+              <div className="text-base font-bold tabular-nums">{fmtUsd(wallet.total_deposited || 0)}</div>
             </div>
             <div>
               <div className="text-[10px] uppercase tracking-widest" style={{ color: "var(--cp-text-muted)" }}>Won</div>
-              <div className="text-base font-bold text-cp-lime tabular-nums">₦{(wallet.total_won || 0).toLocaleString()}</div>
+              <div className="text-base font-bold text-cp-lime tabular-nums">{fmtUsd(wallet.total_won || 0)}</div>
             </div>
             <div>
               <div className="text-[10px] uppercase tracking-widest" style={{ color: "var(--cp-text-muted)" }}>Spent</div>
-              <div className="text-base font-bold tabular-nums">₦{(wallet.total_spent || 0).toLocaleString()}</div>
+              <div className="text-base font-bold tabular-nums">{fmtUsd(wallet.total_spent || 0)}</div>
             </div>
           </div>
         </div>
@@ -116,14 +117,14 @@ export const WalletPage = () => {
         <div className="cp-surface p-5 mt-3" data-testid="wallet-deposit">
           <h3 className="text-sm font-extrabold uppercase tracking-widest mb-3" style={{ color: "var(--cp-text-muted)" }}>Add Funds</h3>
           <div className="flex flex-wrap items-center gap-2">
-            {[500, 1000, 2000, 5000, 10000].map(v => (
-              <button key={v} onClick={() => setAmount(v)} className={`cp-pill ${amount === v ? "bg-cp-lime text-cp-forest" : ""}`} data-testid={`amt-${v}`}>₦{v.toLocaleString()}</button>
+            {[100, 500, 1000, 2000, 5000].map(v => (
+              <button key={v} onClick={() => setAmount(v)} className={`cp-pill ${amount === v ? "bg-cp-lime text-cp-forest" : ""}`} data-testid={`amt-${v}`}>{fmtUsd(v)}</button>
             ))}
             <input type="number" value={amount} onChange={(e) => setAmount(Number(e.target.value))} className="cp-input w-32 ml-auto" data-testid="amt-input"/>
           </div>
           <div className="flex gap-2 mt-3">
             <button onClick={initPaystack} className="cp-btn-primary flex-1 inline-flex items-center justify-center gap-1" data-testid="deposit-paystack">
-              <ArrowDownToLine size={14}/> Deposit via Paystack
+              <ArrowDownToLine size={14}/> Deposit
             </button>
             {user?.role === "admin" && (
               <button onClick={directDeposit} className="cp-btn-ghost" data-testid="deposit-test">Test-Credit</button>
@@ -145,7 +146,7 @@ export const WalletPage = () => {
                     <div className="text-[10px]" style={{ color: "var(--cp-text-muted)" }}>{new Date(t.created_at).toLocaleString()}</div>
                   </div>
                   <span className={`font-bold tabular-nums ${positive ? "text-cp-lime" : "text-rose-400"}`}>
-                    {positive ? "+" : ""}₦{Math.abs(t.amount_ngn || 0).toLocaleString()}
+                    {positive ? "+" : ""}{fmtUsd(Math.abs(t.amount_ngn || 0))}
                   </span>
                 </li>
               );
@@ -171,10 +172,12 @@ export const WalletPage = () => {
           </div>
         )}
 
-        <label className="text-[10px] uppercase tracking-widest" style={{ color: "var(--cp-text-muted)" }}>Daily cap (₦)</label>
+        <label className="text-[10px] uppercase tracking-widest" style={{ color: "var(--cp-text-muted)" }}>Daily cap ($ in cents)</label>
         <input type="number" value={daily} onChange={(e) => setDaily(Number(e.target.value))} className="cp-input w-full mt-1" data-testid="caps-daily"/>
-        <label className="text-[10px] uppercase tracking-widest mt-3 block" style={{ color: "var(--cp-text-muted)" }}>Monthly cap (₦)</label>
+        <div className="text-[10px] mt-0.5" style={{ color: "var(--cp-text-muted)" }}>≈ {fmtUsd(daily)}</div>
+        <label className="text-[10px] uppercase tracking-widest mt-3 block" style={{ color: "var(--cp-text-muted)" }}>Monthly cap ($ in cents)</label>
         <input type="number" value={monthly} onChange={(e) => setMonthly(Number(e.target.value))} className="cp-input w-full mt-1" data-testid="caps-monthly"/>
+        <div className="text-[10px] mt-0.5" style={{ color: "var(--cp-text-muted)" }}>≈ {fmtUsd(monthly)}</div>
         <p className="text-[10px] mt-2" style={{ color: "var(--cp-text-muted)" }}>
           Lowering takes effect immediately. Raising takes effect after a 24-hour anti-impulse delay.
         </p>
