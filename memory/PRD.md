@@ -52,6 +52,34 @@ Three integrated products:
 - ✅ New LineupPitch component: green pitch with center circle/penalty boxes/goals, player number badges (lime home / white away), formation auto-derived from position_code, full bench list
 - ✅ Verified by testing agent (iteration 2): 100% backend + frontend pass
 
+## Iteration 12 — Brand kit, animated loader, top-league ranking, smarter dedup (2026-05-29)
+
+### Brand kit (user-supplied artwork)
+- `cp-mark.png` (triangle), `cp-wordmark.png`, `cp-logo.png` saved to `/app/frontend/public/`
+- `Brand.jsx` rewritten: `<Brand>` (mark + CLOUDYPITCH wordmark), `<Brand variant="mark"/>`, `<Brand variant="text"/>`
+- Triangle PNG has black background → uses `mix-blend-mode: screen` to drop the black on any surface
+- Favicon + apple-touch-icon point to `/cp-mark.png`
+
+### Animated brand loader
+- New `<AnimatedBrand size label/>` component: rotating triangle (cp-spin 2.4s) + pulsing radial glow (cp-pulse-scale 1.8s) + opacity pulse on the mark itself + lime drop-shadow
+- Replaces "Loading match…" text on `MatchDetail.jsx`
+
+### Top-league ranking (Sofascore-style)
+- `league_tier_score(name, country)` is now **country-aware**: 'Premier League' from England → 100, from Bhutan → 30. Same gating for La Liga/Serie A/Bundesliga/Ligue 1.
+- Variants inherit tier: 'Ligue 1 Play-offs' (France) → 100; 'France: Ligue 1 - Relegation - Play Offs' → 100
+- UEFA / FIFA / Copa America always → 100 regardless of country
+- `COUNTRY_PRIORITY` updated: continental tournaments (World=1, Europe=2, International=3) sit **above** all domestic — so UEFA Champions League outranks Premier League in the dashboard sort
+- Match-list sort key changed from `(country_priority, -tier)` → `(-tier, country_priority)` so all tier=100 leagues sit at the very top
+- Rescored all 776 league rows in DB on hot-deploy
+
+### Smarter cross-provider dedup
+- `_team_tokens()` drops common stopwords (FC, AC, Real, Olympique, Athletic, City, United, etc.) → returns set of 4+ char meaningful tokens
+- `_cross_provider_dedup()` checks if ANY token overlap between home/away teams of a candidate match (handles home/away swap too)
+- Result: 'Paris Saint-Germain' from Sportmonks now correctly matches 'PSG Paris' from API-Sports
+
+### Test Results (iteration 12)
+- Backend: **25/25 pytest assertions pass** · Frontend: visual verified via screenshot · No retest needed
+
 ## Iteration 11 — Card consumption + per-player targeting + usage history (2026-05-29)
 
 ### Card lifecycle is now strictly enforced
