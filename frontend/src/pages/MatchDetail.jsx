@@ -11,12 +11,15 @@ import Innings from "../components/match/Innings";
 import { StatGauge, CompareBar, ScoreBox } from "../components/match/StatGauges";
 import AttackMomentum from "../components/match/AttackMomentum";
 import StandingsTable from "../components/match/StandingsTable";
+import Commentary from "../components/match/Commentary";
+import Trends from "../components/match/Trends";
+import SidelinedCard from "../components/match/SidelinedCard";
 import { AnimatedBrand } from "../components/Brand";
 import AdSlot from "../components/AdSlot";
 
 /* Sport-aware tab layout (Sofascore style). */
 const SPORT_TABS = {
-  football:          [{ k: "lineups", l: "Lineups" }, { k: "stats", l: "Stats" }, { k: "events", l: "Events" }, { k: "h2h", l: "H2H" }, { k: "standings", l: "Standings" }],
+  football:          [{ k: "lineups", l: "Lineups" }, { k: "stats", l: "Stats" }, { k: "events", l: "Events" }, { k: "commentary", l: "Commentary" }, { k: "trends", l: "Trends" }, { k: "h2h", l: "H2H" }, { k: "standings", l: "Standings" }],
   basketball:        [{ k: "box",     l: "Box Score" }, { k: "stats", l: "Statistics" }, { k: "h2h", l: "H2H" }, { k: "standings", l: "Standings" }],
   basketball_nba:    [{ k: "box",     l: "Box Score" }, { k: "stats", l: "Statistics" }, { k: "h2h", l: "H2H" }, { k: "standings", l: "Playoffs" }],
   "american-football": [{ k: "box",   l: "Box Score" }, { k: "stats", l: "Statistics" }, { k: "h2h", l: "H2H" }, { k: "standings", l: "Standings" }],
@@ -233,7 +236,20 @@ export const MatchDetail = () => {
             {tab === "stats" && (useBballStats
               ? <BasketballStatsView m={m} statistics={stats} homeName={m.home_team_name} awayName={m.away_team_name}/>
               : <StatsBars statistics={stats} homeTeamId={m.home_team_id} awayTeamId={m.away_team_id} homeName={m.home_team_name} awayName={m.away_team_name}/>)}
-            {tab === "lineups" && <LineupPitch lineups={lineups} homeTeamId={m.home_team_id} awayTeamId={m.away_team_id} homeName={m.home_team_name} awayName={m.away_team_name}/>}
+            {tab === "lineups" && (
+              <>
+                <LineupPitch lineups={lineups} homeTeamId={m.home_team_id} awayTeamId={m.away_team_id} homeName={m.home_team_name} awayName={m.away_team_name}/>
+                <SidelinedCard
+                  players={m.sidelined_raw || []}
+                  homeTeamId={m.sportmonks_home_id}
+                  awayTeamId={m.sportmonks_away_id}
+                  homeTeamName={m.home_team_name}
+                  awayTeamName={m.away_team_name}
+                />
+              </>
+            )}
+            {tab === "commentary" && <Commentary comments={m.comments || []} homeTeamName={m.home_team_name} awayTeamName={m.away_team_name}/>}
+            {tab === "trends" && <Trends facts={m.matchfacts || []} homeTeamName={m.home_team_name} awayTeamName={m.away_team_name}/>}
             {tab === "box" && <BoxScore match={m} lineups={lineups}/>}
             {tab === "sets" && <Sets match={m}/>}
             {tab === "innings" && <Innings match={m}/>}

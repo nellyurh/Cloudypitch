@@ -177,6 +177,8 @@ async def upsert_sportmonks_fixture(fx: dict):
         "league_country": league_country,
         "home_team_id": home_id,
         "away_team_id": away_id,
+        "sportmonks_home_id": (home_team or {}).get("id"),
+        "sportmonks_away_id": (away_team or {}).get("id"),
         "home_team_name": (home_team or {}).get("name"),
         "away_team_name": (away_team or {}).get("name"),
         "home_team_logo": (home_team or {}).get("image_path") or "",
@@ -217,10 +219,37 @@ async def upsert_sportmonks_fixture(fx: dict):
         "pressure": fx.get("pressure") if isinstance(fx.get("pressure"), list) else None,
         "predictions_raw": fx.get("predictions") if isinstance(fx.get("predictions"), list) else None,
         "coaches": fx.get("coaches") if isinstance(fx.get("coaches"), list) else None,
-        "sidelined_raw": fx.get("sidelined") if isinstance(fx.get("sidelined"), list) else None,
-        "matchfacts": fx.get("matchfacts") if isinstance(fx.get("matchfacts"), list) else None,
+        # Sidelined: enrich with player names + reason from nested includes
+        "sidelined_raw": (lambda raw: [
+            {
+                "player_id": s.get("player_id"),
+                "player_name": (s.get("player") or {}).get("display_name") or (s.get("player") or {}).get("name"),
+                "player_image": (s.get("player") or {}).get("image_path"),
+                "team_id": s.get("participant_id"),
+                "reason": (s.get("type") or {}).get("name") or "Sidelined",
+                "type_id": s.get("type_id"),
+            }
+            for s in raw if isinstance(s, dict)
+        ])(fx.get("sidelined") or []) if isinstance(fx.get("sidelined"), list) else [],
+        # Comments: minute-by-minute
+        "comments": [
+            {"minute": c.get("minute"), "extra_minute": c.get("extra_minute"),
+             "text": c.get("comment"), "is_goal": bool(c.get("is_goal")),
+             "is_important": bool(c.get("is_important")), "order": c.get("order")}
+            for c in (fx.get("comments") or []) if isinstance(c, dict) and c.get("comment")
+        ] if isinstance(fx.get("comments"), list) else [],
+        # MatchFacts with natural language only — keep facts with readable sentences
+        "matchfacts": [
+            {"text": m.get("natural_language"),
+             "participant": m.get("participant"),
+             "basis": m.get("basis"),
+             "category": m.get("category"),
+             "scope": m.get("scope"),
+             "type": (m.get("type") or {}).get("name") if isinstance(m.get("type"), dict) else None}
+            for m in (fx.get("matchfacts") or [])
+            if isinstance(m, dict) and m.get("natural_language")
+        ][:60] if isinstance(fx.get("matchfacts"), list) else [],
         "trends": fx.get("trends") if isinstance(fx.get("trends"), list) else None,
-        "comments": fx.get("comments") if isinstance(fx.get("comments"), list) else None,
         "primary_provider": "sportmonks",
         "sportmonks_id": fx_id,
         "sportmonks_league_id": (league or {}).get("id") if isinstance(league, dict) else None,

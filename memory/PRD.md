@@ -52,6 +52,38 @@ Three integrated products:
 - ✅ New LineupPitch component: green pitch with center circle/penalty boxes/goals, player number badges (lime home / white away), formation auto-derived from position_code, full bench list
 - ✅ Verified by testing agent (iteration 2): 100% backend + frontend pass
 
+## Iteration 17 — Trends + Commentary + Sidelined surfaced (2026-05-29)
+
+### Trends/MatchFacts tab
+- New `Trends.jsx` component renders Sportmonks `matchfacts` with `natural_language` populated
+- 3 sections: Home team (lime), Away team (sky), Head to Head (amber). Up to 10 facts each
+- Each row has a category pill (STATISTICS / STREAKS / FORM / etc.)
+- Backend filters down 759 raw facts → 60 readable natural-language sentences (saves payload size)
+- Live verified: "Flamengo have 9 wins (37.5%) in their Serie A matches against Palmeiras (home only: 6, 66.67%)"
+
+### Commentary tab
+- New `Commentary.jsx` component renders minute-by-minute feed sorted newest-first
+- Goals get green background + lime left border + Target icon
+- Important moments get sky left border
+- Verified: 60 commentary entries on Flamengo vs Palmeiras including "Goal! Paulinho scores with a left-footed shot"
+
+### Sidelined / Injuries card
+- New `SidelinedCard.jsx` renders below the LineupPitch on the Lineups tab
+- 2-column layout (home / away), each row showing player avatar + name + injury reason
+- Backend enriches via Sportmonks `sidelined.player` + `sidelined.type` includes
+- Verified: 8 sidelined players including "Everton · Hip Injury", "Bruno Fuchs · Thigh Muscle Strain"
+
+### Backend wiring
+- Sportmonks include list expanded: `sidelined.player;sidelined.type;matchfacts.type`
+- `upsert_sportmonks_fixture` now enriches:
+  - `sidelined_raw` → `[{player_id, player_name, player_image, team_id, reason, type_id}]`
+  - `comments` → `[{minute, extra_minute, text, is_goal, is_important, order}]`
+  - `matchfacts` → `[{text, participant, basis, category, scope, type}]` (filtered to natural_language only, max 60)
+- New `sportmonks_home_id` / `sportmonks_away_id` raw IDs persisted so SidelinedCard can map team_id correctly
+
+### Test Results (iteration 17)
+- Verified via Playwright screenshots: 3 new tabs (Commentary, Trends) + SidelinedCard render with real Sportmonks Pro data
+
 ## Iteration 16 — Sportmonks Pro data + AttackMomentum + Standings tab + API-Sports basketball stats (2026-05-29)
 
 ### Sportmonks Pro plan data wired (we were not consuming what we already pay for)

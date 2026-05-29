@@ -94,8 +94,8 @@ async def fetch_fixture(fixture_id: int):
             "participants;scores;state;events.type;statistics.type;periods;"
             "lineups.player;lineups.type;lineups.position;lineups.details.type;"
             "venue;league;referees.referee;referees.type;round;stage;group;aggregate;"
-            "weatherReport;tvStations.tvstation;coaches;sidelined;"
-            "pressure;predictions.type;trends;comments;matchfacts;"
+            "weatherReport;tvStations.tvstation;coaches;sidelined.player;sidelined.type;"
+            "pressure;predictions.type;trends;comments;matchfacts.type;"
             "expectedLineups;xGFixture;formations"
         )},
     )
