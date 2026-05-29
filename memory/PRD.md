@@ -52,6 +52,35 @@ Three integrated products:
 - ✅ New LineupPitch component: green pitch with center circle/penalty boxes/goals, player number badges (lime home / white away), formation auto-derived from position_code, full bench list
 - ✅ Verified by testing agent (iteration 2): 100% backend + frontend pass
 
+## Iteration 9 — User-Driven Restructure (2026-05-29)
+
+User feedback batch — all resolved:
+
+### Bug fixes
+- **Fantasy player list showed only DEF** — `/fantasy/players?limit=300` was sorted by `position` ascending so all 300 returned slots filled with the 417 DEF rows. Fix: sort by `name` and bump default to 2000. All 4 positions now return (146 GK / 417 DEF / 384 MID / 347 FWD).
+- **WC Hub Schedule tab leaked past WC matches** — `/api/worldcup` used `league_name regex "World Cup"` which caught 2006/2010/2014/2018/2022 fixtures. Fix: `_wc2026_filter()` constrains to `scheduled_at` in `2026-06-01..2026-07-31` AND `is_world_cup OR sportmonks_league_id=732 OR competition_id=wc-2026`. Empty state copy updated.
+
+### New — Past Tournaments tab on WC Hub
+- `/app/backend/wc_legends.py` — 9 hand-curated tournaments (1958-2022) with 21 legendary highlights
+- `/api/worldcup/past` cross-references each highlight to `legend_cards` via 3-tier regex (full / last word / first word) — 14/21 highlights deep-link to live cards
+- New `PastTournamentsView` component renders tournament hero (champion/Golden Ball/Golden Boot) + highlight rows with Legend Card price chips that link to `/cards`. This is the new **marketing surface for the 100-card catalog** — "every card earned its place at a World Cup"
+
+### Unified Fantasy hub (merge `/wc/games` into `/fantasy`)
+- `Fantasy.jsx` is now a 3-tab hub: **My Squad** · **WC Games (148)** · **Leaderboard**
+- WC Games rendered via reusable `<WcGamesPanel/>` exported from `WcGames.jsx`
+- `/wc/games` route now `<Navigate to="/fantasy" replace/>`
+- Non-auth users see a clean sign-in gate (`fantasy-signin-gate` testid)
+
+### Header cleanup
+- Desktop top nav: **WC 2026 · Predictions · Leaderboards** only (was 6 links). Sports row unchanged.
+- Fantasy + Legend Cards moved to top of signed-in user dropdown (mobile drawer parity)
+
+### Sign-in gating
+- `/wallet` now shows a clean gate ("Sign in to access your wallet") when not authed; no half-loaded panels
+
+### Test Results (iteration 9)
+- Backend: **9/9 pass** · Frontend: **9/9 pass** · No retest needed
+
 ## Iteration 8 — WC Fantasy Game Structure (148 games) + Auth-extras UI + Premium Tabs + Admin (2026-05-29)
 
 ### NEW — WC2026 Fantasy Game System (148 games)
