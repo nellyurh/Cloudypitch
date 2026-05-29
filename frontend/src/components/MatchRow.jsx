@@ -12,11 +12,11 @@ function kickoffTime(m) {
 }
 
 function statusLine(m) {
-  // Returns { text, live } — shown UNDER the kickoff time (Sofascore-style)
+  // For ANY live game show the minute first; only show 'HT' if no minute available.
   if (m.is_live) {
-    if (m.status === "HT") return { text: "HT", live: true };
     if (m.minute != null) return { text: `${m.minute}'`, live: true };
-    return { text: m.status_long || "LIVE", live: true };
+    if (m.status === "HT") return { text: "HT", live: true };
+    return { text: "LIVE", live: true };
   }
   if (["FT", "AET", "PEN"].includes(m.status)) return { text: m.status === "AET" ? "AET" : m.status === "PEN" ? "PEN" : "FT", live: false };
   if (m.status === "HT") return { text: "HT", live: true };

@@ -59,8 +59,9 @@ function MatchHero({ m, finished }) {
           </div>
           <div className="mt-2 text-[11px] font-bold uppercase tracking-widest" style={{ color: live ? "#FF3D52" : "var(--cp-text-muted)" }}>
             {live && <span className="inline-block w-1.5 h-1.5 rounded-full bg-rose-500 mr-1 animate-pulse"/>}
-            {m.status_long || m.status || (finished ? "Finished" : "Scheduled")}
-            {m.minute && live ? ` · ${m.minute}'` : ""}
+            {live
+              ? (m.minute != null ? `${m.minute}'` : (m.status === "HT" ? "HT" : "Live"))
+              : (m.status_long || m.status || (finished ? "Finished" : "Scheduled"))}
           </div>
         </div>
         {/* Away */}

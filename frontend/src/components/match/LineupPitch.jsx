@@ -58,28 +58,50 @@ function TeamHalf({ team, mirror, color, label }) {
   const positions = computePositions(team.starters, mirror);
   return (
     <>
-      {positions.map(({ player, x, y }, i) => (
-        <div
-          key={`${player.player_name}-${i}`}
-          className="absolute -translate-x-1/2 -translate-y-1/2 flex flex-col items-center"
-          style={{ left: `${x}%`, top: `${y}%` }}
-          data-testid={`player-${label}-${i}`}
-        >
+      {positions.map(({ player, x, y }, i) => {
+        const rating = typeof player.rating === "number" ? player.rating : null;
+        const xg = typeof player.xg === "number" && player.xg > 0 ? player.xg : null;
+        const ratingColor = rating == null ? null : rating >= 8 ? "#A3E635" : rating >= 7 ? "#FBBF24" : rating >= 6 ? "#94A3B8" : "#FB7185";
+        return (
           <div
-            className="w-8 h-8 md:w-9 md:h-9 rounded-full flex items-center justify-center text-[11px] font-extrabold tabular-nums shadow-md ring-2 ring-black/40"
-            style={{ background: color, color: "#0a0a0a" }}
+            key={`${player.player_name}-${i}`}
+            className="absolute -translate-x-1/2 -translate-y-1/2 flex flex-col items-center"
+            style={{ left: `${x}%`, top: `${y}%` }}
+            data-testid={`player-${label}-${i}`}
           >
-            {player.player_number ?? "?"}
+            <div className="relative">
+              <div
+                className="w-8 h-8 md:w-9 md:h-9 rounded-full flex items-center justify-center text-[11px] font-extrabold tabular-nums shadow-md ring-2 ring-black/40"
+                style={{ background: color, color: "#0a0a0a" }}
+              >
+                {player.player_number ?? "?"}
+              </div>
+              {rating != null && (
+                <span
+                  className="absolute -top-1 -right-1 text-[8px] font-extrabold px-1 rounded shadow"
+                  style={{ background: ratingColor, color: "#0a0a0a" }}
+                  data-testid={`rating-${player.player_name}`}
+                >{rating.toFixed(1)}</span>
+              )}
+              {xg != null && (
+                <span
+                  className="absolute -bottom-1 -left-1 text-[8px] font-bold px-0.5 rounded"
+                  style={{ background: "rgba(125,211,252,0.95)", color: "#082F49" }}
+                  data-testid={`xg-${player.player_name}`}
+                  title={`xG ${xg.toFixed(2)}`}
+                >{xg.toFixed(2)}</span>
+              )}
+            </div>
+            <div
+              className="mt-0.5 text-[10px] font-medium px-1 rounded leading-tight max-w-[80px] truncate text-center"
+              style={{ background: "rgba(0,0,0,0.55)", color: "#fff" }}
+              title={player.player_name}
+            >
+              {(player.player_name || "?").split(" ").slice(-1)[0]}
+            </div>
           </div>
-          <div
-            className="mt-0.5 text-[10px] font-medium px-1 rounded leading-tight max-w-[80px] truncate text-center"
-            style={{ background: "rgba(0,0,0,0.55)", color: "#fff" }}
-            title={player.player_name}
-          >
-            {(player.player_name || "?").split(" ").slice(-1)[0]}
-          </div>
-        </div>
-      ))}
+        );
+      })}
     </>
   );
 }

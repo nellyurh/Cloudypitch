@@ -350,6 +350,23 @@ async def upsert_sportmonks_fixture(fx: dict):
             # type_id 11 = starting XI, 12 = bench
             is_starter = (type_id == 11) or ((type_obj or {}).get("developer_name") == "LINEUP")
             tid = ln.get("team_id") or ln.get("participant_id")
+            # Per-player stats from lineups.details.type — type_id 118 = rating, 5304 = xG, 322 = goals, etc.
+            details = ln.get("details") if isinstance(ln.get("details"), list) else []
+            rating = None
+            xg = None
+            for d in details:
+                if not isinstance(d, dict):
+                    continue
+                tid_d = d.get("type_id")
+                val = d.get("value") if d.get("value") is not None else d.get("data")
+                if isinstance(val, dict):
+                    val = val.get("value")
+                if tid_d == 118 and val is not None:
+                    try: rating = float(val)
+                    except Exception: pass
+                if tid_d in (5304, 5305) and val is not None:
+                    try: xg = float(val)
+                    except Exception: pass
             ls.append({
                 "id": new_id(),
                 "match_id": match_doc_id,
@@ -362,6 +379,8 @@ async def upsert_sportmonks_fixture(fx: dict):
                 "player_pos": (pos_obj or {}).get("name") if pos_obj else None,
                 "position_code": (pos_obj or {}).get("code") if pos_obj else None,
                 "grid": ln.get("formation_position") or ln.get("formation_field") or ln.get("grid"),
+                "rating": rating,
+                "xg": xg,
             })
         if ls:
             await db.match_lineups.insert_many(ls)

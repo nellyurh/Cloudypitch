@@ -60,15 +60,46 @@ async def list_matches(
     elif date:
         try:
             d = datetime.fromisoformat(date).replace(tzinfo=timezone.utc)
-            # Shift local-day boundary into UTC using tz_offset_min
-            # tz_offset_min = local_minutes_ahead_of_utc (e.g. Lagos +1h = 60)
             offset = timedelta(minutes=tz_offset_min)
-            start = (d - offset).replace(hour=0, minute=0, second=0, microsecond=0).isoformat()
-            end = ((d - offset) + timedelta(days=1)).replace(hour=0, minute=0, second=0, microsecond=0).isoformat()
-            # Adjust: start_local 00:00 = UTC start - offset (offset positive when local ahead of UTC)
-            start = (d.replace(hour=0, minute=0, second=0, microsecond=0) - offset).isoformat()
-            end = (d.replace(hour=0, minute=0, second=0, microsecond=0) + timedelta(days=1) - offset).isoformat()
-            q["scheduled_at"] = {"$gte": start, "$lt": end}
+            start_dt = d.replace(hour=0, minute=0, second=0, microsecond=0) - offset
+            end_dt = start_dt + timedelta(days=1)
+            # Match across all possible scheduled_at formats: ISO with TZ, ISO without TZ, space-separator
+            start_iso_tz = start_dt.isoformat()
+            end_iso_tz = end_dt.isoformat()
+            start_iso = start_dt.strftime("%Y-%m-%dT%H:%M:%S")
+            end_iso = end_dt.strftime("%Y-%m-%dT%H:%M:%S")
+            start_space = start_dt.strftime("%Y-%m-%d %H:%M:%S")
+            end_space = end_dt.strftime("%Y-%m-%d %H:%M:%S")
+            q["$and"] = q.get("$and", []) + [{
+                "$or": [
+                    {"scheduled_at": {"$gte": start_iso_tz, "$lt": end_iso_tz}},
+                    {"scheduled_at": {"$gte": start_iso, "$lt": end_iso}},
+                    {"scheduled_at": {"$gte": start_space, "$lt": end_space}},
+                ]
+            }]
+        except Exception:
+            pass
+        # On-demand backfill: if this date's match count is below threshold AND it's NOT a future-far date,
+        # fire sportmonks.fetch_fixtures_by_date and api-sports.fetch_games (football) to top up history.
+        try:
+            existing = await db.matches.count_documents({"sport_slug": sport, **q})
+            ago_days = (datetime.now(timezone.utc).date() - datetime.fromisoformat(date).date()).days
+            if existing < 5 and ago_days >= 1 and ago_days <= 30:
+                from ingestion import upsert_sportmonks_fixture
+                from adapters import sportmonks as sm
+                cache_key = f"backfill:{sport}:{date}"
+                if not cget(cache_key):
+                    if sport == "football":
+                        for page in range(1, 6):
+                            data = await sm.fetch_fixtures_by_date(date, page=page)
+                            fixtures = (data or {}).get("data", []) if isinstance(data, dict) else []
+                            if not fixtures: break
+                            for fx in fixtures:
+                                try: await upsert_sportmonks_fixture(fx)
+                                except Exception: pass
+                            pag = (data or {}).get("pagination") or {}
+                            if not pag.get("has_more"): break
+                    cset(cache_key, True, 3600)
         except Exception:
             pass
     else:
