@@ -52,6 +52,44 @@ Three integrated products:
 - ✅ New LineupPitch component: green pitch with center circle/penalty boxes/goals, player number badges (lime home / white away), formation auto-derived from position_code, full bench list
 - ✅ Verified by testing agent (iteration 2): 100% backend + frontend pass
 
+## Iteration 7 — WC-Only, Referrals, USD Pricing, Pool Funding, Admin Pool Editing (2026-05-29)
+
+### Scope changes
+- **Predictions & Fantasy** are now strictly **FIFA WC 2026 only**: `_wc_match_filter` clause on `/predictions/upcoming`, 403 on POST to any non-WC match, `is_world_cup` flag set during Sportmonks ingestion for league_id 732
+- **Removed** "Built in Lagos" branding from footer — now reads "© 2026 Cloudy Pitch · Global Football, Predictions & Fantasy"
+
+### Currency switch — NGN → USD
+- All card prices in USD cents: GOAT $2 (200), Elite $1 (100), Star $0.50 (50), recharge $0.20 (20)
+- Premium subscription $2.00/mo (was ₦2,000)
+- Wallet, Prize Pool, Right Rail, Legend Cards, Premium, Predictions all display `$X.XX` with thousands separator
+- Backend `legend_cards.price_usd_cents` field added on every seed run (idempotent upsert)
+
+### Referral System
+- New `/api/referrals/me`, `/api/referrals/leaderboard`, `/api/referrals/validate/{code}` routes
+- 8-char Crockford Base32 codes auto-generated on first `/me` call (no 0/O/I/L confusion)
+- Signup form accepts `referral_code` field + supports `?ref=CODE` query param + live debounced validation
+- Frontend `/referrals` page with hero, code+share+copy, 4 stat cards (Invited/Active/Spend/Credit), Top Referrers leaderboard, $5,000 prize pool
+- Referrers earn 10% credit (USD cents) of every dollar their referrees spend on Legend Cards — for leaderboard ranking
+- New `/referrals` route + Header dropdown + drawer "Invite & Earn" links
+- New `pool-referrals` prize pool ($5,000 seed, separate from main WC pool)
+
+### Prize-Pool Auto-Funding (50%)
+- Every `/api/cards/purchase` and `/api/cards/recharge` writes a `prize_pool_contributions` audit row + bumps `pool-wc2026-fantasy.amount_usd_cents` by exactly 50% of the price
+- New admin endpoint `GET /api/prize-pools/{id}/contributions` returns audit log + total
+- WC pool now displays its USD value live (grows as cards are bought)
+
+### Admin Pool Editing
+- New `PATCH /api/prize-pools/{id}` (admin) — edit `title`, `amount_usd_cents`, `amount_total_ngn`, `payout_structure`, `starts_at`, `ends_at`, `is_active`
+- `payout_structure` supports both list-of-dicts and legacy dict formats in settlement
+
+### Frontend UX fixes (post-test)
+- USD formatting with thousands separator (`$5,000.00` not `$5000.00`)
+- InterstitialAd now has 90-second session grace (no interstitial in first 90s) + sessionStorage tracking → no longer blocks `/signin` form submission
+
+### Test Results
+- **Backend: 15/15 pytest pass (100%)**
+- Frontend: 95% — fixed all 3 LOW/MEDIUM observations post-test (USD thousands separator, interstitial grace period; the /legend-cards observation was a non-issue — route is /cards)
+
 ## Iteration 6 — Card Picker + Premium + Wider Ad Wiring (2026-05-28)
 
 ### Card Application UI

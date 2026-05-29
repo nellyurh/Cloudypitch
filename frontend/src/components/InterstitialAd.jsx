@@ -4,7 +4,9 @@ import api from "../lib/api";
 import { X } from "lucide-react";
 
 const RATE_LIMIT_MS = 3 * 60 * 1000; // 3 minutes between interstitials
+const SESSION_GRACE_MS = 90 * 1000;  // No interstitial in the first 90s of a session
 const STORAGE_KEY = "cp_interstitial_last_shown";
+const SESSION_START_KEY = "cp_session_start";
 const DISMISS_KEY = "cp_interstitial_dismiss_count";
 
 // Pages where interstitials should NEVER show (payment / checkout / signin flows)
@@ -24,6 +26,13 @@ export const InterstitialAd = () => {
     setShown(false);
     // Rate-limit guard
     if (BLOCKED_PATHS.some(p => location.pathname.startsWith(p))) return;
+    // Session grace — never show in the first 90 seconds of a fresh session
+    let sessionStart = parseInt(sessionStorage.getItem(SESSION_START_KEY) || "0", 10);
+    if (!sessionStart) {
+      sessionStart = Date.now();
+      sessionStorage.setItem(SESSION_START_KEY, String(sessionStart));
+    }
+    if (Date.now() - sessionStart < SESSION_GRACE_MS) return;
     const last = parseInt(localStorage.getItem(STORAGE_KEY) || "0", 10);
     const now = Date.now();
     if (now - last < RATE_LIMIT_MS) return;

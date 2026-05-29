@@ -4,7 +4,7 @@ import { useAuth } from "../lib/auth";
 import { Link } from "react-router-dom";
 import { Users, Copy, Check, Trophy, Share2, Coins } from "lucide-react";
 
-const fmtUsd = (cents) => `$${((cents || 0) / 100).toFixed(2)}`;
+const fmtUsd = (cents) => `$${((cents || 0) / 100).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
 export const ReferralsPage = () => {
   const { user } = useAuth();

@@ -23,7 +23,7 @@ export const WalletPage = () => {
   const [monthly, setMonthly] = useState(2000); // $20.00 monthly default
   const [err, setErr] = useState("");
   const [msg, setMsg] = useState("");
-  const fmtUsd = (cents) => `$${((cents || 0) / 100).toFixed(2)}`;
+  const fmtUsd = (cents) => `$${((cents || 0) / 100).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
   const load = async () => {
     try {
