@@ -23,11 +23,13 @@ SPORTS = [
 
 # Country sort priority (lower = higher in sidebar)
 COUNTRY_PRIORITY = {
-    "England": 1, "Spain": 2, "Italy": 3, "Germany": 4, "France": 5,
-    "Netherlands": 10, "Portugal": 11, "Belgium": 12, "Turkey": 13, "Scotland": 14,
-    "Brazil": 20, "Argentina": 21,
-    "USA": 30, "United States": 30, "Mexico": 31,
-    "World": 40, "Europe": 41, "International": 42,
+    # Continental/global tournaments sit AT the very top (above all domestic)
+    "World": 1, "Europe": 2, "International": 3,
+    # Top-5 domestic
+    "England": 10, "Spain": 11, "Italy": 12, "Germany": 13, "France": 14,
+    "Netherlands": 20, "Portugal": 21, "Belgium": 22, "Turkey": 23, "Scotland": 24,
+    "Brazil": 30, "Argentina": 31,
+    "USA": 40, "United States": 40, "Mexico": 41,
     "Greece": 50, "Austria": 51, "Russia": 52, "Switzerland": 53, "Poland": 54,
     "Nigeria": 60, "Egypt": 61, "South Africa": 62, "Morocco": 63,
     "Saudi Arabia": 70, "Japan": 71, "South Korea": 72, "China": 73,
@@ -48,14 +50,73 @@ TIER_2_LEAGUES = {
 }
 
 
-def league_tier_score(name: str) -> int:
+def league_tier_score(name: str, country: str | None = None) -> int:
+    """Return tier score (higher = more prominent). Top-5 leagues require BOTH the
+    canonical name AND the canonical country (so 'Premier League' from Bhutan or
+    'Serie A' from Brazil don't inherit T1 status).
+
+    Tier scores: 100 (T1 — top-5 + UEFA + WC), 80 (T2 / cups), 60 (continentals),
+    30 (everything else).
+    """
     if not name:
         return 10
-    n = name.strip()
-    if n in TIER_1_LEAGUES:
-        return 100
-    if n in TIER_2_LEAGUES:
-        return 80
+    n = name.strip().lower()
+    c = (country or "").strip().lower()
+    # ---- Tier-1 (top-5 European leagues + global tournaments) ----
+    t1_country_strict = [
+        ("premier league", {"england"}),
+        ("la liga",        {"spain"}),
+        ("laliga",         {"spain"}),
+        ("serie a",        {"italy"}),
+        ("bundesliga",     {"germany"}),
+        ("ligue 1",        {"france"}),
+    ]
+    for needle, valid_countries in t1_country_strict:
+        if needle in n and "2" not in n and "ii" not in n and c in valid_countries:
+            return 100
+    # ---- Tier-1 universal (no country needed) ----
+    t1_universal = [
+        "uefa champions league", "champions league",
+        "uefa europa league", "europa league",
+        "uefa conference league", "conference league",
+        "fifa world cup", "world cup qualification", "world cup",
+        "fifa club world cup", "club world cup",
+        "uefa euro", "euro 2024", "euro 2028",
+        "copa america", "copa américa",
+    ]
+    for needle in t1_universal:
+        if needle in n:
+            return 100
+    # ---- Tier-2 (second-tier domestic + major cups + other major leagues) ----
+    t2_country_strict = [
+        ("championship", {"england"}),
+        ("serie b",      {"italy"}),
+        ("la liga 2",    {"spain"}),
+        ("liga 2",       {"spain"}),
+        ("ligue 2",      {"france"}),
+        ("eredivisie",   {"netherlands"}),
+        ("primeira liga", {"portugal"}),
+        ("super lig",    {"turkey"}),
+        ("süper lig",    {"turkey"}),
+    ]
+    for needle, valid_countries in t2_country_strict:
+        if needle in n and c in valid_countries:
+            return 80
+    t2_universal = [
+        "mls", "major league soccer", "brasileir", "liga mx", "saudi pro",
+        "copa libertadores", "copa sudamericana",
+        "fa cup", "copa del rey", "coppa italia", "efl cup", "carabao cup",
+        "dfb pokal", "dfb-pokal", "coupe de france",
+        "afcon", "africa cup of nations",
+    ]
+    for needle in t2_universal:
+        if needle in n:
+            return 80
+    # ---- Tier-3 (other continentals) ----
+    t3 = ["afc champions", "caf champions", "concacaf champions"]
+    for needle in t3:
+        if needle in n:
+            return 60
     return 30
 
 

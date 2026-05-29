@@ -223,6 +223,40 @@
 /* Tennis tiebreaker superscript */
 .cp-tiebreak { font-size: 0.65em; vertical-align: super; line-height: 1; margin-left: 1px; color: #94A3B8; }
 
+/* ===== Brand loader animations ===== */
+.cp-loader-wrap {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.cp-loader-spin {
+  animation: cp-spin 2.4s cubic-bezier(.55,.05,.45,.95) infinite,
+             cp-pulse-opacity 1.6s ease-in-out infinite;
+  filter: drop-shadow(0 0 12px rgba(163, 230, 53, 0.5));
+}
+.cp-loader-pulse {
+  position: absolute;
+  inset: auto;
+  border-radius: 50%;
+  background: radial-gradient(circle, rgba(163, 230, 53, 0.35) 0%, rgba(163, 230, 53, 0) 70%);
+  animation: cp-pulse-scale 1.8s ease-in-out infinite;
+  pointer-events: none;
+}
+@keyframes cp-spin {
+  0%   { transform: rotate(0deg) scale(1); }
+  50%  { transform: rotate(180deg) scale(1.06); }
+  100% { transform: rotate(360deg) scale(1); }
+}
+@keyframes cp-pulse-opacity {
+  0%, 100% { opacity: 0.85; }
+  50%      { opacity: 1; }
+}
+@keyframes cp-pulse-scale {
+  0%, 100% { transform: scale(0.85); opacity: 0.55; }
+  50%      { transform: scale(1.2); opacity: 0.9; }
+}
+
 /* Misc */
 @layer base {
   [data-debug-wrapper="true"] { display: contents !important; }

@@ -91,7 +91,7 @@ async def upsert_sportmonks_league(league: dict, sport_slug: str = "football"):
         "current_season_id": (league.get("currentseason") or {}).get("id") if isinstance(league.get("currentseason"), dict) else None,
         "sportmonks_id": sid,
         "sportmonks_league_id": sid,
-        "tier_score": league_tier_score(league.get("name", "")),
+        "tier_score": league_tier_score(league.get("name", ""), country),
         "country_priority": _country_score(country),
         "primary_provider": "sportmonks",
         "updated_at": utcnow_iso(),
@@ -428,7 +428,7 @@ async def upsert_apisports_game(sport_slug: str, game: dict):
         {"$set": {
             "id": league_doc_id, "sport_slug": sport_slug, "name": league_name,
             "country": country_name, "logo_url": league.get("logo") or "",
-            "tier_score": league_tier_score(league_name), "country_priority": _country_score(country_name),
+            "tier_score": league_tier_score(league_name, country_name), "country_priority": _country_score(country_name),
             "primary_provider": "api-sports", "api_sports_id": league.get("id"),
             "updated_at": utcnow_iso(),
         }},
@@ -1019,9 +1019,32 @@ async def sync_wc2026_squads():
 
 
 # ---------- API-Sports football enrichment (cross-provider dedup) ----------
+_TEAM_STOPWORDS = {
+    "fc", "cf", "ac", "as", "sc", "afc", "cfc", "ssd", "ssc", "us", "ud",
+    "real", "club", "athletic", "atletico", "atlético", "deportivo", "olympique",
+    "city", "united", "town", "rovers", "wanderers", "albion", "borussia",
+    "the", "de", "do", "da", "of", "and", "&",
+    "ii", "iii", "u20", "u21", "u23",
+}
+
+
+def _team_tokens(name: str) -> set[str]:
+    """Return meaningful 4+ char tokens from a team name (no FC/AC/Real/Olympique etc.)."""
+    if not name:
+        return set()
+    raw = name.lower().replace("-", " ").replace(".", " ").replace("'", " ")
+    out = set()
+    for w in raw.split():
+        if len(w) >= 4 and w not in _TEAM_STOPWORDS:
+            out.add(w)
+    return out
+
+
 async def _cross_provider_dedup(sport: str, home_name: str, away_name: str, scheduled_at_iso: str):
-    """Check if a match with same teams (fuzzy) within ±24h already exists.
-    Returns existing match id or None."""
+    """Check if a match with same teams (fuzzy token-based) within ±24h already exists.
+    Tokens drop common prefixes (FC/AC/Real/Olympique/etc.) so 'PSG' ≈ 'Paris Saint-Germain'
+    and 'Marseille' ≈ 'Olympique Marseille'. Returns existing doc or None.
+    """
     if not (home_name and away_name and scheduled_at_iso):
         return None
     db = get_db()
@@ -1032,18 +1055,22 @@ async def _cross_provider_dedup(sport: str, home_name: str, away_name: str, sche
         hi = (d + _td(hours=24)).isoformat()
     except Exception:
         return None
-    # Loose case-insensitive prefix match on the first word of each team name
-    h_token = (home_name.split()[0] or "")[:6]
-    a_token = (away_name.split()[0] or "")[:6]
-    if len(h_token) < 3 or len(a_token) < 3:
+    h_tokens = _team_tokens(home_name)
+    a_tokens = _team_tokens(away_name)
+    if not h_tokens or not a_tokens:
         return None
-    existing = await db.matches.find_one({
-        "sport_slug": sport,
-        "scheduled_at": {"$gte": lo, "$lt": hi},
-        "home_team_name": {"$regex": f"^{h_token}", "$options": "i"},
-        "away_team_name": {"$regex": f"^{a_token}", "$options": "i"},
-    }, {"id": 1, "primary_provider": 1, "_id": 0})
-    return existing
+    # Pull all candidates in the ±24h window and intersect tokens in-memory
+    candidates = await db.matches.find(
+        {"sport_slug": sport, "scheduled_at": {"$gte": lo, "$lt": hi}},
+        {"_id": 0, "id": 1, "primary_provider": 1, "home_team_name": 1, "away_team_name": 1},
+    ).to_list(length=200)
+    for c in candidates:
+        ch = _team_tokens(c.get("home_team_name") or "")
+        ca = _team_tokens(c.get("away_team_name") or "")
+        # Match: home tokens overlap home OR away (avoids home/away swaps)
+        if (h_tokens & ch and a_tokens & ca) or (h_tokens & ca and a_tokens & ch):
+            return c
+    return None
 
 
 async def sync_statpal_cricket():

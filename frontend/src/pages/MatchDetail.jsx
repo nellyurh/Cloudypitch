@@ -5,6 +5,7 @@ import { ChevronLeft, MapPin, User2, RefreshCw } from "lucide-react";
 import EventsList from "../components/match/EventsList";
 import StatsBars from "../components/match/StatsBars";
 import LineupPitch from "../components/match/LineupPitch";
+import { AnimatedBrand } from "../components/Brand";
 
 const TABS = ["events", "stats", "lineups", "h2h"];
 
@@ -45,7 +46,11 @@ export const MatchDetail = () => {
     setRefreshing(false);
   };
 
-  if (!m) return <div className="cp-surface p-6 text-sm" style={{ color: "var(--cp-text-muted)" }}>Loading match…</div>;
+  if (!m) return (
+    <div className="cp-surface p-12 flex items-center justify-center" data-testid="matchdetail-loading">
+      <AnimatedBrand size={72} label="Loading match…"/>
+    </div>
+  );
 
   const finished = ["FT", "AET", "PEN"].includes(m.status);
 

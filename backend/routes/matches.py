@@ -106,7 +106,9 @@ async def list_matches(
         g["_country_priority"] = m.get("country_priority", 200)
     grouped = sorted(
         by_league.values(),
-        key=lambda x: (x["_country_priority"], -x["_tier"], x["league_country"] or "", x["league_name"] or ""),
+        # Order: highest tier first (top European leagues + UEFA + WC at top),
+        # then country priority, then alphabetical for stability.
+        key=lambda x: (-x["_tier"], x["_country_priority"], x["league_country"] or "", x["league_name"] or ""),
     )
     return {"matches": rows, "grouped": grouped, "count": len(rows)}
 
