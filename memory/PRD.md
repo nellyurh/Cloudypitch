@@ -52,6 +52,34 @@ Three integrated products:
 - ✅ New LineupPitch component: green pitch with center circle/penalty boxes/goals, player number badges (lime home / white away), formation auto-derived from position_code, full bench list
 - ✅ Verified by testing agent (iteration 2): 100% backend + frontend pass
 
+## Iteration 14 — Cricket innings + tennis sets wired to real APIs (2026-05-29)
+
+### Cricket ingestion fully wired
+- `sync_statpal_cricket()` completely rewritten to traverse the proper StatPal shape: `{scores.category[].match}`. Previously was looking at the wrong keys and just stuffing raw_data with no normalization.
+- New `_parse_cricket_score()` parses StatPal score strings: `'490/8d'` → `(490, 8, declared)`, `'(fo) 179 & 232'` → sums to `(411, last_wkts, declared)`.
+- New `_normalize_cricket_innings()` extracts per-innings shape:
+  - `innings_no`, `team_name`, `runs`, `wickets`, `overs`
+  - `top_batters[]` — sorted by runs, includes `{name, runs, balls, fours, sixes, not_out}`
+  - `top_bowlers[]` — sorted by wickets, includes `{name, overs, runs, wickets, maidens}`
+- Each tournament becomes its own league (e.g. "New Zealand tour of Ireland - Test", "ICC Men's T20 World Cup Sub Regional Africa Qualifier"), not a single catch-all "International Cricket" row.
+
+### Tennis sets (already wired in iteration 12 — verified)
+- `sets[]` correctly populated with `home_score/away_score/home_tiebreak/away_tiebreak` per set (e.g. A. Davidovich Fokina vs T. A. Tirante 4-set match with tb 4-7)
+- `Sets.jsx` already renders tiebreak superscripts
+
+### Innings.jsx UI upgrade
+- Green result banner at top (`"New Zealand won by an innings and 79 runs"`)
+- Venue + match-format header (TEST / T20 / ODI / etc.)
+- Top batters: runs(balls) + `4×N · 6×M` boundary markers + `*` not-out marker
+- Top bowlers section with `W/R (overs, maidens)` format
+
+### Results: 49 cricket matches ingested with full innings data
+Sample: New Zealand 490 vs Ireland 411 (Test, Stormont) renders 3 innings cards with TA Blundell's 186(292) ton, R Ravindra 121(194), and AR McBrine 73(105) for Ireland.
+
+### Test Results (iteration 14)
+- Backend: **11/11 pytest pass** (`/app/backend/tests/test_iteration14.py`)
+- Frontend: cricket match detail screenshot verified · No retest needed
+
 ## Iteration 13 — Sport-aware Match Detail + Legacy duplicate cleanup (2026-05-29)
 
 ### Sport-aware Match Detail page
