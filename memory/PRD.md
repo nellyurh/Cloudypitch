@@ -52,6 +52,28 @@ Three integrated products:
 - ✅ New LineupPitch component: green pitch with center circle/penalty boxes/goals, player number badges (lime home / white away), formation auto-derived from position_code, full bench list
 - ✅ Verified by testing agent (iteration 2): 100% backend + frontend pass
 
+## Iteration 18 — Status display, date backfill, xG/rating overlay (2026-05-29)
+
+### Live status display fixed (no more "1H"/"2H"/"Q1"/"First Half")
+- `MatchRow.statusLine()`: when live, prefers minute (`"56'"`) over period label
+- `MatchDetail` hero: same rule — minute first, "HT" fallback only when minute null, full-words ("FULL TIME") only for finished states
+
+### Date toggle backward now works
+- `/api/matches` date filter rewritten with `$or` across 3 storage formats (Sportmonks/API-Sports/StatPal each use slightly different `scheduled_at` shapes)
+- On-demand backfill: if local DB has <5 matches for the requested past date AND it's 1-30 days ago, fires `sportmonks.fetch_fixtures_by_date` to top up history. Cached for 1h
+- Verified: 70 matches returned for 2026-05-08 (3 weeks ago), 39 for 2026-05-22
+
+### Player ratings + xG badges on lineup pitch
+- `upsert_sportmonks_fixture` now walks `lineups.details[]` and extracts type_id 118 (rating) + 5304/5305 (xG) into `match_lineups.{rating, xg}`
+- `LineupPitch.jsx`: rating badge in top-right of player circle (lime ≥8 / amber ≥7 / gray ≥6 / rose <6); xG badge in bottom-left (sky blue)
+- Verified on Flamengo vs Palmeiras: 31 players with ratings, 16 with xG (Gómez 8.0, López 7.5 + 0.46 xG, Carrascal 5.0)
+
+### AttackMomentum unchanged behaviour
+- Already calls `/api/matches/{id}/momentum` on every match regardless of status. Pressure[] is Sportmonks-side data; empty for past games where Sportmonks doesn't retain it. Graceful empty-state intact
+
+### Test Results (iteration 18)
+- Backend: **9/9 pytest pass** · Frontend: Playwright verified all 4 fixes (status display, date toggle, xG badges, rating tiers)
+
 ## Iteration 17 — Trends + Commentary + Sidelined surfaced (2026-05-29)
 
 ### Trends/MatchFacts tab
