@@ -23,6 +23,8 @@ import { WalletPage } from "./pages/Wallet";
 import { PaymentCallback } from "./pages/PaymentCallback";
 import { PremiumPage } from "./pages/Premium";
 import { ReferralsPage } from "./pages/Referrals";
+import { ForgotPassword, ResetPassword, VerifyEmail } from "./pages/AuthPages";
+import { WcGames } from "./pages/WcGames";
 import { InterstitialAd } from "./components/InterstitialAd";
 
 function App() {
@@ -52,6 +54,10 @@ function App() {
               <Route path="/premium" element={<PremiumPage />} />
               <Route path="/referrals" element={<ReferralsPage />} />
               <Route path="/payment/callback" element={<PaymentCallback />} />
+              <Route path="/forgot-password" element={<ForgotPassword />} />
+              <Route path="/reset-password" element={<ResetPassword />} />
+              <Route path="/verify-email" element={<VerifyEmail />} />
+              <Route path="/wc/games" element={<WcGames />} />
             </Routes>
             <InterstitialAd />
           </Layout>

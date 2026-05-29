@@ -2,7 +2,8 @@ import React, { useEffect, useMemo, useState } from "react";
 import api from "../lib/api";
 import { useAuth, formatApiErr } from "../lib/auth";
 import { Link } from "react-router-dom";
-import { Trophy, Check, AlertTriangle, Lock, Award } from "lucide-react";
+import { Trophy, Check, AlertTriangle, Lock, Award, Crown } from "lucide-react";
+import RewardedVideoButton from "../components/RewardedVideoButton";
 
 const TeamLogo = ({ src, name }) => {
   if (src) return <img src={src} alt="" className="w-6 h-6 object-contain shrink-0" onError={(e) => { e.target.style.display = "none"; }}/>;
@@ -28,6 +29,7 @@ export const PredictionsHub = () => {
   const { user } = useAuth();
   const [matches, setMatches] = useState([]);
   const [board, setBoard] = useState([]);
+  const [boardScope, setBoardScope] = useState("global");
   const [picks, setPicks] = useState({});
   const [saving, setSaving] = useState({});
   const [savedMatch, setSavedMatch] = useState(null);
@@ -37,7 +39,7 @@ export const PredictionsHub = () => {
     try {
       const [u, b] = await Promise.all([
         api.get("/predictions/upcoming?limit=80"),
-        api.get("/predictions/leaderboard?limit=10"),
+        api.get(`/predictions/leaderboard?limit=10&scope=${boardScope}`),
       ]);
       setMatches(u.data.matches || []);
       setBoard(b.data.leaderboard || []);
@@ -49,7 +51,7 @@ export const PredictionsHub = () => {
     } catch (_) {}
   };
 
-  useEffect(() => { load(); }, []);
+  useEffect(() => { load(); /* eslint-disable-next-line */ }, [boardScope]);
 
   const submit = async (matchId) => {
     const p = picks[matchId];
@@ -210,6 +212,29 @@ export const PredictionsHub = () => {
         <div className="cp-card-header normal-case">
           <span className="flex items-center gap-2 font-bold" style={{ color: "var(--cp-text)" }}><Trophy size={14} className="text-cp-lime"/> Top Predictors</span>
         </div>
+        <div className="flex gap-1 px-2 pt-2">
+          {[
+            { k: "global", label: "Global" },
+            { k: "weekly", label: "Weekly" },
+            { k: "premium", label: "Premium", premium: true },
+          ].map(t => (
+            <button
+              key={t.k}
+              onClick={() => setBoardScope(t.k)}
+              className={`px-2 py-1 text-[10px] rounded font-bold inline-flex items-center gap-1 ${boardScope === t.k ? "bg-cp-lime text-cp-forest" : "hover:bg-white/5"}`}
+              style={{ color: boardScope === t.k ? "#064E3B" : "var(--cp-text)" }}
+              data-testid={`board-tab-${t.k}`}
+            >
+              {t.premium && <Crown size={10} className="text-cp-lime"/>}
+              {t.label}
+            </button>
+          ))}
+        </div>
+        {boardScope === "premium" && !user?.is_premium && (
+          <div className="text-[10px] mt-1 px-3 pb-1" style={{ color: "var(--cp-text-muted)" }}>
+            Premium-only side leaderboard. <Link to="/premium" className="text-cp-lime">Upgrade $2/mo</Link>
+          </div>
+        )}
         <ul className="divide-y" style={{ borderColor: "var(--cp-border)" }}>
           {board.length === 0 && <li className="p-4 text-sm" style={{ color: "var(--cp-text-muted)" }}>No scores yet — be the first!</li>}
           {board.map(r => (
@@ -220,6 +245,11 @@ export const PredictionsHub = () => {
             </li>
           ))}
         </ul>
+        {user && (
+          <div className="p-3 border-t" style={{ borderColor: "var(--cp-border)" }}>
+            <RewardedVideoButton rewardType="prediction_points"/>
+          </div>
+        )}
       </aside>
     </div>
   );

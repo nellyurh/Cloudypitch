@@ -27,6 +27,9 @@ export const SignIn = () => {
         <button disabled={busy} className="cp-btn-primary w-full justify-center disabled:opacity-50" data-testid="signin-submit">{busy ? "Signing in…" : "Sign in"}</button>
       </form>
       <div className="text-xs text-center mt-4" style={{ color: "var(--cp-text-muted)" }}>
+        <Link to="/forgot-password" className="text-cp-lime" data-testid="signin-forgot">Forgot password?</Link>
+      </div>
+      <div className="text-xs text-center mt-2" style={{ color: "var(--cp-text-muted)" }}>
         No account? <Link to="/signup" className="text-cp-lime" data-testid="signin-to-signup">Sign up free</Link>
       </div>
     </div>

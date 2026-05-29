@@ -36,6 +36,7 @@ from routes.wallet import router as wallet_router
 from routes.compliance import router as compliance_router
 from routes.ads import router as ads_router
 from routes.payments import router as payments_router
+from routes.wc_games import router as wc_games_router, admin_router as wc_admin_router
 
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
@@ -98,5 +99,6 @@ for r in (auth_router, catalog_router, matches_router, worldcup_router,
           leagues_router, pools_router,
           profile_router, search_router, admin_router,
           wallet_router, compliance_router, ads_router, payments_router,
-          referrals_router, auth_extras_router):
+          referrals_router, auth_extras_router,
+          wc_games_router, wc_admin_router):
     app.include_router(r)

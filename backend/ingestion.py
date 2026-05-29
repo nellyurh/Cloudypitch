@@ -1394,6 +1394,188 @@ async def stale_status_sweep():
     )
 
 
+# ---------- WC Fantasy Game generator + state machine ----------
+async def _resolve_team_ids_for_groups() -> dict:
+    """Map group letter -> [team_id]. Tries to match WC2026 groups (by team name) against
+    teams collection. Returns dict {'A': [team_id, ...], ...}."""
+    db = get_db()
+    groups = await db.wc2026_groups.find({}, {"_id": 0}).to_list(length=20)
+    out = {}
+    for g in groups:
+        letter = g.get("group")
+        team_ids: list[str] = []
+        for name in g.get("teams") or []:
+            t = await db.teams.find_one(
+                {"$or": [{"name": name}, {"name": {"$regex": f"^{name}$", "$options": "i"}}]},
+                {"_id": 0, "id": 1},
+            )
+            if t:
+                team_ids.append(t["id"])
+        out[letter] = team_ids
+    return out
+
+
+async def generate_wc_games() -> int:
+    """Daily generator: create wc_games rows for matches/groups/rounds not yet created.
+    Returns the number of rows created."""
+    db = get_db()
+    cfg_rows = await db.wc_game_config.find({"is_active": True}, {"_id": 0}).to_list(length=50)
+    cfg_by = {(c["game_type"], c["stage"]): c for c in cfg_rows}
+    created = 0
+    now = utcnow()
+
+    # ---- Match games: one wc_game per WC match not yet generated ----
+    match_cfg = cfg_by.get(("match", "any"))
+    if match_cfg:
+        wc_matches = await db.matches.find(
+            {"$or": [{"is_world_cup": True}, {"competition_id": "wc-2026"}, {"sportmonks_league_id": 732}]},
+            {"_id": 0, "id": 1, "scheduled_at": 1, "home_team_id": 1, "away_team_id": 1, "status": 1},
+        ).to_list(length=2000)
+        for m in wc_matches:
+            if not m.get("scheduled_at"):
+                continue
+            existing = await db.wc_games.find_one({"game_type": "match", "match_id": m["id"]})
+            if existing:
+                continue
+            try:
+                ko = datetime.fromisoformat(m["scheduled_at"].replace("Z", "+00:00"))
+            except Exception:
+                continue
+            opens_at = ko - timedelta(hours=match_cfg["opens_hours_before"])
+            row = {
+                "id": new_id(), "game_type": "match", "stage": "any",
+                "config_id": match_cfg["id"], "match_id": m["id"],
+                "card_limit_current": match_cfg["card_limit_current"],
+                "points_multiplier": match_cfg["points_multiplier"],
+                "opens_at": opens_at.isoformat(), "closes_at": ko.isoformat(),
+                "status": "upcoming", "total_entries": 0,
+                "eligible_team_ids": [t for t in (m.get("home_team_id"), m.get("away_team_id")) if t],
+                "created_at": now.isoformat(),
+            }
+            await db.wc_games.insert_one(row)
+            created += 1
+
+    # ---- Group games: per group × matchday (1-3), based on first scheduled match in that group ----
+    group_team_ids = await _resolve_team_ids_for_groups()
+    for letter, tids in group_team_ids.items():
+        if not tids:
+            continue
+        # Find matches involving these teams sorted by scheduled_at
+        gm = await db.matches.find(
+            {"$or": [{"is_world_cup": True}, {"competition_id": "wc-2026"}, {"sportmonks_league_id": 732}],
+             "home_team_id": {"$in": tids}},
+            {"_id": 0},
+        ).to_list(length=300)
+        # Filter: both teams must be in tids (true group-stage match)
+        gm = [m for m in gm if m.get("away_team_id") in tids]
+        gm.sort(key=lambda m: m.get("scheduled_at") or "")
+        # Group consecutively into matchdays of size 2 (each group plays 2 matches per matchday)
+        matchdays: list[list[dict]] = []
+        cur: list[dict] = []
+        for m in gm:
+            cur.append(m)
+            if len(cur) == 2:
+                matchdays.append(cur); cur = []
+        if cur:
+            matchdays.append(cur)
+        for idx, day_matches in enumerate(matchdays[:3], start=1):
+            stage = f"group_md{idx}"
+            cfg = cfg_by.get(("group", stage))
+            if not cfg:
+                continue
+            existing = await db.wc_games.find_one({"game_type": "group", "group_letter": letter, "matchday": idx})
+            if existing:
+                continue
+            try:
+                first_ko = min(datetime.fromisoformat(m["scheduled_at"].replace("Z", "+00:00")) for m in day_matches)
+            except Exception:
+                continue
+            opens_at = first_ko - timedelta(hours=cfg["opens_hours_before"])
+            row = {
+                "id": new_id(), "game_type": "group", "stage": stage,
+                "config_id": cfg["id"], "group_letter": letter, "matchday": idx,
+                "card_limit_current": cfg["card_limit_current"],
+                "points_multiplier": cfg["points_multiplier"],
+                "opens_at": opens_at.isoformat(), "closes_at": first_ko.isoformat(),
+                "status": "upcoming", "total_entries": 0,
+                "eligible_team_ids": tids,
+                "created_at": now.isoformat(),
+            }
+            await db.wc_games.insert_one(row)
+            created += 1
+
+    # ---- Round games: 8 tournament-wide round games. Created lazily as bracket data lands ----
+    # All 48 teams are alive at MD1/MD2/MD3. R32+ require advancing teams (admin can refresh later).
+    all_team_ids = []
+    for tids in group_team_ids.values():
+        all_team_ids.extend(tids)
+    if all_team_ids:
+        for stage in ("group_md1", "group_md2", "group_md3"):
+            cfg = cfg_by.get(("round", stage))
+            if not cfg:
+                continue
+            existing = await db.wc_games.find_one({"game_type": "round", "stage": stage})
+            if existing:
+                continue
+            # Anchor opens/closes to the first match of that matchday across all groups
+            md_idx = int(stage[-1])
+            anchor_dt: Optional[datetime] = None  # type: ignore[name-defined]
+            # Find earliest WC match group_md{idx} based on chronological order (heuristic)
+            matches_chrono = await db.matches.find(
+                {"$or": [{"is_world_cup": True}, {"competition_id": "wc-2026"}, {"sportmonks_league_id": 732}]},
+                {"_id": 0, "scheduled_at": 1},
+            ).sort("scheduled_at", 1).to_list(length=300)
+            # 12 groups × 2 matches per matchday = 24 matches per md
+            chunk = matches_chrono[(md_idx - 1) * 24:(md_idx - 1) * 24 + 24]
+            if chunk:
+                try:
+                    first_ko = datetime.fromisoformat(chunk[0]["scheduled_at"].replace("Z", "+00:00"))
+                    anchor_dt = first_ko
+                except Exception:
+                    pass
+            if not anchor_dt:
+                continue
+            opens_at = anchor_dt - timedelta(hours=cfg["opens_hours_before"])
+            row = {
+                "id": new_id(), "game_type": "round", "stage": stage,
+                "config_id": cfg["id"], "round_label": stage,
+                "card_limit_current": cfg["card_limit_current"],
+                "points_multiplier": cfg["points_multiplier"],
+                "opens_at": opens_at.isoformat(), "closes_at": anchor_dt.isoformat(),
+                "status": "upcoming", "total_entries": 0,
+                "eligible_team_ids": all_team_ids,
+                "created_at": now.isoformat(),
+            }
+            await db.wc_games.insert_one(row)
+            created += 1
+
+    if created:
+        log.info(f"wc-games generator: created {created} new game rows")
+    return created
+
+
+async def tick_wc_game_states() -> int:
+    """State machine: upcoming→open when opens_at arrives; open→closed when closes_at hits.
+    Returns the number of state transitions."""
+    db = get_db()
+    now_iso = utcnow_iso()
+    transitions = 0
+    r1 = await db.wc_games.update_many(
+        {"status": "upcoming", "opens_at": {"$lte": now_iso}, "closes_at": {"$gt": now_iso}},
+        {"$set": {"status": "open"}},
+    )
+    transitions += r1.modified_count or 0
+    r2 = await db.wc_games.update_many(
+        {"status": {"$in": ["upcoming", "open"]}, "closes_at": {"$lte": now_iso}},
+        {"$set": {"status": "closed"}},
+    )
+    transitions += r2.modified_count or 0
+    return transitions
+
+
+from typing import Optional  # late import for inline annotation above
+
+
 # ---------- Background loop ----------
 async def start_background_jobs():
     """Kick off long-running background tasks."""
@@ -1449,6 +1631,27 @@ async def start_background_jobs():
                 await sync_sportmonks_league_schedule(732)
             except Exception as e:
                 log.warning(f"wc2026 hourly: {e}")
+
+    async def wc_games_generator_loop():
+        """Daily auto-generator for WC fantasy games (match/group/round)."""
+        # Run once shortly after boot, then every 24h
+        await asyncio.sleep(120)
+        while True:
+            try:
+                await generate_wc_games()
+            except Exception as e:
+                log.warning(f"wc-games generator: {e}")
+            await asyncio.sleep(24 * 3600)
+
+    async def wc_games_state_loop():
+        """State-machine tick: upcoming→open→closed every 5 minutes."""
+        await asyncio.sleep(180)
+        while True:
+            try:
+                await tick_wc_game_states()
+            except Exception as e:
+                log.warning(f"wc-games state tick: {e}")
+            await asyncio.sleep(300)
 
     async def live_poller():
         while True:
@@ -1514,3 +1717,5 @@ async def start_background_jobs():
     asyncio.create_task(fixture_daily())
     asyncio.create_task(statpal_poller())
     asyncio.create_task(wc2026_poller())
+    asyncio.create_task(wc_games_generator_loop())
+    asyncio.create_task(wc_games_state_loop())

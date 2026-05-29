@@ -3,6 +3,8 @@ import api from "../lib/api";
 import { useAuth, formatApiErr } from "../lib/auth";
 import { Wallet as WalletIcon, ShieldCheck, ShieldAlert, AlertTriangle, ArrowDownToLine, ArrowUpFromLine } from "lucide-react";
 import AgeGateModal from "../components/AgeGateModal";
+import KycModal from "../components/KycModal";
+import RewardedVideoButton from "../components/RewardedVideoButton";
 
 const tx_label = {
   deposit: { text: "Deposit", color: "text-cp-lime" },
@@ -23,18 +25,22 @@ export const WalletPage = () => {
   const [monthly, setMonthly] = useState(2000); // $20.00 monthly default
   const [err, setErr] = useState("");
   const [msg, setMsg] = useState("");
+  const [kycOpen, setKycOpen] = useState(false);
+  const [kycStatus, setKycStatus] = useState(null);
   const fmtUsd = (cents) => `$${((cents || 0) / 100).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
   const load = async () => {
     try {
-      const [w, t, c] = await Promise.all([
+      const [w, t, c, k] = await Promise.all([
         api.get("/wallet/me"),
         api.get("/wallet/transactions"),
         api.get("/compliance/me"),
+        api.get("/auth-extras/kyc/me").catch(() => ({ data: { kyc: null } })),
       ]);
       setWallet(w.data.wallet);
       setTxs(t.data.transactions || []);
       setCompliance(c.data.profile);
+      setKycStatus(k.data.kyc?.status || null);
       if (c.data.profile) {
         setDaily(c.data.profile.daily_cap_ngn || 500);
         setMonthly(c.data.profile.monthly_cap_ngn || 2000);
@@ -130,6 +136,25 @@ export const WalletPage = () => {
               <button onClick={directDeposit} className="cp-btn-ghost" data-testid="deposit-test">Test-Credit</button>
             )}
           </div>
+          <div className="mt-3 pt-3 border-t" style={{ borderColor: "var(--cp-border)" }}>
+            <RewardedVideoButton rewardType="card_uses"/>
+          </div>
+        </div>
+
+        {/* KYC for cash withdrawals */}
+        <div className="cp-surface p-5 mt-3" data-testid="wallet-kyc">
+          <div className="flex items-center justify-between gap-3 flex-wrap">
+            <div>
+              <h3 className="text-sm font-extrabold uppercase tracking-widest" style={{ color: "var(--cp-text-muted)" }}>Bank Verification (KYC)</h3>
+              <p className="text-xs mt-1" style={{ color: "var(--cp-text-muted)" }}>Required to withdraw prize-pool winnings to your bank.</p>
+              {kycStatus === "approved" && <div className="text-xs mt-1 text-cp-lime">✓ Verified</div>}
+              {kycStatus === "pending" && <div className="text-xs mt-1" style={{ color: "#FBBF24" }}>Submitted · awaiting admin review</div>}
+              {kycStatus === "rejected" && <div className="text-xs mt-1" style={{ color: "#FF3D52" }}>Rejected · resubmit below</div>}
+            </div>
+            <button onClick={() => setKycOpen(true)} className={kycStatus === "approved" ? "cp-btn-ghost" : "cp-btn-primary"} data-testid="kyc-open">
+              {kycStatus === "approved" ? "Update bank details" : kycStatus === "pending" ? "View status" : "Verify bank account"}
+            </button>
+          </div>
         </div>
 
         <div className="cp-surface mt-3 overflow-hidden">
@@ -198,6 +223,8 @@ export const WalletPage = () => {
         {err && <div className="text-sm text-rose-400 mt-3">{err}</div>}
         {msg && <div className="text-sm text-cp-lime mt-3">{msg}</div>}
       </aside>
+
+      {kycOpen && <KycModal onClose={() => setKycOpen(false)} onSubmitted={() => load()}/>}
     </div>
   );
 };

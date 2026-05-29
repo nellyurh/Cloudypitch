@@ -260,6 +260,24 @@ PRIZE_POOLS = [
 ]
 
 
+# ===== WC Fantasy Game Config (148 games structure) =====
+# (game_type, stage, card_limit_default, points_multiplier, opens_hours_before, notes)
+WC_GAME_CONFIG_DEFAULTS = [
+    ("match", "any",        2,  1.0, 168, "Standard match game, 2 cards"),
+    ("group", "group_md1",  4,  1.0, 24,  "Group game matchday 1"),
+    ("group", "group_md2",  4,  1.0, 24,  "Group game matchday 2"),
+    ("group", "group_md3",  4,  1.0, 24,  "Group game matchday 3 — elimination decisions"),
+    ("round", "group_md1",  5,  1.0, 48,  "Tournament-wide round game MD1"),
+    ("round", "group_md2",  5,  1.0, 48,  "Tournament-wide round game MD2"),
+    ("round", "group_md3",  6,  1.2, 48,  "Tournament-wide round game MD3 — increased cards"),
+    ("round", "r32",        6,  1.5, 48,  "Round of 32 — knockout begins"),
+    ("round", "r16",        7,  2.0, 48,  "Round of 16"),
+    ("round", "qf",         8,  2.5, 48,  "Quarterfinals"),
+    ("round", "sf",         9,  3.0, 48,  "Semifinals"),
+    ("round", "finals",    10,  4.0, 48,  "Finals + 3rd place playoff"),
+]
+
+
 async def seed_all():
     db = get_db()
     # Sports
@@ -297,4 +315,24 @@ async def seed_all():
     for g in WC2026_GROUPS:
         await db.wc2026_groups.update_one(
             {"group": g["group"]}, {"$set": g}, upsert=True
+        )
+    # WC Game Config (12 default rows — admin can edit current values)
+    for game_type, stage, lim, mult, hrs, notes in WC_GAME_CONFIG_DEFAULTS:
+        await db.wc_game_config.update_one(
+            {"game_type": game_type, "stage": stage},
+            {
+                "$setOnInsert": {
+                    "id": f"wcfg-{game_type}-{stage}",
+                    "card_limit_default": lim,
+                    "card_limit_current": lim,
+                    "points_multiplier": mult,
+                    "opens_hours_before": hrs,
+                    "is_active": True,
+                    "notes": notes,
+                    "created_at": utcnow_iso(),
+                    "game_type": game_type,
+                    "stage": stage,
+                },
+            },
+            upsert=True,
         )
