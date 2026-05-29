@@ -135,6 +135,12 @@ async def enter_game(game_id: str, body: GameEntryIn, user: dict = Depends(a.get
     card_cap = (cfg or {}).get("card_limit_current", 2) if cfg else 2
     if len(body.cards_used) > card_cap:
         raise HTTPException(status_code=400, detail=f"Card limit {card_cap} for this stage")
+    # Enforce uniqueness: each user_card_id can only be used ONCE per game entry
+    seen_card_ids: set[str] = set()
+    for cu in body.cards_used:
+        if cu.user_card_id in seen_card_ids:
+            raise HTTPException(status_code=400, detail="Each card can only be used once per game")
+        seen_card_ids.add(cu.user_card_id)
     # Validate cards belong to user with uses remaining
     valid_cards = []
     for cu in body.cards_used:
@@ -361,8 +367,9 @@ async def admin_update_group(letter: str, body: GroupTeamsPatch, admin: dict = D
 
 @admin_router.post("/refresh-bracket")
 async def admin_refresh_bracket(admin: dict = Depends(a.require_admin)):
-    """Trigger generator + state machine immediately."""
-    from ingestion import generate_wc_games, tick_wc_game_states
+    """Pull WC2026 schedule from Sportmonks → generator → state machine. One-click full sync."""
+    from ingestion import sync_sportmonks_league_schedule, generate_wc_games, tick_wc_game_states
+    ingested = await sync_sportmonks_league_schedule(732)
     created = await generate_wc_games()
     transitions = await tick_wc_game_states()
-    return {"ok": True, "created": created, "transitions": transitions}
+    return {"ok": True, "ingested": ingested, "created": created, "transitions": transitions}

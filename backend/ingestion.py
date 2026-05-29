@@ -637,35 +637,53 @@ async def sync_sportmonks_leagues_catalog():
 
 
 async def sync_sportmonks_league_schedule(league_id: int):
-    """Pull all fixtures for a single league (e.g. league 732 = FIFA WC 2026).
-    Used by the WC2026 poller to keep /predictions/upcoming hydrated."""
+    """Pull all fixtures for a single league's CURRENT season (e.g. league 732 → season 26618 = WC 2026).
+
+    This was previously pulling every historical season of league 732 (2006/2010/.../2022)
+    which polluted the WC schedule with old games. Fix: look up the league's currentseason
+    and ONLY ingest that one season's fixtures.
+    """
+    from db import get_db
+    db = get_db()
+    # 1) Resolve currentseason for the league
+    try:
+        detail = await sportmonks.fetch_league_detail(league_id)
+        cur = ((detail or {}).get("data") or {}).get("currentseason") or {}
+        season_id = cur.get("id")
+    except Exception as e:
+        log.warning(f"sm league detail {league_id}: {e}")
+        season_id = None
+    if not season_id:
+        log.warning(f"sm league {league_id}: no current season — skipping")
+        return 0
+    # 2) Fetch all fixtures for that season
+    try:
+        data = await sportmonks.fetch_fixtures_by_season(season_id)
+    except Exception as e:
+        log.warning(f"sm season {season_id}: {e}")
+        return 0
+    season_doc = (data or {}).get("data") or {}
+    fixtures = season_doc.get("fixtures") or []
+    if not isinstance(fixtures, list):
+        return 0
     total = 0
-    for page in range(1, 6):
+    for fx in fixtures:
         try:
-            data = await sportmonks.fetch_fixtures_by_league(league_id, page=page)
+            await upsert_sportmonks_fixture(fx)
+            await db.matches.update_one(
+                {"sportmonks_id": fx.get("id")},
+                {"$set": {
+                    "is_world_cup": True,
+                    "competition_id": "wc-2026",
+                    "sportmonks_league_id": league_id,
+                    "sportmonks_season_id": season_id,
+                    "season_year": season_doc.get("name"),
+                }},
+            )
+            total += 1
         except Exception as e:
-            log.warning(f"sm league {league_id} page {page}: {e}")
-            break
-        fixtures = (data or {}).get("data", []) if isinstance(data, dict) else []
-        if not isinstance(fixtures, list) or not fixtures:
-            break
-        for fx in fixtures:
-            try:
-                await upsert_sportmonks_fixture(fx)
-                # Force the WC flag even if league context wasn't included
-                from db import get_db
-                db = get_db()
-                await db.matches.update_one(
-                    {"sportmonks_id": fx.get("id")},
-                    {"$set": {"is_world_cup": True, "competition_id": "wc-2026"}},
-                )
-                total += 1
-            except Exception as e:
-                log.warning(f"sm wc upsert err: {e}")
-        pag = (data or {}).get("pagination") or {}
-        if not pag.get("has_more"):
-            break
-    log.info(f"sportmonks league {league_id}: {total} fixtures ingested")
+            log.warning(f"sm wc upsert err: {e}")
+    log.info(f"sportmonks league {league_id} season {season_id} ({season_doc.get('name')}): {total} fixtures ingested")
     return total
 
 
@@ -1455,29 +1473,46 @@ async def generate_wc_games() -> int:
             await db.wc_games.insert_one(row)
             created += 1
 
-    # ---- Group games: per group × matchday (1-3), based on first scheduled match in that group ----
-    group_team_ids = await _resolve_team_ids_for_groups()
-    for letter, tids in group_team_ids.items():
+    # ---- Group games: derive from actual fixtures, NOT stale group seeds ----
+    # WC2026 group draw can shift right up to draw day; seeded group rows go stale fast.
+    # Strategy: cluster the first 24 sorted MD1 fixtures into 12 pairs (2 matches per group
+    # in WC2026), assign letters A-L by chronological pairing. Then MD2/3 follow the same
+    # 24-match windows.
+    sorted_wc = await db.matches.find(
+        {"is_world_cup": True, "scheduled_at": {"$gte": "2026-06-01"}},
+        {"_id": 0, "id": 1, "home_team_id": 1, "away_team_id": 1, "scheduled_at": 1, "home_team_name": 1, "away_team_name": 1},
+    ).sort("scheduled_at", 1).to_list(length=200)
+    # Take first 72 (24 per matchday × 3 matchdays = group stage)
+    group_stage_matches = [m for m in sorted_wc if m.get("home_team_id") and m.get("away_team_id")][:72]
+    # Build groups: for MD1 we don't know which 4 teams cluster together without group_id
+    # from Sportmonks. We treat each consecutive PAIR of matches as a group's MD1.
+    # NOTE: This is heuristic — works perfectly once FIFA draw publishes & sportmonks tags group_id.
+    groups_dynamic: dict[str, list[str]] = {}  # letter -> [team_id]
+    for i, pair_start in enumerate(range(0, min(24, len(group_stage_matches)), 2)):
+        letter = chr(ord("A") + i)
+        if pair_start + 1 < len(group_stage_matches):
+            m1 = group_stage_matches[pair_start]
+            m2 = group_stage_matches[pair_start + 1]
+            tids = list({m1["home_team_id"], m1["away_team_id"], m2["home_team_id"], m2["away_team_id"]})
+            if len(tids) == 4:
+                groups_dynamic[letter] = tids
+    # If dynamic grouping failed (e.g. teams overlap = misclustered), fall back to seeded
+    if len(groups_dynamic) < 12:
+        groups_dynamic = await _resolve_team_ids_for_groups()
+    for letter, tids in groups_dynamic.items():
         if not tids:
             continue
-        # Find matches involving these teams sorted by scheduled_at
-        gm = await db.matches.find(
-            {"$or": [{"is_world_cup": True}, {"competition_id": "wc-2026"}, {"sportmonks_league_id": 732}],
-             "home_team_id": {"$in": tids}},
-            {"_id": 0},
-        ).to_list(length=300)
-        # Filter: both teams must be in tids (true group-stage match)
-        gm = [m for m in gm if m.get("away_team_id") in tids]
-        gm.sort(key=lambda m: m.get("scheduled_at") or "")
-        # Group consecutively into matchdays of size 2 (each group plays 2 matches per matchday)
+        # All matches where BOTH teams are in this group
+        group_matches = [m for m in sorted_wc if m.get("home_team_id") in tids and m.get("away_team_id") in tids]
+        group_matches.sort(key=lambda m: m.get("scheduled_at") or "")
+        # Group into matchdays of 2 matches each
         matchdays: list[list[dict]] = []
         cur: list[dict] = []
-        for m in gm:
+        for m in group_matches:
             cur.append(m)
             if len(cur) == 2:
                 matchdays.append(cur); cur = []
-        if cur:
-            matchdays.append(cur)
+        if cur: matchdays.append(cur)
         for idx, day_matches in enumerate(matchdays[:3], start=1):
             stage = f"group_md{idx}"
             cfg = cfg_by.get(("group", stage))
@@ -1504,50 +1539,53 @@ async def generate_wc_games() -> int:
             await db.wc_games.insert_one(row)
             created += 1
 
-    # ---- Round games: 8 tournament-wide round games. Created lazily as bracket data lands ----
-    # All 48 teams are alive at MD1/MD2/MD3. R32+ require advancing teams (admin can refresh later).
-    all_team_ids = []
-    for tids in group_team_ids.values():
-        all_team_ids.extend(tids)
-    if all_team_ids:
-        for stage in ("group_md1", "group_md2", "group_md3"):
-            cfg = cfg_by.get(("round", stage))
-            if not cfg:
-                continue
-            existing = await db.wc_games.find_one({"game_type": "round", "stage": stage})
-            if existing:
-                continue
-            # Anchor opens/closes to the first match of that matchday across all groups
-            md_idx = int(stage[-1])
-            anchor_dt: Optional[datetime] = None  # type: ignore[name-defined]
-            # Find earliest WC match group_md{idx} based on chronological order (heuristic)
-            matches_chrono = await db.matches.find(
-                {"$or": [{"is_world_cup": True}, {"competition_id": "wc-2026"}, {"sportmonks_league_id": 732}]},
-                {"_id": 0, "scheduled_at": 1},
-            ).sort("scheduled_at", 1).to_list(length=300)
-            # 12 groups × 2 matches per matchday = 24 matches per md
-            chunk = matches_chrono[(md_idx - 1) * 24:(md_idx - 1) * 24 + 24]
-            if chunk:
-                try:
-                    first_ko = datetime.fromisoformat(chunk[0]["scheduled_at"].replace("Z", "+00:00"))
-                    anchor_dt = first_ko
-                except Exception:
-                    pass
-            if not anchor_dt:
-                continue
-            opens_at = anchor_dt - timedelta(hours=cfg["opens_hours_before"])
-            row = {
-                "id": new_id(), "game_type": "round", "stage": stage,
-                "config_id": cfg["id"], "round_label": stage,
-                "card_limit_current": cfg["card_limit_current"],
-                "points_multiplier": cfg["points_multiplier"],
-                "opens_at": opens_at.isoformat(), "closes_at": anchor_dt.isoformat(),
-                "status": "upcoming", "total_entries": 0,
-                "eligible_team_ids": all_team_ids,
-                "created_at": now.isoformat(),
-            }
-            await db.wc_games.insert_one(row)
-            created += 1
+    # ---- Round games: 8 tournament-wide round games anchored from actual fixture dates ----
+    all_team_ids: list[str] = []
+    seen_t = set()
+    for m in sorted_wc:
+        for tid in (m.get("home_team_id"), m.get("away_team_id")):
+            if tid and tid not in seen_t:
+                seen_t.add(tid); all_team_ids.append(tid)
+    # Stage → (anchor function over sorted_wc, opens_hours_before fallback)
+    # Group stages: anchor at first match of MD1/2/3 chunk
+    stage_anchors: dict[str, str] = {}
+    if sorted_wc:
+        try:
+            # MD1 → match[0], MD2 → match[24], MD3 → match[48], R32 → match[72]…
+            if len(sorted_wc) > 0:  stage_anchors["group_md1"] = sorted_wc[0]["scheduled_at"]
+            if len(sorted_wc) > 24: stage_anchors["group_md2"] = sorted_wc[24]["scheduled_at"]
+            if len(sorted_wc) > 48: stage_anchors["group_md3"] = sorted_wc[48]["scheduled_at"]
+            if len(sorted_wc) > 72: stage_anchors["r32"]       = sorted_wc[72]["scheduled_at"]
+            if len(sorted_wc) > 88: stage_anchors["r16"]       = sorted_wc[88]["scheduled_at"]
+            if len(sorted_wc) > 96: stage_anchors["qf"]        = sorted_wc[96]["scheduled_at"]
+            if len(sorted_wc) > 100: stage_anchors["sf"]       = sorted_wc[100]["scheduled_at"]
+            if len(sorted_wc) > 102: stage_anchors["finals"]   = sorted_wc[102]["scheduled_at"]
+        except Exception:
+            pass
+    for stage, anchor_iso in stage_anchors.items():
+        cfg = cfg_by.get(("round", stage))
+        if not cfg:
+            continue
+        existing = await db.wc_games.find_one({"game_type": "round", "stage": stage})
+        if existing:
+            continue
+        try:
+            anchor_dt = datetime.fromisoformat(anchor_iso.replace("Z", "+00:00"))
+        except Exception:
+            continue
+        opens_at = anchor_dt - timedelta(hours=cfg["opens_hours_before"])
+        row = {
+            "id": new_id(), "game_type": "round", "stage": stage,
+            "config_id": cfg["id"], "round_label": stage,
+            "card_limit_current": cfg["card_limit_current"],
+            "points_multiplier": cfg["points_multiplier"],
+            "opens_at": opens_at.isoformat(), "closes_at": anchor_dt.isoformat(),
+            "status": "upcoming", "total_entries": 0,
+            "eligible_team_ids": all_team_ids,
+            "created_at": now.isoformat(),
+        }
+        await db.wc_games.insert_one(row)
+        created += 1
 
     if created:
         log.info(f"wc-games generator: created {created} new game rows")

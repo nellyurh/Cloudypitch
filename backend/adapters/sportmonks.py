@@ -68,6 +68,15 @@ async def fetch_fixtures_by_league(league_id: int, page: int = 1, per_page: int 
     )
 
 
+async def fetch_fixtures_by_season(season_id: int):
+    """Fetch all fixtures for a single season (e.g. WC 2026 = 26618).
+    Uses /seasons/{id}?include=fixtures which returns ALL fixtures for that season."""
+    return await _get(
+        f"/seasons/{season_id}",
+        {"include": "fixtures.participants;fixtures.scores;fixtures.state;fixtures.round;fixtures.stage;fixtures.venue"},
+    )
+
+
 async def fetch_today_livescores():
     return await _get(
         "/livescores",

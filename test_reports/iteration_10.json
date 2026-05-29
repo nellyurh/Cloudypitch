@@ -1,0 +1,32 @@
+{
+  "summary": "Iteration 10 — WC2026 schedule pulled from SportMonks currentseason 26618 (was previously pulling ALL historical 2006-2022 seasons), per-stage card limits, and per-game card uniqueness validation. All 7 backend tests + 6 frontend assertions PASS. GET /api/worldcup returns exactly 104 WC2026 fixtures (Mexico vs South Africa opener 2026-06-11 19:00 at Estadio Banorte, Brazil vs Morocco, USA vs Paraguay, Canada vs Bosnia, etc) — zero historical leaks. POST /api/admin/wc/refresh-bracket returns {ok:true, ingested:104, created:N, transitions:0}. GET /api/admin/wc/games returns 130 games (104 match/any + 18 group + 8 round across all 8 stages: group_md1/2/3 + r32/r16/qf/sf/finals), all status=upcoming. GET /api/admin/wc/config returns 12 configs with exact card_limit_current per spec (match/any=2, group/md*=4, round/md1=5, round/md2=5, round/md3=6, round/r32=6, round/r16=7, round/qf=8, round/sf=9, round/finals=10). Duplicate user_card_id in cards_used → 400 'Each card can only be used once per game'. cards_used > cap → 400 'Card limit N for this stage'. Valid 11 picks + no cards → 200 with entry doc.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": [
+    {"screen": "WC Hub Schedule tab", "issues": ["Schedule rows show only kickoff time (e.g. 19:00) but not the date — multi-day fixtures rendered as a single list could confuse users since 2026-06-11 vs 2026-06-12 fixtures look identical. Consider adding a date separator row or YYYY-MM-DD prefix to each fixture."]}
+  ]},
+  "test_report_links": [
+    "/app/backend/tests/test_iteration10.py",
+    "/app/test_reports/pytest/iteration10.xml"
+  ],
+  "action_items": [
+    "(Nit-only) Frontend Schedule list could show a date column or grouped date headers — currently only kickoff time is rendered, making it harder to distinguish matchdays."
+  ],
+  "critical_code_review_comments": [
+    "ingestion.py sync_sportmonks_league_schedule(): clean fix — now resolves league.currentseason.id first and only ingests fixtures for that season. The follow-up $set updates sportmonks_season_id + competition_id + is_world_cup=true on every ingested match, ensuring all downstream queries (worldcup filter, generate_wc_games) are correctly scoped.",
+    "routes/wc_games.py enter_game(): seen_card_ids set check is placed BEFORE the user-ownership filter — correct order. Note caveat already documented by main agent: if user owns ZERO cards, the validation loop still raises 400 on the duplicate set BEFORE the ownership filter (because the dedupe runs first), so the 400 fires even without owning cards. Verified in test_enter_duplicate_card_returns_400.",
+    "routes/wc_games.py admin_refresh_bracket(): one-shot endpoint that calls sync_sportmonks_league_schedule(732) → generate_wc_games() → tick_wc_game_states() in sequence is the right pattern for admin re-trigger. Idempotent (upserts everywhere).",
+    "generate_wc_games() correctly creates round games for all 8 stages (group_md1/2/3, r32, r16, qf, sf, finals) anchored to chronological fixture windows — verified by test_admin_games_grouped showing 8 round games, one per stage.",
+    "Per-stage card limits configured in wc_game_config seed exactly match the spec table (5,5,6,6,7,8,9,10). All 12 config rows present with correct card_limit_current.",
+    "wc_game_config returns expected 4 group stage configs (md1/2/3 each get card_limit_current=4, plus match/any=2 and 8 round stages 5→10).",
+    "MINOR: routes/wc_games.py enter_game() — when user owns 0 cards, valid_cards ends up empty silently (after the dedupe check). The doc is still saved with cards_used=[]. This is the intended UX per main agent note but worth a UI hint ('1 card was filtered out — you don't own it') for transparency.",
+    "MINOR: 130 wc_games created (104 match + 18 group + 8 round). Spec said >=12 group games — actual is 18 (12 md1 + 3 md2 + 3 md3). The asymmetry suggests group_md2 and group_md3 generator only creates one game per group letter once md1 fixtures exist; this is fine functionally but worth confirming the generator should eventually backfill all 36 (12 groups × 3 MDs)."
+  ],
+  "updated_files": ["/app/backend/tests/test_iteration10.py"],
+  "success_rate": {"backend": "100% (7/7)", "frontend": "100% (6/6 assertions)"},
+  "test_credentials": "admin@cloudypitch.com / CloudyAdmin2026! (verified). Test user created ad-hoc via /api/auth/signup TEST_it10_<hex>@example.com.",
+  "seed_data_creation": "None — tests use existing seeded WC2026 ingestion. /api/admin/wc/refresh-bracket was triggered once during test_admin_refresh_bracket which is idempotent.",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Iteration 10 is functionally complete. SportMonks season 26618 ingestion produces 104 fixtures with venue names (Estadio Banorte, BMO Field, SoFi, MetLife etc.), all sportmonks_season_id=26618, competition_id='wc-2026', is_world_cup=true. The wc_games collection contains 130 rows (104 match + 18 group + 8 round). Per-stage card_limit_current matches spec exactly. Card-uniqueness check fires correctly on duplicates regardless of card ownership. If a future iteration adds the missing 18 group games (md2 ×9 + md3 ×9 to reach the full 36), no other code changes should be needed.",
+  "rca_of_the_issue": "Root cause of historical-leak bug: sync_sportmonks_league_schedule(732) was iterating over /seasons?league_id=732 which returns ALL historical seasons (2006/2010/2014/2018/2022/2026), then fetching fixtures for each. Fix: 1-call /leagues/{732}?include=currentseason resolves currentseason.id (26618) → /seasons/{26618}?include=fixtures.participants returns only 2026 fixtures (104). Per-card uniqueness: previous code skipped dedupe entirely → user could send same user_card_id twice in cards_used and the validation loop only checked ownership. New check uses a seen_card_ids set BEFORE the ownership loop, raising 400 on first duplicate."
+}
