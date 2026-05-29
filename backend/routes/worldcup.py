@@ -2,20 +2,33 @@
 from fastapi import APIRouter
 from datetime import datetime, timezone
 from db import get_db
+from wc_legends import PAST_TOURNAMENTS
 
 router = APIRouter(prefix="/api/worldcup", tags=["worldcup"])
 
 WC2026_START = "2026-06-11T18:00:00+00:00"
-WC2026_LEAGUE_NAME = "FIFA World Cup"
+WC2026_WINDOW_FROM = "2026-06-01T00:00:00+00:00"
+WC2026_WINDOW_TO   = "2026-07-31T00:00:00+00:00"
+
+
+def _wc2026_filter() -> dict:
+    """Match clause: strictly fixtures inside the WC2026 window OR explicitly tagged."""
+    return {
+        "$or": [
+            {"is_world_cup": True, "scheduled_at": {"$gte": WC2026_WINDOW_FROM, "$lte": WC2026_WINDOW_TO}},
+            {"sportmonks_league_id": 732, "scheduled_at": {"$gte": WC2026_WINDOW_FROM, "$lte": WC2026_WINDOW_TO}},
+            {"competition_id": "wc-2026", "scheduled_at": {"$gte": WC2026_WINDOW_FROM, "$lte": WC2026_WINDOW_TO}},
+        ],
+    }
 
 
 @router.get("")
 async def worldcup_hub():
     db = get_db()
     groups = await db.wc2026_groups.find({}, {"_id": 0}).sort("group", 1).to_list(length=12)
-    # WC fixtures pulled from sportmonks (league = "FIFA World Cup")
+    # WC2026 fixtures ONLY (no past WCs)
     matches = await db.matches.find(
-        {"league_name": {"$regex": "World Cup", "$options": "i"}},
+        _wc2026_filter(),
         {"_id": 0, "raw_data": 0},
     ).sort("scheduled_at", 1).to_list(length=200)
     pool = await db.prize_pools.find_one({"id": "pool-wc2026-fantasy"}, {"_id": 0})
@@ -27,6 +40,36 @@ async def worldcup_hub():
         "prize_pool": pool,
         "competition": comp,
     }
+
+
+@router.get("/past")
+async def past_tournaments():
+    """Hand-curated archive of past WCs with highlights tied to Legend Cards.
+    Frontend renders this as the 'Past Tournaments' tab on the WC Hub."""
+    db = get_db()
+    # Cross-reference each highlight's card_name → live legend_cards.id so UI can deep-link
+    out = []
+    for t in PAST_TOURNAMENTS:
+        highlights = []
+        for h in t["highlights"]:
+            card_doc = None
+            if h.get("card"):
+                # Match either exact card name OR card name CONTAINS the highlight's "card" token
+                # (cards are named like "Pelé Spirit", "Maradona Hand" — we pass "Pele"/"Maradona")
+                token = h["card"].split()[0]  # first word, e.g. "Lionel"
+                last = h["card"].split()[-1]  # last word, e.g. "Messi"
+                card_doc = await db.legend_cards.find_one(
+                    {"$or": [
+                        {"name": {"$regex": f"^{h['card']}$", "$options": "i"}},
+                        {"name": {"$regex": last, "$options": "i"}},
+                        {"name": {"$regex": token, "$options": "i"}},
+                    ]},
+                    {"_id": 0, "id": 1, "name": 1, "tier": 1, "price_usd_cents": 1, "country_code": 1},
+                )
+            highlights.append({**h, "card_doc": card_doc})
+        out.append({**t, "highlights": highlights})
+    return {"tournaments": out}
+
 
 
 @router.get("/groups")

@@ -51,15 +51,12 @@ export const Header = () => {
 
         <Link to="/" data-testid="brand-home-link"><Brand /></Link>
 
-        {/* Desktop nav links */}
+        {/* Desktop nav links — minimal, content-first. Fantasy/Cards/WC-Games live in user menu. */}
         <nav className="hidden lg:flex items-center gap-1 ml-4">
           <NavLink to="/worldcup" className="cp-btn-ghost !py-1.5" data-testid="nav-worldcup">
             <Trophy size={16} className="text-cp-lime" /> WC 2026
           </NavLink>
           <NavLink to="/predictions" className="cp-btn-ghost !py-1.5" data-testid="nav-predictions">Predictions</NavLink>
-          <NavLink to="/fantasy" className="cp-btn-ghost !py-1.5" data-testid="nav-fantasy">Fantasy</NavLink>
-          <NavLink to="/wc/games" className="cp-btn-ghost !py-1.5" data-testid="nav-wc-games">WC Games</NavLink>
-          <NavLink to="/cards" className="cp-btn-ghost !py-1.5" data-testid="nav-cards">Legend Cards</NavLink>
           <NavLink to="/leaderboards" className="cp-btn-ghost !py-1.5" data-testid="nav-leaderboards">Leaderboards</NavLink>
         </nav>
 
@@ -91,7 +88,14 @@ export const Header = () => {
               <ChevronDown size={14} />
             </button>
             {menu && (
-              <div onMouseLeave={() => setMenu(false)} className="absolute right-0 mt-2 w-52 cp-surface p-1 shadow-xl z-40" data-testid="user-menu">
+              <div onMouseLeave={() => setMenu(false)} className="absolute right-0 mt-2 w-56 cp-surface p-1 shadow-xl z-40" data-testid="user-menu">
+                <Link to="/fantasy" className="flex items-center gap-2 px-2 py-2 text-sm hover:bg-white/5 rounded" data-testid="menu-fantasy">
+                  <ShieldCheck size={14} className="text-cp-lime"/> Fantasy & WC Games
+                </Link>
+                <Link to="/cards" className="flex items-center gap-2 px-2 py-2 text-sm hover:bg-white/5 rounded" data-testid="menu-cards">
+                  <Crown size={14} className="text-cp-lime"/> Legend Cards
+                </Link>
+                <div className="my-1 border-t" style={{ borderColor: "var(--cp-border)" }}/>
                 <Link to="/profile" className="flex items-center gap-2 px-2 py-2 text-sm hover:bg-white/5 rounded" data-testid="menu-profile">
                   <User size={14} /> Profile
                 </Link>
@@ -156,8 +160,7 @@ export const Header = () => {
             </form>
             <Link to="/worldcup" onClick={() => setDrawer(false)} className="cp-btn-ghost justify-start" data-testid="drawer-wc"><Trophy size={14} className="text-cp-lime"/> WC 2026</Link>
             <Link to="/predictions" onClick={() => setDrawer(false)} className="cp-btn-ghost justify-start" data-testid="drawer-predictions"><Target size={14}/> Predictions</Link>
-            <Link to="/fantasy" onClick={() => setDrawer(false)} className="cp-btn-ghost justify-start" data-testid="drawer-fantasy"><ShieldCheck size={14}/> Fantasy</Link>
-            <Link to="/wc/games" onClick={() => setDrawer(false)} className="cp-btn-ghost justify-start" data-testid="drawer-wc-games"><Trophy size={14} className="text-cp-lime"/> WC Games</Link>
+            <Link to="/fantasy" onClick={() => setDrawer(false)} className="cp-btn-ghost justify-start" data-testid="drawer-fantasy"><ShieldCheck size={14}/> Fantasy & WC Games</Link>
             <Link to="/cards" onClick={() => setDrawer(false)} className="cp-btn-ghost justify-start" data-testid="drawer-cards"><Crown size={14}/> Legend Cards</Link>
             <Link to="/leaderboards" onClick={() => setDrawer(false)} className="cp-btn-ghost justify-start" data-testid="drawer-leaderboards"><Trophy size={14}/> Leaderboards</Link>
             <Link to="/prize-pools" onClick={() => setDrawer(false)} className="cp-btn-ghost justify-start" data-testid="drawer-pools"><Coins size={14}/> Prize Pools</Link>

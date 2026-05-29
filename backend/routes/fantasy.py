@@ -17,10 +17,11 @@ async def get_competition():
 
 
 @router.get("/players")
-async def list_fantasy_players(limit: int = 500):
+async def list_fantasy_players(limit: int = 2000):
     db = get_db()
-    # Prefer real WC2026 players from Sportmonks
-    players = await db.players.find({"is_wc_2026": True}, {"_id": 0}).sort([("position", 1), ("price", -1)]).limit(limit).to_list(length=limit)
+    # Prefer real WC2026 players from Sportmonks. Sort by name so positions are interleaved
+    # in the response (clients can paginate up to ~1300 players across all 4 positions).
+    players = await db.players.find({"is_wc_2026": True}, {"_id": 0}).sort("name", 1).limit(limit).to_list(length=limit)
     if players:
         return {"players": players, "source": "wc2026"}
     # Fallback synthetic pool (used before WC squad ingest finishes)

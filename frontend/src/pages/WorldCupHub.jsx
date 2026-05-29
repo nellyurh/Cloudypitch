@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from "react";
 import api from "../lib/api";
 import { Link } from "react-router-dom";
-import { Trophy, Coins, Calendar, Layers, Users2 } from "lucide-react";
+import { Trophy, Coins, Calendar, Layers, Users2, History, Sparkles } from "lucide-react";
 import { MatchRow } from "../components/MatchRow";
 import { flagUrl } from "../lib/flags";
 import AdSlot from "../components/AdSlot";
@@ -98,8 +98,77 @@ const TABS = [
   { k: "groups", l: "Groups", icon: Users2 },
   { k: "bracket", l: "Knockout", icon: Layers },
   { k: "schedule", l: "Schedule", icon: Calendar },
+  { k: "past", l: "Past Tournaments", icon: History },
   { k: "prize", l: "Prize Pool", icon: Coins },
 ];
+
+function PastTournamentsView() {
+  const [tours, setTours] = useState([]);
+  const [loading, setLoading] = useState(true);
+  useEffect(() => {
+    (async () => {
+      try { const { data } = await api.get("/worldcup/past"); setTours(data.tournaments || []); } catch (_) {}
+      setLoading(false);
+    })();
+  }, []);
+  if (loading) return <div className="cp-surface p-6 text-sm">Loading archive…</div>;
+  return (
+    <div className="space-y-4" data-testid="wc-past-list">
+      <div className="cp-surface p-4">
+        <h3 className="text-base font-extrabold inline-flex items-center gap-2"><Sparkles size={16} className="text-cp-lime"/> Legendary Performances Archive</h3>
+        <p className="text-xs mt-1" style={{ color: "var(--cp-text-muted)" }}>
+          Every Legend Card in your collection earned its place at a World Cup. Tap any card-linked highlight to view the live card.
+        </p>
+      </div>
+      {tours.map(t => (
+        <div key={t.year} className="cp-surface overflow-hidden" data-testid={`past-tour-${t.year}`}>
+          <div
+            className="relative px-4 py-5 text-white"
+            style={{ background: `linear-gradient(180deg, rgba(6,78,59,0.65) 0%, rgba(26,31,38,0.92) 100%), url('${t.image_url}')`, backgroundSize: "cover", backgroundPosition: "center" }}
+          >
+            <div className="text-[10px] uppercase tracking-widest" style={{ color: "#A3E635" }}>FIFA WORLD CUP · {t.host}</div>
+            <h2 className="text-3xl font-extrabold mt-1">{t.year} · 🏆 {t.champion}</h2>
+            <p className="text-sm mt-1" style={{ color: "rgba(255,255,255,0.85)" }}>{t.final}</p>
+            <div className="flex gap-3 mt-2 text-xs flex-wrap">
+              <span><span className="opacity-60">Golden Ball:</span> <b>{t.golden_ball}</b></span>
+              <span><span className="opacity-60">Golden Boot:</span> <b>{t.golden_boot}</b></span>
+            </div>
+          </div>
+          <ul className="divide-y" style={{ borderColor: "var(--cp-border)" }}>
+            {t.highlights.map((h, idx) => {
+              const hasCard = !!h.card_doc;
+              const Body = (
+                <div className="px-4 py-3 flex items-start gap-3 hover:bg-white/5 transition" data-testid={`past-hl-${t.year}-${idx}`}>
+                  <div className="w-10 h-10 rounded flex items-center justify-center shrink-0" style={{ background: hasCard ? "rgba(163,230,53,0.15)" : "var(--cp-surface-2)" }}>
+                    {hasCard ? <Sparkles size={16} className="text-cp-lime"/> : <Trophy size={16} className="opacity-60"/>}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="font-extrabold">{h.player}</span>
+                      <span className="text-[10px] cp-pill" style={{ background: "var(--cp-surface-2)", color: "var(--cp-text-muted)" }}>{h.country_code}</span>
+                      {hasCard && (
+                        <span className="text-[10px] cp-pill font-bold" style={{ background: "rgba(163,230,53,0.15)", color: "#A3E635" }}>
+                          Legend Card · ${((h.card_doc.price_usd_cents || 0) / 100).toFixed(2)}
+                        </span>
+                      )}
+                    </div>
+                    <div className="text-sm font-medium mt-1">{h.stat}</div>
+                    <div className="text-xs mt-1" style={{ color: "var(--cp-text-muted)" }}>{h.moment}</div>
+                  </div>
+                </div>
+              );
+              return (
+                <li key={idx}>
+                  {hasCard ? <Link to="/cards" data-testid={`past-card-${h.card_doc.id}`}>{Body}</Link> : Body}
+                </li>
+              );
+            })}
+          </ul>
+        </div>
+      ))}
+    </div>
+  );
+}
 
 export const WorldCupHub = () => {
   const [data, setData] = useState(null);
@@ -231,13 +300,15 @@ export const WorldCupHub = () => {
           ) : (
             <div className="cp-surface p-10 text-center" data-testid="wc-schedule-empty">
               <Calendar size={36} className="mx-auto text-cp-lime opacity-60"/>
-              <h3 className="text-base font-bold mt-3">Schedule loads on draw day</h3>
-              <p className="text-xs mt-1" style={{ color: "var(--cp-text-muted)" }}>
-                Final tournament fixtures will be ingested live from Sportmonks once FIFA publishes the draw.
+              <h3 className="text-base font-bold mt-3">WC 2026 schedule lands on draw day</h3>
+              <p className="text-xs mt-1 max-w-md mx-auto" style={{ color: "var(--cp-text-muted)" }}>
+                Official tournament fixtures (June 11 – July 19, 2026) are ingested live from Sportmonks once FIFA publishes the final draw. In the meantime, explore <Link to="/fantasy" className="text-cp-lime">Fantasy & WC Games</Link> or relive past tournaments above.
               </p>
             </div>
           )
         )}
+
+        {tab === "past" && <PastTournamentsView/>}
 
         {tab === "prize" && (
           data?.prize_pool ? (

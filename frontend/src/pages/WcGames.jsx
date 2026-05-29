@@ -244,8 +244,7 @@ function GameEntryView({ game, onClose, onSaved }) {
   );
 }
 
-export const WcGames = () => {
-  const { user } = useAuth();
+export const WcGamesPanel = ({ user }) => {
   const [today, setToday] = useState([]);
   const [upcoming, setUpcoming] = useState([]);
   const [tab, setTab] = useState("open");
@@ -266,31 +265,27 @@ export const WcGames = () => {
   const empty = list.length === 0;
 
   return (
-    <div data-testid="wc-games-page">
-      <div className="cp-surface p-4 flex items-center justify-between flex-wrap gap-3">
+    <div data-testid="wc-games-panel">
+      <div className="flex items-center justify-between flex-wrap gap-3 mb-3">
         <div>
-          <div className="text-[10px] uppercase tracking-widest" style={{ color: "var(--cp-text-muted)" }}>FIFA WC 2026 · 148 Fantasy Games</div>
-          <h1 className="text-xl font-extrabold tracking-tight mt-0.5">Pick 11. Apply Boosts. Win Big.</h1>
-          <p className="text-xs mt-1" style={{ color: "var(--cp-text-muted)" }}>104 Match · 36 Group · 8 Round games — boost up to 10 cards in the Final</p>
+          <div className="text-xs" style={{ color: "var(--cp-text-muted)" }}>104 Match · 36 Group · 8 Round · 148 short-form games over the tournament</div>
         </div>
-        {!user && <Link to="/signin" className="cp-btn-primary" data-testid="wc-signin-cta">Sign in to play</Link>}
-      </div>
-
-      <div className="flex gap-1 cp-surface p-1 mt-3 w-fit">
-        <button onClick={() => setTab("open")} className={`px-3 py-1.5 text-sm rounded ${tab === "open" ? "bg-cp-lime text-cp-forest font-bold" : "hover:bg-white/5"}`} data-testid="wc-tab-open">Open Now ({today.length})</button>
-        <button onClick={() => setTab("upcoming")} className={`px-3 py-1.5 text-sm rounded ${tab === "upcoming" ? "bg-cp-lime text-cp-forest font-bold" : "hover:bg-white/5"}`} data-testid="wc-tab-upcoming">Upcoming ({upcoming.length})</button>
+        <div className="flex gap-1 cp-surface p-1">
+          <button onClick={() => setTab("open")} className={`px-3 py-1.5 text-sm rounded ${tab === "open" ? "bg-cp-lime text-cp-forest font-bold" : "hover:bg-white/5"}`} data-testid="wc-tab-open">Open ({today.length})</button>
+          <button onClick={() => setTab("upcoming")} className={`px-3 py-1.5 text-sm rounded ${tab === "upcoming" ? "bg-cp-lime text-cp-forest font-bold" : "hover:bg-white/5"}`} data-testid="wc-tab-upcoming">Upcoming ({upcoming.length})</button>
+        </div>
       </div>
 
       {empty ? (
-        <div className="cp-surface p-8 text-center mt-3" data-testid="wc-empty">
+        <div className="cp-surface p-8 text-center" data-testid="wc-empty">
           <Trophy size={36} className="mx-auto text-cp-lime opacity-60"/>
           <h3 className="text-base font-bold mt-3">No games {tab === "open" ? "open" : "scheduled"} yet</h3>
           <p className="text-xs mt-1 max-w-md mx-auto" style={{ color: "var(--cp-text-muted)" }}>
-            Games auto-generate as WC 2026 fixtures arrive. Check back as June 11, 2026 approaches.
+            Match Games open 7 days before kickoff, Group Games 24h before, Round Games 48h before. Check back as June 11, 2026 approaches.
           </p>
         </div>
       ) : (
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2 mt-3">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
           {list.map(g => <GameCard key={g.id} g={g} onOpen={(game) => setActive(game)}/>)}
         </div>
       )}
@@ -298,6 +293,19 @@ export const WcGames = () => {
       {active && user && (
         <GameEntryView game={active} onClose={() => setActive(null)} onSaved={() => setTick(t => t + 1)}/>
       )}
+    </div>
+  );
+};
+
+export const WcGames = () => {
+  const { user } = useAuth();
+  return (
+    <div data-testid="wc-games-page">
+      <div className="cp-surface p-4 mb-3">
+        <div className="text-[10px] uppercase tracking-widest" style={{ color: "var(--cp-text-muted)" }}>FIFA WC 2026 · 148 Fantasy Games</div>
+        <h1 className="text-xl font-extrabold tracking-tight mt-0.5">Pick 11. Apply Boosts. Win Big.</h1>
+      </div>
+      <WcGamesPanel user={user}/>
     </div>
   );
 };

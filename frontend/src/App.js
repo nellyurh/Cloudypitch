@@ -1,6 +1,6 @@
 import React from "react";
 import "./App.css";
-import { BrowserRouter, Routes, Route } from "react-router-dom";
+import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { AuthProvider } from "./lib/auth";
 import { ThemeProvider } from "./lib/theme";
 import { Layout } from "./components/Layout";
@@ -24,7 +24,6 @@ import { PaymentCallback } from "./pages/PaymentCallback";
 import { PremiumPage } from "./pages/Premium";
 import { ReferralsPage } from "./pages/Referrals";
 import { ForgotPassword, ResetPassword, VerifyEmail } from "./pages/AuthPages";
-import { WcGames } from "./pages/WcGames";
 import { InterstitialAd } from "./components/InterstitialAd";
 
 function App() {
@@ -57,7 +56,7 @@ function App() {
               <Route path="/forgot-password" element={<ForgotPassword />} />
               <Route path="/reset-password" element={<ResetPassword />} />
               <Route path="/verify-email" element={<VerifyEmail />} />
-              <Route path="/wc/games" element={<WcGames />} />
+              <Route path="/wc/games" element={<Navigate to="/fantasy" replace />} />
             </Routes>
             <InterstitialAd />
           </Layout>

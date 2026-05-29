@@ -2,6 +2,7 @@ import React, { useEffect, useState } from "react";
 import api from "../lib/api";
 import { useAuth, formatApiErr } from "../lib/auth";
 import { Wallet as WalletIcon, ShieldCheck, ShieldAlert, AlertTriangle, ArrowDownToLine, ArrowUpFromLine } from "lucide-react";
+import { Link } from "react-router-dom";
 import AgeGateModal from "../components/AgeGateModal";
 import KycModal from "../components/KycModal";
 import RewardedVideoButton from "../components/RewardedVideoButton";
@@ -50,7 +51,14 @@ export const WalletPage = () => {
 
   useEffect(() => { if (user) load(); }, [user]);
 
-  if (!user) return <div className="cp-surface p-6">Please sign in.</div>;
+  if (!user) return (
+    <div className="cp-surface p-10 text-center max-w-xl mx-auto mt-6" data-testid="wallet-signin-gate">
+      <WalletIcon size={36} className="mx-auto text-cp-lime"/>
+      <h1 className="text-2xl font-extrabold mt-3">Sign in to access your wallet</h1>
+      <p className="text-sm mt-2" style={{ color: "var(--cp-text-muted)" }}>Deposits, prize-pool winnings, KYC verification, and responsible-play controls all live here.</p>
+      <Link to="/signin" className="cp-btn-primary mt-5 inline-block" data-testid="wallet-go-signin">Sign in</Link>
+    </div>
+  );
   if (!wallet) return <div className="cp-surface p-6 text-sm">Loading…</div>;
 
   const initPaystack = async () => {

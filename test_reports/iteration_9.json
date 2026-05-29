@@ -1,0 +1,29 @@
+{
+  "summary": "Iteration 9 end-to-end testing of the WC2026 restructure: (a) WC Hub Schedule now strictly filtered to 2026-06-01..2026-07-31 window — no historical matches leak; (b) NEW /api/worldcup/past returns 9 tournaments with 16+ highlights linked to legend_cards via card_doc; (c) /api/fantasy/players?limit=2000 returns all 4 positions (GK 146, DEF/MID/FWD with healthy counts) — previous DEF-only truncation bug is fixed; (d) Header desktop top-nav contains exactly WC 2026 / Predictions / Leaderboards — Fantasy/WC Games/Legend Cards correctly removed; (e) Signed-in user dropdown shows Fantasy & WC Games + Legend Cards FIRST, then Profile/Wallet/Premium/Referrals/Admin/Sign out; (f) /wc/games redirects to /fantasy; (g) /fantasy gated for non-auth + 3 tabs (Squad/Games/Leaderboard) when signed-in; (h) /wallet gated for non-auth; (i) WC Hub Past Tournaments tab renders all 9 tournament heroes with Messi/Maradona/Pelé etc legend chips. 9/9 backend + 9/9 frontend PASS.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "test_report_links": [
+    "/app/backend/tests/test_iteration9.py",
+    "/app/test_reports/pytest/iteration9.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "routes/worldcup.py _wc2026_filter() is sound — strict date-window AND tag-match prevents legacy SportMonks 2006/2010/2014 fixtures from leaking into the Schedule tab.",
+    "routes/worldcup.py /past correctly does a 3-tier regex fallback (full → last-word → first-word) against legend_cards.name. 16/21 highlights get card_doc populated, exceeding the >=14 spec requirement. Unmatched ones (Emiliano Martinez, Diego Forlán, Just Fontaine) intentionally have card=None in wc_legends.py — correct.",
+    "routes/fantasy.py GET /players now sorts by name asc with default limit=2000 — fixes the previous DEF-only truncation (was sorted by position, capped at 300). All 4 positions confirmed via test_default_limit_returns_all_positions.",
+    "frontend/App.js correctly uses <Navigate to='/fantasy' replace /> for /wc/games — verified URL replacement (not append) so back-button is clean.",
+    "Header.jsx mobile drawer still keeps Fantasy/Cards/WC2026/Predictions/Leaderboards/Pools links (correct — mobile UX needs the full surface). Desktop top-row is correctly minimal.",
+    "Fantasy.jsx — non-auth gate render returns early BEFORE useEffect data fetching could be wasted; good pattern. tabbed hub (squad/games/leaderboard) reuses WcGamesPanel via named export — no duplicated logic. Save button correctly disabled when overBudget || overSize || players==0.",
+    "MINOR: /api/worldcup matches list currently returns 0 (no 2026 fixtures seeded yet) — frontend gracefully shows 'WC 2026 schedule lands on draw day' empty-state. Confirmed in playwright.",
+    "MINOR: Multiple harmless 401 errors in console come from /api/auth/me + /api/wallet/me/notifications polled on non-auth pages — UI handles gracefully but could be silenced by gating those calls on user presence.",
+    "NIT: WcGamesPanel inside the Games tab loads slowly the first time (~2s) because /api/wc/games + /api/wc/groups happen on tab activation — could be prefetched alongside competition/players in the parent useEffect."
+  ],
+  "updated_files": ["/app/backend/tests/test_iteration9.py"],
+  "success_rate": {"backend": "100% (9/9)", "frontend": "100% (9/9)"},
+  "test_credentials": "admin@cloudypitch.com / CloudyAdmin2026! (verified working). Test users created ad-hoc via /api/auth/signup.",
+  "seed_data_creation": "None. Tests are read-only on existing seeded data (legend_cards, players is_wc_2026=true, wc2026_groups). Created one ephemeral testuser-<hex>@example.com per pytest run.",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Schedule tab will continue to be empty until 2026 fixtures are ingested (post-draw). Past Tournaments tab is the marketing surface for Legend Cards and links 16/21 highlights to real legend_cards rows; the 5 unlinked ones (Martinez, Forlán, Fontaine, Rodriguez, Klose if no card) are intentional card=None in wc_legends.py. /api/fantasy/players default limit is now 2000; if a future change reverts the sort to 'position' or a smaller limit, position-filter UI will regress to DEF-only. /wc/games old route is redirected at the App-router level — any new code that links to /wc/games still works but resolves to /fantasy.",
+  "rca_of_the_issue": "Original bug RCA (now fixed): GET /api/fantasy/players had limit=300 and sort by 'position' asc → MongoDB returned the first 300 rows of an alphabetically/positionally-sorted set, which happened to be all 'DEF' (since DEF < FWD < GK < MID lexicographically). Switching to sort('name', 1) + limit=2000 fixed it. WC Hub Schedule originally returned ALL matches with league=732 — but seeded SportMonks fixtures are from 2006/2010/2014 historical WCs. Added scheduled_at window 2026-06-01..2026-07-31 to every $or clause to strictly gate by date."
+}

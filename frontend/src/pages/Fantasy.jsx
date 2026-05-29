@@ -2,8 +2,9 @@ import React, { useEffect, useMemo, useState } from "react";
 import api from "../lib/api";
 import { useAuth, formatApiErr } from "../lib/auth";
 import { Link } from "react-router-dom";
-import { ShieldCheck, Star, AlertTriangle, Check, X, Sparkles } from "lucide-react";
+import { ShieldCheck, Star, AlertTriangle, Check, X, Sparkles, Trophy, Crown, LogIn } from "lucide-react";
 import CardPickerModal from "../components/CardPickerModal";
+import { WcGamesPanel } from "./WcGames";
 
 const POSITIONS = ["GK", "DEF", "MID", "FWD"];
 const POS_LIMIT = { GK: 2, DEF: 5, MID: 5, FWD: 3 };
@@ -73,9 +74,11 @@ function MiniPitch({ starters, players, captain, vice }) {
 
 export const FantasyHub = () => {
   const { user } = useAuth();
+  const [tab, setTab] = useState("squad");
   const [comp, setComp] = useState(null);
   const [players, setPlayers] = useState([]);
   const [squad, setSquad] = useState({ name: "My WC Squad", players: [], captain: null, vice: null, appliedCards: [] });
+  const [leaderboard, setLeaderboard] = useState([]);
   const [filter, setFilter] = useState("ALL");
   const [search, setSearch] = useState("");
   const [saved, setSaved] = useState(false);
@@ -85,13 +88,15 @@ export const FantasyHub = () => {
   useEffect(() => {
     (async () => {
       try {
-        const [c, p, mine] = await Promise.all([
+        const [c, p, mine, lb] = await Promise.all([
           api.get("/fantasy/competition"),
-          api.get("/fantasy/players?limit=300"),
+          api.get("/fantasy/players?limit=2000"),
           user ? api.get("/fantasy/squad/me").catch(() => ({ data: { squad: null } })) : Promise.resolve({ data: { squad: null } }),
+          api.get("/fantasy/leaderboard?limit=20").catch(() => ({ data: { leaderboard: [] } })),
         ]);
         setComp(c.data.competition);
         setPlayers(p.data.players || []);
+        setLeaderboard(lb.data.leaderboard || []);
         if (mine.data.squad) {
           setSquad({
             name: mine.data.squad.squad_name || "My WC Squad",
@@ -147,6 +152,23 @@ export const FantasyHub = () => {
 
   const budgetPct = Math.min(100, (totalCost / budget) * 100);
 
+  // Sign-in gate for full Fantasy
+  if (!user) {
+    return (
+      <div className="cp-surface p-10 text-center max-w-xl mx-auto mt-6" data-testid="fantasy-signin-gate">
+        <Trophy size={36} className="mx-auto text-cp-lime"/>
+        <h1 className="text-2xl font-extrabold mt-3">Build your WC 2026 Fantasy Squad</h1>
+        <p className="text-sm mt-2" style={{ color: "var(--cp-text-muted)" }}>
+          Sign in to pick 15 players, captain your stars, play 148 mini-games, apply Legend Card boosts, and chase the $30,000 prize pool.
+        </p>
+        <div className="flex gap-2 mt-5 justify-center">
+          <Link to="/signin" className="cp-btn-primary inline-flex items-center gap-1" data-testid="fantasy-go-signin"><LogIn size={14}/> Sign in</Link>
+          <Link to="/signup" className="cp-btn-ghost" data-testid="fantasy-go-signup">Create free account</Link>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div data-testid="fantasy-hub">
       <div className="cp-surface p-4 flex items-center justify-between flex-wrap gap-3">
@@ -154,32 +176,65 @@ export const FantasyHub = () => {
           <div className="text-[10px] uppercase tracking-widest" style={{ color: "var(--cp-text-muted)" }}>FIFA WC 2026 · Fantasy</div>
           <h1 className="text-xl font-extrabold mt-0.5">{comp?.name || "Build Your Squad"}</h1>
           <p className="text-xs mt-1" style={{ color: "var(--cp-text-muted)" }}>
-            {squadSize} players · Budget £{budget}m · {comp?.transfers_per_gw || 1} transfer/GW · GK starts × 2pts · Goals 4-6pts · Captain × 2
+            1 tournament-long squad · 148 mini-games · Legend Card boosts apply here
           </p>
         </div>
-        <div className="flex items-center gap-2">
-          {!user && <Link to="/signin" className="cp-btn-primary" data-testid="fantasy-signin-cta">Sign in to save</Link>}
-          {user && (
-            <>
-              <button
-                onClick={() => setPickerOpen(true)}
-                className={`cp-pill text-xs font-bold inline-flex items-center gap-1 ${(squad.appliedCards || []).length > 0 ? "ring-1 ring-cp-lime" : ""}`}
-                style={{ background: (squad.appliedCards || []).length > 0 ? "rgba(163,230,53,0.15)" : "var(--cp-surface-2)", color: (squad.appliedCards || []).length > 0 ? "#A3E635" : "var(--cp-text-muted)" }}
-                data-testid="fantasy-boost-btn"
-              >
-                <Sparkles size={12}/> {(squad.appliedCards || []).length > 0 ? `${(squad.appliedCards || []).length} cards applied` : "Apply boost cards"}
-              </button>
-              <button
-                onClick={save}
-                disabled={overBudget || overSize || squad.players.length === 0}
-                className="cp-btn-primary disabled:opacity-50 inline-flex items-center gap-1"
-                data-testid="fantasy-save-btn"
-              >
-                {saved ? <><Check size={14}/> Saved</> : "Save Squad"}
-              </button>
-            </>
-          )}
+      </div>
+
+      <div className="flex gap-1 cp-surface p-1 mt-3 w-fit">
+        {[
+          { k: "squad", l: "My Squad" },
+          { k: "games", l: "WC Games (148)" },
+          { k: "leaderboard", l: "Leaderboard" },
+        ].map(t => (
+          <button
+            key={t.k}
+            onClick={() => setTab(t.k)}
+            className={`px-3 py-1.5 text-sm rounded ${tab === t.k ? "bg-cp-lime text-cp-forest font-bold" : "hover:bg-white/5"}`}
+            data-testid={`fantasy-tab-${t.k}`}
+          >
+            {t.l}
+          </button>
+        ))}
+      </div>
+
+      {tab === "games" && <div className="mt-3"><WcGamesPanel user={user}/></div>}
+
+      {tab === "leaderboard" && (
+        <div className="cp-surface mt-3 overflow-hidden" data-testid="fantasy-leaderboard">
+          <div className="cp-card-header normal-case"><span className="flex items-center gap-2 font-bold"><Crown size={14} className="text-cp-lime"/> Top Squads — Tournament-Long</span></div>
+          <ul className="divide-y" style={{ borderColor: "var(--cp-border)" }}>
+            {leaderboard.length === 0 && <li className="p-4 text-sm" style={{ color: "var(--cp-text-muted)" }}>No squads scored yet — be first!</li>}
+            {leaderboard.map(r => (
+              <li key={r.user_id} className={`px-3 py-2 flex items-center gap-2 text-sm ${r.user_id === user.id ? "bg-cp-lime/10" : ""}`}>
+                <span className="cp-logo-circle text-[10px] font-extrabold" style={{ width: 22, height: 22, background: r.rank === 1 ? "#A3E635" : "var(--cp-surface-2)", color: r.rank === 1 ? "#064E3B" : "var(--cp-text)" }}>{r.rank}</span>
+                <span className="truncate flex-1">{r.display_name}</span>
+                <span className="text-[10px]" style={{ color: "var(--cp-text-muted)" }}>{r.squad_name}</span>
+                <span className="tabular-nums font-bold text-cp-lime">{r.total_points}</span>
+              </li>
+            ))}
+          </ul>
         </div>
+      )}
+
+      {tab === "squad" && <>
+      <div className="flex items-center justify-end gap-2 mt-3">
+        <button
+          onClick={() => setPickerOpen(true)}
+          className={`cp-pill text-xs font-bold inline-flex items-center gap-1 ${(squad.appliedCards || []).length > 0 ? "ring-1 ring-cp-lime" : ""}`}
+          style={{ background: (squad.appliedCards || []).length > 0 ? "rgba(163,230,53,0.15)" : "var(--cp-surface-2)", color: (squad.appliedCards || []).length > 0 ? "#A3E635" : "var(--cp-text-muted)" }}
+          data-testid="fantasy-boost-btn"
+        >
+          <Sparkles size={12}/> {(squad.appliedCards || []).length > 0 ? `${(squad.appliedCards || []).length} cards applied` : "Apply boost cards"}
+        </button>
+        <button
+          onClick={save}
+          disabled={overBudget || overSize || squad.players.length === 0}
+          className="cp-btn-primary disabled:opacity-50 inline-flex items-center gap-1"
+          data-testid="fantasy-save-btn"
+        >
+          {saved ? <><Check size={14}/> Saved</> : "Save Squad"}
+        </button>
       </div>
 
       {/* Squad Stats Bar */}
@@ -315,6 +370,7 @@ export const FantasyHub = () => {
           </div>
         </aside>
       </div>
+      </>}
 
       {pickerOpen && (
         <CardPickerModal
