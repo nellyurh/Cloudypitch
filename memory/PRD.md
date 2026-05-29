@@ -52,6 +52,37 @@ Three integrated products:
 - ✅ New LineupPitch component: green pitch with center circle/penalty boxes/goals, player number badges (lime home / white away), formation auto-derived from position_code, full bench list
 - ✅ Verified by testing agent (iteration 2): 100% backend + frontend pass
 
+## Iteration 13 — Sport-aware Match Detail + Legacy duplicate cleanup (2026-05-29)
+
+### Sport-aware Match Detail page
+- `MatchDetail.jsx` now reads `m.sport_slug` and resolves to a per-sport tab map (`SPORT_TABS`):
+  - **football / rugby** → Events · Stats · Lineups · H2H
+  - **basketball / NBA / american-football / baseball / hockey** → Box Score · Team Stats · H2H
+  - **tennis / volleyball / table-tennis / badminton** → Sets · Stats · H2H
+  - **cricket** → Innings · H2H
+  - **mma** → Fight Stats · H2H
+- 3 new tab renderers shipped:
+  - `BoxScore.jsx` — per-period scoreline + per-team player stats table (Min/Pts/Reb/Ast/Stl/Blk/FG/3P) for hoops/NFL/baseball/hockey
+  - `Sets.jsx` — set-by-set table with tiebreak superscript for tennis/volley
+  - `Innings.jsx` — per-innings runs/wickets/overs + top batters for cricket
+- Loading state continues to use `<AnimatedBrand>` (no regression)
+
+### Legacy duplicate cleanup endpoints
+- New `routes/admin_cleanup.py` (admin-only, mounted at `/api/admin/cleanup/*`)
+- `POST /duplicate-matches?sport_slug=…&dry_run=…&window_hours=…`
+  - Walks every match in sport_slug, clusters by token-overlap within ±window, keeps highest provider rank (Sportmonks=100 > Manual=80 > API-Sports=50 > StatPal=30), deletes losers when `dry_run=false`
+  - Live result on football: **291 duplicates removed from 3,116 matches**
+- `POST /duplicate-leagues?dry_run=…`
+  - Groups leagues by normalised (name, country, sport_slug), keeps highest provider rank, reassigns losing leagues' `match.league_id` to the winner
+  - Live result: **79 leagues merged across 65 clusters** (220 → 158 leagues)
+
+### Admin UI
+- Dashboard tab now has a **DB Cleanup card** with one-click buttons per sport + Merge Leagues
+
+### Test Results (iteration 13)
+- Backend: **15/15 pytest pass** (`/app/backend/tests/test_iteration13.py`)
+- Frontend: 3 sport tab variants verified end-to-end (football/tennis/basketball) · No retest needed
+
 ## Iteration 12 — Brand kit, animated loader, top-league ranking, smarter dedup (2026-05-29)
 
 ### Brand kit (user-supplied artwork)
