@@ -1073,8 +1073,134 @@ async def _cross_provider_dedup(sport: str, home_name: str, away_name: str, sche
     return None
 
 
+def _parse_cricket_score(s):
+    """Parse cricket score strings like '490/8d', '232/10', '179', '(fo) 179 & 232'.
+    Returns (runs:int, wickets:int|None, declared:bool).
+    """
+    if not s:
+        return 0, None, False
+    txt = str(s).strip().lstrip("(fo) ").lstrip("(f/o) ").strip()
+    # If "A & B" (multiple innings), sum
+    if "&" in txt:
+        total = 0
+        wkts = None
+        decl = False
+        for part in txt.split("&"):
+            r, w, d = _parse_cricket_score(part.strip())
+            total += r or 0
+            if w is not None:
+                wkts = w
+            decl = decl or d
+        return total, wkts, decl
+    decl = txt.endswith("d")
+    if decl:
+        txt = txt[:-1]
+    if "/" in txt:
+        a, b = txt.split("/", 1)
+        try:
+            return int(a), int(b), decl
+        except Exception:
+            return 0, None, decl
+    try:
+        return int(txt), None, decl
+    except Exception:
+        return 0, None, decl
+
+
+def _normalize_cricket_innings(raw_match: dict, home_name: str, away_name: str) -> list:
+    """Convert StatPal cricket `inning[]` array into our normalized innings shape.
+    Each output entry has team_name, runs, wickets, overs, top_batters, top_bowlers.
+    """
+    raw_innings = raw_match.get("inning") or []
+    if isinstance(raw_innings, dict):
+        raw_innings = [raw_innings]
+    if not isinstance(raw_innings, list):
+        return []
+    out = []
+    for inn in raw_innings:
+        if not isinstance(inn, dict):
+            continue
+        # team: 'localteam' (home) | 'awayteam' (away)
+        team_tag = (inn.get("team") or "").lower()
+        team_name = home_name if "local" in team_tag else (away_name if "away" in team_tag else inn.get("name") or "")
+        # Innings number
+        try:
+            inn_no = int(inn.get("inningnum") or len(out) + 1)
+        except Exception:
+            inn_no = len(out) + 1
+
+        # Extract top 4 batters (highest scoring)
+        bs = inn.get("batsmanstats") or {}
+        players = bs.get("player") or []
+        if isinstance(players, dict):
+            players = [players]
+        batters = []
+        runs_total = 0
+        for p in players if isinstance(players, list) else []:
+            try:
+                pts = int(p.get("r") or p.get("runs") or 0)
+                runs_total += pts
+                batters.append({
+                    "name": p.get("batsman") or p.get("name") or "?",
+                    "runs": pts,
+                    "balls": int(p.get("b") or p.get("balls") or 0),
+                    "fours": int(p.get("4s") or p.get("fours") or 0),
+                    "sixes": int(p.get("6s") or p.get("sixes") or 0),
+                    "not_out": (p.get("bat") or "").lower() == "true",
+                })
+            except Exception:
+                continue
+        batters.sort(key=lambda x: -x["runs"])
+
+        # Top 3 bowlers
+        bws = inn.get("bowlerstats") or {}
+        bplayers = bws.get("player") or []
+        if isinstance(bplayers, dict):
+            bplayers = [bplayers]
+        bowlers = []
+        for p in bplayers if isinstance(bplayers, list) else []:
+            try:
+                bowlers.append({
+                    "name": p.get("bowler") or p.get("name") or "?",
+                    "overs": float(p.get("o") or p.get("overs") or 0),
+                    "runs": int(p.get("r") or p.get("runs") or 0),
+                    "wickets": int(p.get("w") or p.get("wickets") or 0),
+                    "maidens": int(p.get("m") or p.get("maidens") or 0),
+                })
+            except Exception:
+                continue
+        bowlers.sort(key=lambda x: (-x["wickets"], x["runs"]))
+
+        # Total runs/wickets from inning name or total
+        # Some StatPal payloads include `total` or `score` keys; otherwise derive
+        runs = inn.get("total") or inn.get("score") or runs_total
+        wkts = inn.get("wickets") or (10 if (inn.get("status") or "").lower().startswith("all out") else None)
+        overs = inn.get("overs") or None
+        try:
+            runs = int(runs) if runs not in (None, "") else 0
+        except Exception:
+            runs = runs_total
+        try:
+            wkts = int(wkts) if wkts not in (None, "") else None
+        except Exception:
+            pass
+
+        out.append({
+            "innings_no": inn_no,
+            "team_name": team_name,
+            "runs": runs,
+            "wickets": wkts,
+            "overs": overs,
+            "top_batters": batters[:4],
+            "top_bowlers": bowlers[:3],
+        })
+    return out
+
+
 async def sync_statpal_cricket():
-    """Pull cricket livescores + upcoming. Lightweight schema — store raw in matches."""
+    """Pull cricket livescores + upcoming from StatPal. Properly normalizes the
+    `scores.category[].match` shape and extracts innings + top batters/bowlers.
+    """
     db = get_db()
     seen = 0
     for fetcher, kind in ((statpal.fetch_cricket_livescores, "live"), (statpal.fetch_cricket_upcoming, "upcoming")):
@@ -1085,47 +1211,111 @@ async def sync_statpal_cricket():
             continue
         if not isinstance(data, dict):
             continue
-        # StatPal returns nested structures; flatten as much as possible
-        candidates = []
-        for k in ("matches", "match", "tournament", "tournaments", "data"):
-            v = data.get(k)
-            if isinstance(v, list):
-                candidates.extend([x for x in v if isinstance(x, dict)])
-            elif isinstance(v, dict):
-                inner = v.get("match") or v.get("matches") or []
-                if isinstance(inner, list):
-                    candidates.extend([x for x in inner if isinstance(x, dict)])
-        for m in candidates:
-            mid = m.get("id") or m.get("@id")
-            if not mid:
-                continue
-            doc = {
-                "id": f"sp-cr-{mid}",
-                "sport_slug": "cricket",
-                "primary_provider": "statpal",
-                "statpal_id": mid,
-                "scheduled_at": m.get("date") or m.get("start_time") or utcnow_iso(),
-                "status": "LIVE" if kind == "live" else "NS",
-                "is_live": kind == "live",
-                "home_team_name": (m.get("home") or {}).get("name") if isinstance(m.get("home"), dict) else (m.get("team_a") or "Team A"),
-                "away_team_name": (m.get("away") or {}).get("name") if isinstance(m.get("away"), dict) else (m.get("team_b") or "Team B"),
-                "home_team_logo": "", "away_team_logo": "",
-                "home_short": "TA", "away_short": "TB",
-                "home_score": 0, "away_score": 0,
-                "league_country": "International", "league_name": "Cricket",
-                "league_id": "sp-l-cricket",
-                "raw_data": m,
-                "last_polled_at": utcnow_iso(),
-            }
-            await db.matches.update_one({"statpal_id": mid, "sport_slug": "cricket"}, {"$set": doc}, upsert=True)
-            seen += 1
-    # Ensure league row exists
-    await db.leagues.update_one({"id": "sp-l-cricket"}, {"$set": {
-        "id": "sp-l-cricket", "sport_slug": "cricket", "name": "International Cricket",
-        "country": "International", "logo_url": "", "tier_score": 60, "country_priority": 40,
-        "primary_provider": "statpal",
-    }}, upsert=True)
-    log.info(f"statpal cricket: {seen} matches")
+        # StatPal cricket response: { scores: { category: [{ id, name (tournament), match: {...} or [{...}] }, ...] } }
+        scores = data.get("scores") or data
+        categories = scores.get("category") or []
+        if isinstance(categories, dict):
+            categories = [categories]
+        if not isinstance(categories, list):
+            categories = []
+        for cat in categories:
+            tournament = cat.get("name") or "Cricket"
+            tournament_id = cat.get("id") or ""
+            matches_in_cat = cat.get("match") or []
+            if isinstance(matches_in_cat, dict):
+                matches_in_cat = [matches_in_cat]
+            for m in matches_in_cat if isinstance(matches_in_cat, list) else []:
+                mid = m.get("id") or m.get("@id")
+                if not mid:
+                    continue
+                home_obj = m.get("home") if isinstance(m.get("home"), dict) else {}
+                away_obj = m.get("away") if isinstance(m.get("away"), dict) else {}
+                home_name = home_obj.get("name") or "Team A"
+                away_name = away_obj.get("name") or "Team B"
+                status_raw = (m.get("status") or "").strip()
+                sl = status_raw.lower()
+                if "finished" in sl or "ended" in sl:
+                    short = "FT"
+                elif "live" in sl or "in progress" in sl or "lunch" in sl or "tea" in sl or "innings" in sl:
+                    short = "LIVE"
+                else:
+                    short = "NS"
+                # Parse total runs from totalscore
+                h_runs, h_wkts, _ = _parse_cricket_score(home_obj.get("totalscore"))
+                a_runs, a_wkts, _ = _parse_cricket_score(away_obj.get("totalscore"))
+                # If empty totalscore but "stat" has aggregated, use that
+                if h_runs == 0 and (home_obj.get("stat") or ""):
+                    h_runs, _, _ = _parse_cricket_score(home_obj.get("stat"))
+                if a_runs == 0 and (away_obj.get("stat") or ""):
+                    a_runs, _, _ = _parse_cricket_score(away_obj.get("stat"))
+                # Scheduled at — parse dd.mm.yyyy HH:MM
+                sched = utcnow_iso()
+                date_str = m.get("date")
+                time_str = m.get("time") or "00:00"
+                if date_str and "." in date_str:
+                    try:
+                        d_, mo_, y_ = date_str.split(".")
+                        h_, mn_ = time_str.split(":")[:2]
+                        sched = datetime(int(y_), int(mo_), int(d_), int(h_), int(mn_), tzinfo=timezone.utc).isoformat()
+                    except Exception:
+                        pass
+                # League row (one per tournament)
+                league_doc_id = f"sp-l-cricket-{tournament_id or tournament.replace(' ', '-').lower()}"
+                await db.leagues.update_one(
+                    {"id": league_doc_id},
+                    {"$set": {
+                        "id": league_doc_id, "sport_slug": "cricket", "name": tournament,
+                        "country": "International", "logo_url": "", "tier_score": 70, "country_priority": 3,
+                        "primary_provider": "statpal", "statpal_id": tournament_id,
+                        "updated_at": utcnow_iso(),
+                    }},
+                    upsert=True,
+                )
+                # Team rows
+                h_id = f"sp-t-cricket-{(home_obj.get('id') or home_name).replace(' ', '-').lower()}"
+                a_id = f"sp-t-cricket-{(away_obj.get('id') or away_name).replace(' ', '-').lower()}"
+                for tid, n in ((h_id, home_name), (a_id, away_name)):
+                    await db.teams.update_one(
+                        {"id": tid},
+                        {"$set": {"id": tid, "sport_slug": "cricket", "name": n, "short_code": (n.split()[0][:3] if n else "—").upper(), "logo_url": ""}},
+                        upsert=True,
+                    )
+                # Normalize innings
+                innings_list = _normalize_cricket_innings(m, home_name, away_name)
+                # Match comment / result string
+                comment = m.get("comment") or {}
+                result_text = comment.get("post") if isinstance(comment, dict) else None
+                doc = {
+                    "id": f"sp-cr-{mid}",
+                    "sport_slug": "cricket",
+                    "primary_provider": "statpal",
+                    "statpal_id": mid,
+                    "scheduled_at": sched,
+                    "status": short, "status_long": status_raw or short,
+                    "is_live": short == "LIVE",
+                    "home_team_id": h_id, "away_team_id": a_id,
+                    "home_team_name": home_name, "away_team_name": away_name,
+                    "home_team_logo": "", "away_team_logo": "",
+                    "home_short": (home_name.split()[0][:3] if home_name else "TA").upper(),
+                    "away_short": (away_name.split()[0][:3] if away_name else "TB").upper(),
+                    "home_score": h_runs, "away_score": a_runs,
+                    "league_country": "International", "league_name": tournament,
+                    "league_id": league_doc_id, "league_logo": "",
+                    "match_format": m.get("type") or "",
+                    "venue_name": m.get("venue") or "",
+                    "innings": innings_list,
+                    "result_text": result_text,
+                    "raw_data": {"tournament": tournament, "comment": comment, "match_id": mid},
+                    "last_polled_at": utcnow_iso(),
+                }
+                await db.matches.update_one(
+                    {"statpal_id": mid, "sport_slug": "cricket"},
+                    {"$set": doc},
+                    upsert=True,
+                )
+                seen += 1
+    log.info(f"statpal cricket: {seen} matches ingested")
+    return seen
 
 
 async def sync_statpal_football():
