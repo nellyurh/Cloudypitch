@@ -52,6 +52,42 @@ Three integrated products:
 - ✅ New LineupPitch component: green pitch with center circle/penalty boxes/goals, player number badges (lime home / white away), formation auto-derived from position_code, full bench list
 - ✅ Verified by testing agent (iteration 2): 100% backend + frontend pass
 
+## Iteration 16 — Sportmonks Pro data + AttackMomentum + Standings tab + API-Sports basketball stats (2026-05-29)
+
+### Sportmonks Pro plan data wired (we were not consuming what we already pay for)
+- `fetch_fixture()` include list expanded from 9 to 23 includes — adds weatherReport, tvStations.tvstation, referees.referee, referees.type, coaches, sidelined, pressure, predictions.type, trends, matchfacts, comments, expectedLineups, xGFixture, formations, group, aggregate, lineups.details.type, round, stage
+- `upsert_sportmonks_fixture` reads from Sportmonks' lowercase keys (`weatherreport`, `tvstations`) and persists:
+  - `weather` (flattened: `{temperature_celcius, type, icon, humidity, wind}`)
+  - `tv_stations[]` (deduped list of names)
+  - `referees[]` (with type: Referee / 1st Assistant / 2nd Assistant / 4th Official)
+  - `pressure`, `predictions_raw`, `coaches`, `sidelined_raw`, `matchfacts`, `trends`, `comments`
+- Verified on Flamengo vs Palmeiras: weather=21.99°C broken clouds, tv=[Bet365, Fanatiz], ref=Davi de Oliveira Lacerda
+
+### Hero meta strip enhanced
+- New chips: `hero-weather` (cloud + temp), `hero-tv` (TV icon + station names), `hero-ref` (User icon + main referee)
+- Shows venue_city when available (e.g. "Estádio Jornalista Mário Filho, Rio de Janeiro")
+
+### Attack Momentum sparkline (left rail)
+- New `AttackMomentum.jsx` component — SVG dual-tone bar chart (lime up = home, sky down = away) per minute with HT marker at 45'
+- New endpoint `GET /api/matches/{id}/momentum` reading `match.pressure[]`
+- Empty-state fallback ("Will appear minute-by-minute once play starts") when pressure[] is empty (live-only data)
+
+### Standings/Playoffs tab
+- New `StandingsTable.jsx` lazy-loads on tab click via `GET /api/matches/{id}/standings`
+- Reads from `db.standings` (populated by the hourly sportmonks standings sync)
+- Both competing teams highlighted in lime; full league table with P/W/D/L/GF/GA/GD/Pts
+- Tab labelled "Playoffs" for NBA, "Standings" for everything else
+- Verified: 20 Brazilian Serie A rows · Palmeiras #1 (38pts), Flamengo #2 (31pts) both highlighted
+
+### API-Sports basketball stats lazy fetch
+- New adapter methods `fetch_game_statistics()` + `fetch_game_players()`
+- New `_upsert_apisports_team_stats()` handles both API-Sports shapes (list of {name,value} and flat dict)
+- `/api/matches/{id}?refresh=1` triggers it automatically for basketball/baseball/hockey/volleyball/rugby
+- Now feeds the BasketballStatsView gauges + bars built in iteration 15
+
+### Test Results (iteration 16)
+- Backend: **7/7 pytest pass** · Frontend: **Playwright PASS** · No retest needed
+
 ## Iteration 15 — Sofascore-style Match Detail layout (2026-05-29)
 
 ### 3-column Sofascore aesthetic
