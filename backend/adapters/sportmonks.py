@@ -56,6 +56,18 @@ async def fetch_topscorers_by_season(season_id: int):
     )
 
 
+async def fetch_fixtures_by_league(league_id: int, page: int = 1, per_page: int = 100):
+    """Fetch all fixtures for a league (qualifiers + finals)."""
+    return await _get(
+        f"/fixtures",
+        {
+            "filters": f"fixtureLeagues:{league_id}",
+            "include": "participants;scores;state;league;round;stage;venue",
+            "per_page": per_page, "page": page,
+        },
+    )
+
+
 async def fetch_today_livescores():
     return await _get(
         "/livescores",

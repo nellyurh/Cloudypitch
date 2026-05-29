@@ -60,6 +60,7 @@ class FantasySquadIn(BaseModel):
     captain_id: Optional[str] = None
     vice_captain_id: Optional[str] = None
     players: list[FantasySquadPlayerIn] = Field(min_length=1, max_length=15)
+    applied_card_ids: list[str] = Field(default_factory=list, max_length=5)
 
 
 def clean_doc(doc: dict | None) -> dict | None:

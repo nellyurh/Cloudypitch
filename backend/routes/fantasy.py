@@ -61,11 +61,19 @@ async def create_or_update_squad(payload: FantasySquadIn, user: dict = Depends(a
     total_cost = sum(p.price_paid for p in payload.players)
     if total_cost > comp.get("budget_total", 100):
         raise HTTPException(status_code=400, detail=f"Over budget ({total_cost:.1f} > {comp.get('budget_total', 100):.1f})")
+    # Validate cards belong to user with uses remaining (cap 5 per gameweek)
+    valid_cards: list[str] = []
+    for ucid in (payload.applied_card_ids or [])[:5]:
+        owned = await db.user_cards.find_one({"id": ucid, "user_id": user["id"]})
+        if owned and (owned.get("uses_remaining", 0) > 0 or owned.get("uses_left", 0) > 0):
+            valid_cards.append(ucid)
+
     doc = {
         "user_id": user["id"], "competition_id": payload.competition_id,
         "squad_name": payload.squad_name, "captain_id": payload.captain_id,
         "vice_captain_id": payload.vice_captain_id,
         "players": [p.model_dump() for p in payload.players],
+        "applied_card_ids": valid_cards,
         "total_cost": total_cost,
         "total_points": 0, "gw_points": 0, "rank": None,
         "updated_at": utcnow_iso(),
@@ -135,6 +143,15 @@ async def settle_gameweek(gameweek: int = 1, user: dict = Depends(a.require_admi
 
     settled = 0
     for sq in squads:
+        # Load applied cards for this squad
+        squad_cards = []
+        for ucid in (sq.get("applied_card_ids") or []):
+            uc = await db.user_cards.find_one({"id": ucid, "user_id": sq.get("user_id")}, {"_id": 0})
+            if uc and (uc.get("uses_remaining", 0) > 0 or uc.get("uses_left", 0) > 0):
+                card = await db.legend_cards.find_one({"id": uc.get("card_id")}, {"_id": 0})
+                if card:
+                    squad_cards.append({"user_card_id": ucid, "card": card})
+
         gw_total = 0
         per_player = []
         cap_played = False
@@ -185,12 +202,27 @@ async def settle_gameweek(gameweek: int = 1, user: dict = Depends(a.require_admi
             elif is_vice and not cap_played:
                 vice_pts = p_pts * 2
                 p_pts = vice_pts
+            # Apply card boost (cards are FANTASY-only)
+            player_country = (player.get("country") or player.get("country_code") or "").upper()
+            ctx = {
+                "scope": "fantasy",
+                "position": position,
+                "role": "captain" if is_cap else ("vice_captain" if is_vice else "player"),
+                "home_country": player_country,
+                "away_country": player_country,
+                "home_continent": player.get("continent", "").lower(),
+                "away_continent": player.get("continent", "").lower(),
+            }
+            cards_only = [sc["card"] for sc in squad_cards]
+            boost = compute_card_boost(cards_only, ctx)
+            p_pts_boosted = round(p_pts * (1.0 + boost))
             per_player.append({
                 "player_id": sp.get("player_id"), "name": name, "position": position,
-                "points": p_pts, "breakdown": res["breakdown"],
+                "points": p_pts_boosted, "base_points": p_pts, "card_boost": boost,
+                "breakdown": res["breakdown"],
                 "minutes": agg_stats["minutes"], "captain": is_cap, "vice": is_vice,
             })
-            gw_total += p_pts
+            gw_total += p_pts_boosted
         # Snapshot
         await db.fantasy_gameweek_points.update_one(
             {"squad_id": sq.get("id"), "gameweek": gameweek},
@@ -206,6 +238,13 @@ async def settle_gameweek(gameweek: int = 1, user: dict = Depends(a.require_admi
             {"id": sq.get("id")},
             {"$inc": {"total_points": gw_total}, "$set": {"gw_points": gw_total, "last_gw": gameweek}},
         )
+        # Consume one use per applied card
+        for sc in squad_cards:
+            await db.user_cards.update_one(
+                {"id": sc["user_card_id"]},
+                {"$inc": {"uses_remaining": -1, "uses_left": -1, "total_uses": 1},
+                 "$set": {"last_used_at": utcnow_iso()}},
+            )
         settled += 1
     return {"settled": settled, "gameweek": gameweek}
 

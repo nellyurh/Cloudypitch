@@ -18,6 +18,7 @@ from ingestion import start_background_jobs
 
 # Routers
 from routes.auth_routes import router as auth_router
+from routes.auth_extras import router as auth_extras_router
 from routes.catalog import router as catalog_router
 from routes.matches import router as matches_router
 from routes.worldcup import router as worldcup_router
@@ -97,5 +98,5 @@ for r in (auth_router, catalog_router, matches_router, worldcup_router,
           leagues_router, pools_router,
           profile_router, search_router, admin_router,
           wallet_router, compliance_router, ads_router, payments_router,
-          referrals_router):
+          referrals_router, auth_extras_router):
     app.include_router(r)

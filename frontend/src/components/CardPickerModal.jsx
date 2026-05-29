@@ -51,6 +51,8 @@ export const CardPickerModal = ({ match, basePoints = 30, stageMult = 1.0, selec
 
   const cardMatches = (card) => {
     if (!card) return false;
+    // Fantasy mode (no match) — show all cards as applicable; backend resolves per-player
+    if (!match) return true;
     const etype = card.effect_type;
     const ev = card.effect_value || {};
     const cc = (card.country_code || "").toUpperCase();

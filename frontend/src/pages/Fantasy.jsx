@@ -2,7 +2,8 @@ import React, { useEffect, useMemo, useState } from "react";
 import api from "../lib/api";
 import { useAuth, formatApiErr } from "../lib/auth";
 import { Link } from "react-router-dom";
-import { ShieldCheck, Star, AlertTriangle, Check, X } from "lucide-react";
+import { ShieldCheck, Star, AlertTriangle, Check, X, Sparkles } from "lucide-react";
+import CardPickerModal from "../components/CardPickerModal";
 
 const POSITIONS = ["GK", "DEF", "MID", "FWD"];
 const POS_LIMIT = { GK: 2, DEF: 5, MID: 5, FWD: 3 };
@@ -74,11 +75,12 @@ export const FantasyHub = () => {
   const { user } = useAuth();
   const [comp, setComp] = useState(null);
   const [players, setPlayers] = useState([]);
-  const [squad, setSquad] = useState({ name: "My WC Squad", players: [], captain: null, vice: null });
+  const [squad, setSquad] = useState({ name: "My WC Squad", players: [], captain: null, vice: null, appliedCards: [] });
   const [filter, setFilter] = useState("ALL");
   const [search, setSearch] = useState("");
   const [saved, setSaved] = useState(false);
   const [err, setErr] = useState("");
+  const [pickerOpen, setPickerOpen] = useState(false);
 
   useEffect(() => {
     (async () => {
@@ -96,6 +98,7 @@ export const FantasyHub = () => {
             players: mine.data.squad.players || [],
             captain: mine.data.squad.captain_id,
             vice: mine.data.squad.vice_captain_id,
+            appliedCards: mine.data.squad.applied_card_ids || [],
           });
         }
       } catch (_) {}
@@ -135,6 +138,7 @@ export const FantasyHub = () => {
         competition_id: comp.id, squad_name: squad.name,
         captain_id: squad.captain, vice_captain_id: squad.vice,
         players: squad.players,
+        applied_card_ids: squad.appliedCards || [],
       });
       setSaved(true);
       setTimeout(() => setSaved(false), 2500);
@@ -156,14 +160,24 @@ export const FantasyHub = () => {
         <div className="flex items-center gap-2">
           {!user && <Link to="/signin" className="cp-btn-primary" data-testid="fantasy-signin-cta">Sign in to save</Link>}
           {user && (
-            <button
-              onClick={save}
-              disabled={overBudget || overSize || squad.players.length === 0}
-              className="cp-btn-primary disabled:opacity-50 inline-flex items-center gap-1"
-              data-testid="fantasy-save-btn"
-            >
-              {saved ? <><Check size={14}/> Saved</> : "Save Squad"}
-            </button>
+            <>
+              <button
+                onClick={() => setPickerOpen(true)}
+                className={`cp-pill text-xs font-bold inline-flex items-center gap-1 ${(squad.appliedCards || []).length > 0 ? "ring-1 ring-cp-lime" : ""}`}
+                style={{ background: (squad.appliedCards || []).length > 0 ? "rgba(163,230,53,0.15)" : "var(--cp-surface-2)", color: (squad.appliedCards || []).length > 0 ? "#A3E635" : "var(--cp-text-muted)" }}
+                data-testid="fantasy-boost-btn"
+              >
+                <Sparkles size={12}/> {(squad.appliedCards || []).length > 0 ? `${(squad.appliedCards || []).length} cards applied` : "Apply boost cards"}
+              </button>
+              <button
+                onClick={save}
+                disabled={overBudget || overSize || squad.players.length === 0}
+                className="cp-btn-primary disabled:opacity-50 inline-flex items-center gap-1"
+                data-testid="fantasy-save-btn"
+              >
+                {saved ? <><Check size={14}/> Saved</> : "Save Squad"}
+              </button>
+            </>
           )}
         </div>
       </div>
@@ -301,6 +315,18 @@ export const FantasyHub = () => {
           </div>
         </aside>
       </div>
+
+      {pickerOpen && (
+        <CardPickerModal
+          match={null}
+          basePoints={50}
+          stageMult={1.0}
+          selectedIds={squad.appliedCards || []}
+          maxCards={5}
+          onSave={(ids) => setSquad(s => ({ ...s, appliedCards: ids }))}
+          onClose={() => setPickerOpen(false)}
+        />
+      )}
     </div>
   );
 };

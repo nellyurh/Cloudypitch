@@ -635,6 +635,40 @@ async def sync_sportmonks_leagues_catalog():
     return seen
 
 
+
+async def sync_sportmonks_league_schedule(league_id: int):
+    """Pull all fixtures for a single league (e.g. league 732 = FIFA WC 2026).
+    Used by the WC2026 poller to keep /predictions/upcoming hydrated."""
+    total = 0
+    for page in range(1, 6):
+        try:
+            data = await sportmonks.fetch_fixtures_by_league(league_id, page=page)
+        except Exception as e:
+            log.warning(f"sm league {league_id} page {page}: {e}")
+            break
+        fixtures = (data or {}).get("data", []) if isinstance(data, dict) else []
+        if not isinstance(fixtures, list) or not fixtures:
+            break
+        for fx in fixtures:
+            try:
+                await upsert_sportmonks_fixture(fx)
+                # Force the WC flag even if league context wasn't included
+                from db import get_db
+                db = get_db()
+                await db.matches.update_one(
+                    {"sportmonks_id": fx.get("id")},
+                    {"$set": {"is_world_cup": True, "competition_id": "wc-2026"}},
+                )
+                total += 1
+            except Exception as e:
+                log.warning(f"sm wc upsert err: {e}")
+        pag = (data or {}).get("pagination") or {}
+        if not pag.get("has_more"):
+            break
+    log.info(f"sportmonks league {league_id}: {total} fixtures ingested")
+    return total
+
+
 async def sync_sportmonks_today_and_next(days_ahead: int = 7, days_back: int = 3):
     base = utcnow().date()
     for i in range(-days_back, days_ahead + 1):
@@ -1401,6 +1435,20 @@ async def start_background_jobs():
             await sync_statpal_cricket()
         except Exception as e:
             log.warning(f"initial statpal cricket: {e}")
+        # WC2026 fixture polling — pull league 732 schedules (qualifiers + finals)
+        try:
+            await sync_sportmonks_league_schedule(732)
+        except Exception as e:
+            log.warning(f"wc2026 league 732: {e}")
+
+    async def wc2026_poller():
+        """Hourly poll of WC2026 fixtures + schedule so /predictions/upcoming stays current."""
+        while True:
+            await asyncio.sleep(3600)
+            try:
+                await sync_sportmonks_league_schedule(732)
+            except Exception as e:
+                log.warning(f"wc2026 hourly: {e}")
 
     async def live_poller():
         while True:
@@ -1465,3 +1513,4 @@ async def start_background_jobs():
     asyncio.create_task(apisports_live_poller())
     asyncio.create_task(fixture_daily())
     asyncio.create_task(statpal_poller())
+    asyncio.create_task(wc2026_poller())

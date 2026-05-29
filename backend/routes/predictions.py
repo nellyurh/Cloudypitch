@@ -24,7 +24,6 @@ class PredictionWithCardsIn(BaseModel):
     match_id: str
     home_score_predicted: int
     away_score_predicted: int
-    card_ids: list[str] = []  # Optional legend card user_card_ids to apply
 
 
 def _outcome(h: int, a: int) -> str:
@@ -59,6 +58,10 @@ async def upcoming_for_user(limit: int = 50, user: dict = Depends(a.get_optional
     db = get_db()
     base = _wc_match_filter()
     base["status"] = {"$in": ["NS", "TBD"]}
+    # Premium users can see fixtures up to 14 days ahead; free up to 7 days
+    horizon_days = 14 if (user and user.get("is_premium")) else 7
+    horizon = (datetime.now(timezone.utc) + timedelta(days=horizon_days)).isoformat()
+    base["scheduled_at"] = {"$lte": horizon}
     rows = await db.matches.find(base, {"_id": 0, "raw_data": 0}).sort("scheduled_at", 1).to_list(length=limit)
     if user:
         ids = [m["id"] for m in rows]
@@ -89,19 +92,11 @@ async def submit_prediction(payload: PredictionWithCardsIn, user: dict = Depends
     if m.get("status") not in ("NS", "TBD"):
         raise HTTPException(status_code=400, detail="Predictions closed for this match")
 
-    # Validate cards (must be owned by user, not yet used on this match)
-    valid_cards: list[str] = []
-    for ucid in (payload.card_ids or [])[:2]:  # match cap = 2
-        owned = await db.user_cards.find_one({"id": ucid, "user_id": user["id"]})
-        if owned and (owned.get("uses_remaining", 0) > 0 or owned.get("uses_left", 0) > 0):
-            valid_cards.append(ucid)
-
     doc = {
         "user_id": user["id"], "match_id": payload.match_id,
         "home_score_predicted": payload.home_score_predicted,
         "away_score_predicted": payload.away_score_predicted,
         "outcome_predicted": _outcome(payload.home_score_predicted, payload.away_score_predicted),
-        "applied_card_ids": valid_cards,
         "points_awarded": 0, "exact_score_hit": False, "outcome_correct": False,
         "settled_at": None, "created_at": utcnow_iso(),
     }
@@ -147,6 +142,10 @@ async def leaderboard(
     if scope == "weekly":
         week_ago = (datetime.now(timezone.utc) - timedelta(days=7)).isoformat()
         pred_filter["settled_at"] = {"$gte": week_ago}
+    elif scope == "premium":
+        # Restrict to predictions made by premium subscribers
+        premium_ids = await db.users.distinct("id", {"is_premium": True})
+        pred_filter["user_id"] = {"$in": premium_ids}
     elif scope == "competition" and competition_id:
         # Filter predictions by matches that belong to a Sportmonks league/competition
         match_ids = await db.matches.distinct("id", {"league_id": competition_id})
@@ -213,22 +212,13 @@ async def settle_predictions(user: dict = Depends(a.require_admin)):
     for m in finished:
         preds = await db.predictions.find({"match_id": m["id"], "settled_at": None}, {"_id": 0}).to_list(length=1000)
         for p in preds:
-            # Fetch applied cards (if any)
-            cards = []
-            for ucid in (p.get("applied_card_ids") or []):
-                uc = await db.user_cards.find_one({"id": ucid}, {"_id": 0})
-                if not uc:
-                    continue
-                card = await db.legend_cards.find_one({"id": uc.get("card_id")}, {"_id": 0})
-                if card:
-                    cards.append(card)
             # Compute current streak BEFORE settling this prediction
             streak = await _outcome_streak(db, p["user_id"])
             result = score_prediction(
                 predicted={"home_score_predicted": p["home_score_predicted"], "away_score_predicted": p["away_score_predicted"]},
                 match=m,
-                streak_count=streak + 1,  # this prediction would extend the streak
-                applied_cards=cards,
+                streak_count=streak + 1,
+                applied_cards=[],  # Cards apply to fantasy ONLY, not predictions
             )
             await db.predictions.update_one(
                 {"id": p["id"]},
@@ -237,7 +227,6 @@ async def settle_predictions(user: dict = Depends(a.require_admin)):
                     "base_points": result["base_points"],
                     "stage": result["stage"],
                     "stage_multiplier": result["stage_multiplier"],
-                    "card_boost": result["card_boost"],
                     "streak_bonus": result["streak_bonus"],
                     "exact_score_hit": result["exact_score_hit"],
                     "outcome_correct": result["outcome_correct"],
@@ -245,11 +234,5 @@ async def settle_predictions(user: dict = Depends(a.require_admin)):
                     "settled_at": utcnow_iso(),
                 }},
             )
-            # Consume one use of each applied card
-            for ucid in (p.get("applied_card_ids") or []):
-                await db.user_cards.update_one(
-                    {"id": ucid, "user_id": p["user_id"]},
-                    {"$inc": {"uses_remaining": -1, "total_uses": 1}, "$set": {"last_used_at": utcnow_iso()}},
-                )
             settled += 1
     return {"settled": settled}
