@@ -52,6 +52,28 @@ Three integrated products:
 - ✅ New LineupPitch component: green pitch with center circle/penalty boxes/goals, player number badges (lime home / white away), formation auto-derived from position_code, full bench list
 - ✅ Verified by testing agent (iteration 2): 100% backend + frontend pass
 
+## Iteration 15 — Sofascore-style Match Detail layout (2026-05-29)
+
+### 3-column Sofascore aesthetic
+- New `MatchHero` component: large team logos, big 4xl–5xl score with winning side highlighted lime, league country · league name header, meta strip (date · venue · format · broadcaster) — matches Sofascore hero faithfully
+- 3-column layout (`260px | 1fr | 260px`): left rail = ScoreBox + Odds + Ad · center = Tabs · right rail = "Follow this match" promo + Ad
+- Sticky tabs row + tab-aware content
+
+### New components (`/components/match/StatGauges.jsx`)
+- `<StatGauge>` — dual SVG rings (lime home / sky away) with shot tally inside, used for basketball Free Throws / 2-pointers / 3-pointers / Field Goals
+- `<CompareBar>` — Sofascore-style horizontal split bar with winner-highlighted score chip + dual-tone fill
+- `<ScoreBox>` — per-period table (Q1-Q4 / Sets / Innings) for left rail
+
+### Basketball Statistics tab
+- New `BasketballStatsView` parses `Made/Att` strings from API-Sports basketball stats blocks (Free Throws, 2-pointers, 3-pointers, Field Goals)
+- 2-column grid: gauges on the left, comparison bars (Rebounds / Defensive / Offensive / Assists / Turnovers / Steals / Blocks / Fouls) on the right
+
+### H2H tab redesign
+- "Last N meetings" header + per-row W/L pill (lime W when target team won, rose L otherwise)
+
+### Test Results (iteration 15)
+- Screenshot-verified: Mets de Guaynabo 101 - 104 Criollos with per-quarter box (29/26 · 20/20 · 24/29 · 28/29), Q1-Q4 left rail, odds card, Follow-match right rail, tab switching between Box Score / Statistics / H2H
+
 ## Iteration 14 — Cricket innings + tennis sets wired to real APIs (2026-05-29)
 
 ### Cricket ingestion fully wired
