@@ -195,6 +195,32 @@ async def upsert_sportmonks_fixture(fx: dict):
         "away_score_pen": scores["away_pen"],
         "venue_name": (venue or {}).get("name"),
         "venue_city": (venue or {}).get("city_name"),
+        # Sportmonks Pro plan extras — capture if present. NB: Sportmonks lowercases
+        # include keys on the response (`weatherreport`, `tvstations`).
+        # Sportmonks weather has nested temperature; surface a simpler shape for the hero
+        "weather": (lambda w: ({
+            "temperature_celcius": (w.get("current") or {}).get("temp") if w.get("current") else (w.get("temperature") or {}).get("day") if isinstance(w.get("temperature"), dict) else None,
+            "type": (w.get("current") or {}).get("description") or w.get("description"),
+            "icon": w.get("icon"),
+            "humidity": (w.get("current") or {}).get("humidity") or w.get("humidity"),
+            "wind": (w.get("current") or {}).get("wind") or (w.get("wind") or {}).get("speed"),
+        }) if isinstance(w, dict) else None)(fx.get("weatherreport") or fx.get("weatherReport") or {}),
+        "tv_stations": (lambda raw: list(dict.fromkeys([
+            (t.get("tvstation") or {}).get("name") for t in raw
+            if isinstance(t, dict) and isinstance(t.get("tvstation"), dict) and (t.get("tvstation") or {}).get("name")
+        ]))[:6])(fx.get("tvstations") or fx.get("tvStations") or []) if isinstance(fx.get("tvstations") or fx.get("tvStations"), list) else [],
+        "referees": [
+            {"name": (r.get("referee") or {}).get("name") if isinstance(r.get("referee"), dict) else r.get("name"),
+             "type": (r.get("type") or {}).get("name") if isinstance(r.get("type"), dict) else r.get("type")}
+            for r in (fx.get("referees") or []) if isinstance(r, dict)
+        ][:5] if isinstance(fx.get("referees"), list) else [],
+        "pressure": fx.get("pressure") if isinstance(fx.get("pressure"), list) else None,
+        "predictions_raw": fx.get("predictions") if isinstance(fx.get("predictions"), list) else None,
+        "coaches": fx.get("coaches") if isinstance(fx.get("coaches"), list) else None,
+        "sidelined_raw": fx.get("sidelined") if isinstance(fx.get("sidelined"), list) else None,
+        "matchfacts": fx.get("matchfacts") if isinstance(fx.get("matchfacts"), list) else None,
+        "trends": fx.get("trends") if isinstance(fx.get("trends"), list) else None,
+        "comments": fx.get("comments") if isinstance(fx.get("comments"), list) else None,
         "primary_provider": "sportmonks",
         "sportmonks_id": fx_id,
         "sportmonks_league_id": (league or {}).get("id") if isinstance(league, dict) else None,
@@ -456,6 +482,9 @@ async def upsert_apisports_game(sport_slug: str, game: dict):
         "home_score_ht": None, "away_score_ht": None,
         "periods": periods,
         "primary_provider": "api-sports", "api_sports_id": gid,
+        "api_sports_game_id": gid,
+        "api_sports_home_id": home_t.get("id"),
+        "api_sports_away_id": away_t.get("id"),
         "is_live": is_live, "last_polled_at": utcnow_iso(),
     }
     existing = await db.matches.find_one({"api_sports_id": gid, "sport_slug": sport_slug})
@@ -767,6 +796,50 @@ async def poll_apisports_live():
         except Exception as e:
             log.warning(f"api-sports live {sport} failed: {e}")
     return total
+
+
+async def _upsert_apisports_team_stats(match_id: str, match_doc: dict, rows: list) -> None:
+    """Upsert per-team statistics for an API-Sports basketball/baseball/hockey game.
+    Each row in `rows` looks like {team:{id,name}, statistics:[{name:'Field Goals', value:'34/76'}, ...]} or
+    a flat dict of stat→value depending on the sport. Normalises into match_statistics docs.
+    """
+    db = get_db()
+    await db.match_statistics.delete_many({"match_id": match_id})
+    sport = match_doc.get("sport_slug")
+    home_t_raw = match_doc.get("api_sports_home_id") or match_doc.get("home_team_id")
+    away_t_raw = match_doc.get("api_sports_away_id") or match_doc.get("away_team_id")
+    for r in rows:
+        if not isinstance(r, dict):
+            continue
+        team = r.get("team") or {}
+        team_id_raw = team.get("id")
+        # Map raw API-Sports team id back to our prefixed team id
+        our_team_id = match_doc.get("home_team_id") if team_id_raw == home_t_raw else (
+            match_doc.get("away_team_id") if team_id_raw == away_t_raw else (
+                # Fall back to name match
+                match_doc.get("home_team_id") if (team.get("name") or "").strip() == (match_doc.get("home_team_name") or "").strip()
+                else match_doc.get("away_team_id")
+            )
+        )
+        stats_map: dict = {}
+        # Two shapes observed across sports:
+        # A) "statistics": [{name, value}, ...]
+        # B) flat per-key dict (NBA shape)
+        s = r.get("statistics")
+        if isinstance(s, list):
+            for it in s:
+                if isinstance(it, dict) and it.get("name") is not None:
+                    stats_map[str(it["name"])] = it.get("value")
+        elif isinstance(s, dict):
+            stats_map.update({k: v for k, v in s.items()})
+        else:
+            stats_map.update({k: v for k, v in r.items() if k not in ("team", "game")})
+        await db.match_statistics.insert_one({
+            "id": new_id(), "match_id": match_id,
+            "team_id": our_team_id, "team_name": team.get("name") or "",
+            "sport_slug": sport, "stats": stats_map,
+            "updated_at": utcnow_iso(),
+        })
 
 
 # ---------- Sportmonks: standings, top scorers, WC squads ----------

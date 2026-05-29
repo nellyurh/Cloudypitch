@@ -57,3 +57,13 @@ async def fetch_leagues(sport: str):
 
 async def fetch_game(sport: str, game_id: int):
     return await _get(sport, "/games", {"id": game_id})
+
+
+async def fetch_game_statistics(sport: str, game_id: int):
+    """Per-team team statistics for a game (basketball/hockey/baseball)."""
+    return await _get(sport, "/games/statistics/teams", {"id": game_id})
+
+
+async def fetch_game_players(sport: str, game_id: int):
+    """Per-player box-score rows (basketball/baseball/hockey)."""
+    return await _get(sport, "/games/statistics/players", {"id": game_id})

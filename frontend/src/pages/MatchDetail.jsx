@@ -1,7 +1,7 @@
 import React, { useEffect, useState, useMemo } from "react";
 import { useParams, Link } from "react-router-dom";
 import api from "../lib/api";
-import { ChevronLeft, MapPin, Tv, Calendar, RefreshCw, Star } from "lucide-react";
+import { ChevronLeft, MapPin, Tv, Calendar, RefreshCw, Star, CloudRain, User2 } from "lucide-react";
 import EventsList from "../components/match/EventsList";
 import StatsBars from "../components/match/StatsBars";
 import LineupPitch from "../components/match/LineupPitch";
@@ -9,22 +9,24 @@ import BoxScore from "../components/match/BoxScore";
 import Sets from "../components/match/Sets";
 import Innings from "../components/match/Innings";
 import { StatGauge, CompareBar, ScoreBox } from "../components/match/StatGauges";
+import AttackMomentum from "../components/match/AttackMomentum";
+import StandingsTable from "../components/match/StandingsTable";
 import { AnimatedBrand } from "../components/Brand";
 import AdSlot from "../components/AdSlot";
 
 /* Sport-aware tab layout (Sofascore style). */
 const SPORT_TABS = {
-  football:          [{ k: "lineups", l: "Lineups" }, { k: "stats", l: "Stats" }, { k: "events", l: "Events" }, { k: "h2h", l: "H2H" }],
-  basketball:        [{ k: "box",     l: "Box Score" }, { k: "stats", l: "Statistics" }, { k: "h2h", l: "H2H" }],
-  basketball_nba:    [{ k: "box",     l: "Box Score" }, { k: "stats", l: "Statistics" }, { k: "h2h", l: "H2H" }],
-  "american-football": [{ k: "box",   l: "Box Score" }, { k: "stats", l: "Statistics" }, { k: "h2h", l: "H2H" }],
+  football:          [{ k: "lineups", l: "Lineups" }, { k: "stats", l: "Stats" }, { k: "events", l: "Events" }, { k: "h2h", l: "H2H" }, { k: "standings", l: "Standings" }],
+  basketball:        [{ k: "box",     l: "Box Score" }, { k: "stats", l: "Statistics" }, { k: "h2h", l: "H2H" }, { k: "standings", l: "Standings" }],
+  basketball_nba:    [{ k: "box",     l: "Box Score" }, { k: "stats", l: "Statistics" }, { k: "h2h", l: "H2H" }, { k: "standings", l: "Playoffs" }],
+  "american-football": [{ k: "box",   l: "Box Score" }, { k: "stats", l: "Statistics" }, { k: "h2h", l: "H2H" }, { k: "standings", l: "Standings" }],
   tennis:            [{ k: "sets",    l: "Sets" }, { k: "stats", l: "Stats" }, { k: "h2h", l: "H2H" }],
-  volleyball:        [{ k: "sets",    l: "Sets" }, { k: "stats", l: "Stats" }, { k: "h2h", l: "H2H" }],
+  volleyball:        [{ k: "sets",    l: "Sets" }, { k: "stats", l: "Stats" }, { k: "h2h", l: "H2H" }, { k: "standings", l: "Standings" }],
   "table-tennis":    [{ k: "sets",    l: "Games" }, { k: "h2h", l: "H2H" }],
   badminton:         [{ k: "sets",    l: "Games" }, { k: "h2h", l: "H2H" }],
-  cricket:           [{ k: "innings", l: "Innings" }, { k: "h2h", l: "H2H" }],
-  baseball:          [{ k: "box",     l: "Box Score" }, { k: "stats", l: "Statistics" }, { k: "h2h", l: "H2H" }],
-  hockey:            [{ k: "box",     l: "Periods" }, { k: "stats", l: "Stats" }, { k: "h2h", l: "H2H" }],
+  cricket:           [{ k: "innings", l: "Innings" }, { k: "h2h", l: "H2H" }, { k: "standings", l: "Standings" }],
+  baseball:          [{ k: "box",     l: "Box Score" }, { k: "stats", l: "Statistics" }, { k: "h2h", l: "H2H" }, { k: "standings", l: "Standings" }],
+  hockey:            [{ k: "box",     l: "Periods" }, { k: "stats", l: "Stats" }, { k: "h2h", l: "H2H" }, { k: "standings", l: "Standings" }],
   rugby:             [{ k: "events",  l: "Events" }, { k: "stats", l: "Stats" }, { k: "h2h", l: "H2H" }],
   mma:               [{ k: "stats",   l: "Fight Stats" }, { k: "h2h", l: "H2H" }],
   default:           [{ k: "events",  l: "Events" }, { k: "stats", l: "Stats" }, { k: "h2h", l: "H2H" }],
@@ -69,9 +71,24 @@ function MatchHero({ m, finished }) {
       {/* Meta strip */}
       <div className="mt-4 pt-3 border-t flex flex-wrap items-center justify-center gap-x-5 gap-y-1 text-[11px]" style={{ borderColor: "var(--cp-border)", color: "var(--cp-text-muted)" }}>
         <span className="inline-flex items-center gap-1"><Calendar size={11}/>{m.scheduled_at && new Date(m.scheduled_at).toLocaleString([], { day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" })}</span>
-        {m.venue_name && <span className="inline-flex items-center gap-1"><MapPin size={11}/>{m.venue_name}</span>}
+        {m.venue_name && <span className="inline-flex items-center gap-1"><MapPin size={11}/>{m.venue_name}{m.venue_city ? `, ${m.venue_city}` : ""}</span>}
         {m.match_format && <span className="inline-flex items-center gap-1">{m.match_format}</span>}
-        {m.broadcaster && <span className="inline-flex items-center gap-1"><Tv size={11}/>{m.broadcaster}</span>}
+        {m.weather && (m.weather.temperature_celcius != null || m.weather.type) && (
+          <span className="inline-flex items-center gap-1" data-testid="hero-weather">
+            <CloudRain size={11}/>
+            {m.weather.temperature_celcius != null ? `${m.weather.temperature_celcius}°C` : m.weather.type}
+          </span>
+        )}
+        {Array.isArray(m.tv_stations) && m.tv_stations.length > 0 && (
+          <span className="inline-flex items-center gap-1" data-testid="hero-tv">
+            <Tv size={11}/>{m.tv_stations.slice(0, 2).join(", ")}{m.tv_stations.length > 2 ? "…" : ""}
+          </span>
+        )}
+        {Array.isArray(m.referees) && m.referees.length > 0 && (
+          <span className="inline-flex items-center gap-1" data-testid="hero-ref">
+            <User2 size={11}/>{m.referees[0]?.name}
+          </span>
+        )}
       </div>
     </div>
   );
@@ -186,6 +203,7 @@ export const MatchDetail = () => {
           {sideBoxData.length > 0 && (
             <ScoreBox periods={sideBoxData} labelPrefix={sportSlug === "tennis" || sportSlug === "volleyball" ? "S" : "Q"}/>
           )}
+          {sportSlug === "football" && <AttackMomentum matchId={id} homeTeamId={m.home_team_id}/>}
           <div className="cp-surface p-3">
             <div className="text-[10px] uppercase tracking-widest mb-1" style={{ color: "var(--cp-text-muted)" }}>Full-time odds</div>
             <div className="grid grid-cols-3 gap-1.5 text-center">
@@ -219,6 +237,7 @@ export const MatchDetail = () => {
             {tab === "box" && <BoxScore match={m} lineups={lineups}/>}
             {tab === "sets" && <Sets match={m}/>}
             {tab === "innings" && <Innings match={m}/>}
+            {tab === "standings" && <StandingsTable matchId={id}/>}
             {tab === "h2h" && (
               h2h.length === 0
                 ? <div className="text-center text-sm py-6" style={{ color: "var(--cp-text-muted)" }}>No prior head-to-head found.</div>

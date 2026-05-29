@@ -151,12 +151,28 @@ async def match_detail(match_id: str, refresh: int = 0):
                 fx = (data or {}).get("data") if isinstance(data, dict) else None
                 if isinstance(fx, dict):
                     await upsert_sportmonks_fixture(fx)
+                    m = await db.matches.find_one({"id": match_id}, {"_id": 0}) or m
                     events = await db.match_events.find({"match_id": match_id}, {"_id": 0}).sort("minute", 1).to_list(length=200)
                     stats = await db.match_statistics.find({"match_id": match_id}, {"_id": 0}).to_list(length=4)
                     lineups = await db.match_lineups.find({"match_id": match_id}, {"_id": 0}).to_list(length=50)
             except Exception:
                 pass
             cset(cache_key, True, 60)
+    # API-Sports basketball/baseball/hockey: lazy-fetch team statistics on demand
+    if need_fetch and m.get("primary_provider") == "api-sports" and m.get("api_sports_game_id") and m.get("sport_slug") in ("basketball", "baseball", "hockey", "volleyball", "rugby"):
+        cache_key = f"as-stats:{match_id}"
+        if refresh == 1 or not cget(cache_key):
+            try:
+                from adapters import apisports
+                from ingestion import _upsert_apisports_team_stats
+                data = await apisports.fetch_game_statistics(m["sport_slug"], m["api_sports_game_id"])
+                rows = (data or {}).get("response", []) if isinstance(data, dict) else []
+                if rows:
+                    await _upsert_apisports_team_stats(match_id, m, rows)
+                    stats = await db.match_statistics.find({"match_id": match_id}, {"_id": 0}).to_list(length=4)
+            except Exception:
+                pass
+            cset(cache_key, True, 90)
     periods = await db.match_periods.find({"match_id": match_id}, {"_id": 0}).sort("period", 1).to_list(length=20)
     return {"match": m, "events": events, "statistics": stats, "lineups": lineups, "periods": periods}
 
@@ -182,6 +198,45 @@ async def match_live_passthrough(match_id: str):
         result = {"raw": None, "match_id": match_id, "fetched_at": utcnow_iso()}
     cset(cache_key, result, 5)
     return result
+
+
+@router.get("/matches/{match_id}/standings")
+async def match_standings(match_id: str):
+    """League standings for this match's competition. Reads from db.standings
+    (populated by `sync_sportmonks_standings_live` every hour)."""
+    db = get_db()
+    m = await db.matches.find_one({"id": match_id}, {"_id": 0, "league_id": 1, "home_team_id": 1, "away_team_id": 1})
+    if not m or not m.get("league_id"):
+        return {"standings": [], "highlight_team_ids": []}
+    rows = await db.standings.find(
+        {"league_id": m["league_id"]}, {"_id": 0},
+    ).sort("position", 1).to_list(length=40)
+    return {
+        "standings": rows,
+        "highlight_team_ids": [m.get("home_team_id"), m.get("away_team_id")],
+    }
+
+
+@router.get("/matches/{match_id}/momentum")
+async def match_momentum(match_id: str):
+    """Minute-by-minute attack momentum for the live football match. Reads from
+    `match.pressure[]` populated by Sportmonks Pro (empty on lower tiers).
+    """
+    db = get_db()
+    m = await db.matches.find_one({"id": match_id}, {"_id": 0, "pressure": 1, "home_team_id": 1, "away_team_id": 1})
+    if not m:
+        raise HTTPException(status_code=404, detail="Match not found")
+    pressure = m.get("pressure") or []
+    out = []
+    for p in pressure if isinstance(pressure, list) else []:
+        if not isinstance(p, dict):
+            continue
+        out.append({
+            "minute": p.get("minute") or p.get("time"),
+            "team_id": p.get("participant_id") or p.get("team_id"),
+            "value": p.get("pressure") or p.get("value") or 0,
+        })
+    return {"momentum": out, "home_team_id": m.get("home_team_id"), "away_team_id": m.get("away_team_id")}
 
 
 @router.get("/matches/{match_id}/h2h")

@@ -1,0 +1,40 @@
+{
+  "summary": "Iteration 15/16 review: Verified Sportmonks Pro plan data wiring (weather/tv/referees), Standings endpoint + UI, Match-momentum endpoint + AttackMomentum left rail component, and API-Sports basketball lazy stats fetch. All 9 spec items verified across backend (7/7 pytest) and frontend (Playwright on Flamengo vs Palmeiras).",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iteration15.py",
+    "/app/test_reports/pytest/iteration15.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "Note: Spec mentioned stats dict containing keys 'Field Goals'/'Free Throws' but implementation normalises to snake_case (field_goals, threepoint_goals, freethrows_goals). Data is correct & richer (incl. total/attempts/percentage breakdown). Frontend should adapt rendering accordingly.",
+    "/app/backend/ingestion.py is 2060 lines — exceeds 700-line guideline. Consider splitting per provider (sportmonks/apisports/statpal).",
+    "Some basketball matches lack api_sports_game_id (94/411 in DB) — these will silently skip lazy stats fetch. Sample basketball match 878f188e... from the brief has no api_sports_game_id; tests use 4e83d710-6da9-4c17-93ad-61e5e875b12e (BSN) which does."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iteration15.py (new)"
+  ],
+  "success_rate": {"backend": "100% (7/7)", "frontend": "100% (all spec items visually verified)"},
+  "verification_evidence": {
+    "standings_endpoint": "Flamengo vs Palmeiras returns 20 Serie A rows; highlight_team_ids contains both team ids; Palmeiras #1 (38pts) and Flamengo #2 (31pts) highlighted in lime rgba(163,230,53,0.08).",
+    "momentum_endpoint": "Returns {momentum:[], home_team_id, away_team_id} shape; 404 on unknown match.",
+    "pro_fields_persisted": "match.weather={temperature_celcius:21.99, type:'broken clouds', icon:'h04d.png', humidity:'88%', wind:2.06}; tv_stations=['Bet365','Fanatiz']; referees=[{name:'Davi de Oliveira Lacerda', type:'Referee'}, ...]; matchfacts populated.",
+    "basketball_lazy_fetch": "GET /api/matches/4e83d710...?refresh=1 triggers fetch_game_statistics + _upsert_apisports_team_stats; subsequent GET returns statistics:[home_row, away_row] with stats dict containing field_goals, threepoint_goals, freethrows_goals, rebounds, assists, steals, blocks, turnovers.",
+    "frontend_hero_chips": "data-testid='hero-weather' shows '21.99°C broken clouds'; hero-tv shows 'Bet365, Fanatiz'; hero-ref shows 'Davi de Oliveira Lacerda'.",
+    "frontend_attack_momentum": "Left rail renders 'Attack momentum · Will appear minute-by-minute once play starts' empty state for past matches.",
+    "frontend_tabs": "5 tabs rendered for football: tab-lineups, tab-stats, tab-events, tab-h2h, tab-standings. NBA SPORT_TABS map uses 'Playoffs' label (basketball_nba override). StandingsTable lazy-loads /api/matches/{id}/standings and shows 20 rows with both competing teams highlighted in lime."
+  },
+  "seed_data_creation": "None — used existing ingested data (Flamengo vs Palmeiras Serie A match and BSN basketball match 4e83d710...).",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Backend test file at /app/backend/tests/test_iteration15.py covers standings, momentum, Pro fields, and basketball lazy stats. Football sample match: 44511de4-79b4-46cd-811f-7679ec806ef1. Basketball match with api_sports_game_id: 4e83d710-6da9-4c17-93ad-61e5e875b12e (BSN). For AttackMomentum live-data verification, a currently-LIVE football match with pressure[] populated is required — couldn't verify SVG bar rendering on past matches (empty state only).",
+  "rca of the issue": "N/A — no bugs found. All 9 spec items verified end-to-end."
+}

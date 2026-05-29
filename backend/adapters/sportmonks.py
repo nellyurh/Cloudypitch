@@ -85,9 +85,19 @@ async def fetch_today_livescores():
 
 
 async def fetch_fixture(fixture_id: int):
+    """Single fixture with rich include set. We're on the Sportmonks Pro plan so
+    weather, TV, referees, predictions, trends, matchfacts, comments, pressure
+    and predicted lineups are all available."""
     return await _get(
         f"/fixtures/{fixture_id}",
-        {"include": "participants;scores;state;events.type;statistics.type;periods;lineups.player;lineups.type;lineups.position;venue;league;referees"},
+        {"include": (
+            "participants;scores;state;events.type;statistics.type;periods;"
+            "lineups.player;lineups.type;lineups.position;lineups.details.type;"
+            "venue;league;referees.referee;referees.type;round;stage;group;aggregate;"
+            "weatherReport;tvStations.tvstation;coaches;sidelined;"
+            "pressure;predictions.type;trends;comments;matchfacts;"
+            "expectedLineups;xGFixture;formations"
+        )},
     )
 
 
