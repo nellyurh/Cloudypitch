@@ -91,6 +91,36 @@ async def my_cards(user: dict = Depends(a.get_current_user)):
     return {"owned": out, "count": len(out)}
 
 
+@router.get("/me/history")
+async def my_card_usage_history(user: dict = Depends(a.get_current_user), limit: int = 100):
+    """List every card the user has spent — with the game it was used in and the targeted player.
+    Joined: card_uses ← legend_cards ← wc_games ← players (target)."""
+    db = get_db()
+    rows = await db.card_uses.find(
+        {"user_id": user["id"]}, {"_id": 0},
+    ).sort("created_at", -1).limit(limit).to_list(length=limit)
+    if not rows:
+        return {"history": []}
+    card_ids = list({r["card_id"] for r in rows if r.get("card_id")})
+    game_ids = list({r["wc_game_id"] for r in rows if r.get("wc_game_id")})
+    player_ids = list({r["target_player_id"] for r in rows if r.get("target_player_id")})
+    cards = await db.legend_cards.find({"id": {"$in": card_ids}}, {"_id": 0}).to_list(length=200)
+    games = await db.wc_games.find({"id": {"$in": game_ids}}, {"_id": 0}).to_list(length=200)
+    players = await db.players.find({"id": {"$in": player_ids}}, {"_id": 0, "id": 1, "name": 1, "team_name": 1, "team_logo": 1, "position": 1}).to_list(length=200)
+    by_card = {c["id"]: c for c in cards}
+    by_game = {g["id"]: g for g in games}
+    by_player = {p["id"]: p for p in players}
+    out = []
+    for r in rows:
+        out.append({
+            **r,
+            "card": by_card.get(r.get("card_id")),
+            "game": by_game.get(r.get("wc_game_id")),
+            "target_player": by_player.get(r.get("target_player_id")),
+        })
+    return {"history": out}
+
+
 @router.post("/purchase")
 async def purchase_card(body: PurchaseIn, user: dict = Depends(a.get_current_user)):
     """Create a user_card row after a successful Paystack txn (or via wallet).

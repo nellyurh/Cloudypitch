@@ -71,8 +71,10 @@ function GameEntryView({ game, onClose, onSaved }) {
   const [picks, setPicks] = useState({}); // { player_id: { position, team_id } }
   const [captain, setCaptain] = useState(null);
   const [vice, setVice] = useState(null);
+  // appliedCards: array of { user_card_id, target_player_id }
   const [appliedCards, setAppliedCards] = useState([]);
   const [ownedCards, setOwnedCards] = useState([]);
+  const [targetingCard, setTargetingCard] = useState(null); // user_card_id currently being targeted
   const [err, setErr] = useState("");
   const [busy, setBusy] = useState(false);
 
@@ -89,7 +91,9 @@ function GameEntryView({ game, onClose, onSaved }) {
           setPicks(seed);
           setCaptain(data.game.my_entry.captain_player_id);
           setVice(data.game.my_entry.vice_captain_player_id);
-          setAppliedCards((data.game.my_entry.cards_used || []).map(c => c.user_card_id));
+          setAppliedCards((data.game.my_entry.cards_used || []).map(c => ({
+            user_card_id: c.user_card_id, target_player_id: c.target_player_id || null,
+          })));
         }
       } catch (e) { setErr(formatApiErr(e)); }
       try {
@@ -109,6 +113,8 @@ function GameEntryView({ game, onClose, onSaved }) {
         delete next[p.id];
         if (captain === p.id) setCaptain(null);
         if (vice === p.id) setVice(null);
+        // Remove any card targeting this player
+        setAppliedCards(ac => ac.filter(c => c.target_player_id !== p.id));
       } else {
         if (Object.keys(prev).length >= 11) return prev;
         next[p.id] = { position: p.position, team_id: p.team_id };
@@ -119,20 +125,29 @@ function GameEntryView({ game, onClose, onSaved }) {
 
   const toggleCard = (uc) => {
     setAppliedCards(prev => {
-      if (prev.includes(uc.id)) return prev.filter(x => x !== uc.id);
+      const exists = prev.find(c => c.user_card_id === uc.id);
+      if (exists) return prev.filter(c => c.user_card_id !== uc.id);
       if (prev.length >= cardCap) return prev;
-      return [...prev, uc.id];
+      // New card — must immediately target a player; open targeting picker
+      setTargetingCard(uc.id);
+      return [...prev, { user_card_id: uc.id, target_player_id: null }];
     });
+  };
+
+  const targetCardToPlayer = (user_card_id, target_player_id) => {
+    setAppliedCards(prev => prev.map(c => c.user_card_id === user_card_id ? { ...c, target_player_id } : c));
+    setTargetingCard(null);
   };
 
   const submit = async () => {
     if (totalPicks !== 11) return setErr("Pick exactly 11 players");
+    if (appliedCards.some(c => !c.target_player_id)) return setErr("Each applied card must target a player");
     setBusy(true); setErr("");
     try {
       await api.post(`/wc/games/${game.id}/enter`, {
         player_picks: Object.entries(picks).map(([player_id, meta]) => ({ player_id, position: meta.position, team_id: meta.team_id })),
         captain_player_id: captain, vice_captain_player_id: vice,
-        cards_used: appliedCards.map(id => ({ user_card_id: id })),
+        cards_used: appliedCards.map(c => ({ user_card_id: c.user_card_id, target_player_id: c.target_player_id })),
       });
       onSaved?.();
       onClose?.();
@@ -151,7 +166,7 @@ function GameEntryView({ game, onClose, onSaved }) {
 
   return (
     <div className="fixed inset-0 z-[150] flex items-end md:items-center justify-center p-2 md:p-4" style={{ background: "rgba(0,0,0,0.7)" }} data-testid="wc-game-entry">
-      <div className="cp-surface w-full max-w-3xl max-h-[92vh] overflow-hidden flex flex-col">
+      <div className="cp-surface w-full max-w-3xl max-h-[92vh] overflow-hidden flex flex-col relative">
         <div className="px-4 py-3 flex items-center justify-between border-b" style={{ borderColor: "var(--cp-border)" }}>
           <div>
             <div className="text-[10px] uppercase tracking-widest" style={{ color: "var(--cp-text-muted)" }}>{TYPE_LABEL[game.game_type]} · {STAGE_LABEL[game.stage] || game.stage}</div>
@@ -211,21 +226,35 @@ function GameEntryView({ game, onClose, onSaved }) {
           {ownedCards.length > 0 && (
             <section>
               <h4 className="text-[10px] uppercase tracking-widest mb-1 inline-flex items-center gap-1"><Sparkles size={10} className="text-cp-lime"/>Boost Cards · {appliedCards.length}/{cardCap}</h4>
+              <p className="text-[10px] mb-1.5" style={{ color: "var(--cp-text-muted)" }}>Each card boosts ONE picked player. 1 use per card per game — consumed on submit.</p>
               <div className="grid grid-cols-2 gap-1.5">
                 {ownedCards.map(uc => {
-                  const sel = appliedCards.includes(uc.id);
+                  const applied = appliedCards.find(c => c.user_card_id === uc.id);
+                  const sel = !!applied;
+                  const targetedPlayer = applied?.target_player_id ? eligible.find(p => p.id === applied.target_player_id) : null;
                   return (
-                    <button
-                      key={uc.id}
-                      onClick={() => toggleCard(uc)}
-                      disabled={!sel && appliedCards.length >= cardCap}
-                      className={`px-2 py-1.5 rounded text-xs text-left disabled:opacity-30 ${sel ? "ring-1 ring-cp-lime bg-cp-lime/10" : "hover:bg-white/5"}`}
-                      style={{ background: sel ? undefined : "var(--cp-surface-2)" }}
-                      data-testid={`wc-card-${uc.id}`}
-                    >
-                      <div className="font-bold truncate">{uc.card?.name}</div>
-                      <div className="text-[10px] opacity-70">+{Math.round(((uc.card?.effect_value?.multiplier || 1) - 1) * 100)}% · {uc.uses_remaining ?? uc.uses_left} uses</div>
-                    </button>
+                    <div key={uc.id} className={`rounded text-xs ${sel ? "ring-1 ring-cp-lime bg-cp-lime/10" : ""}`} style={{ background: sel ? undefined : "var(--cp-surface-2)" }}>
+                      <button
+                        onClick={() => toggleCard(uc)}
+                        disabled={!sel && appliedCards.length >= cardCap}
+                        className="px-2 py-1.5 w-full text-left disabled:opacity-30"
+                        data-testid={`wc-card-${uc.id}`}
+                      >
+                        <div className="font-bold truncate">{uc.card?.name}</div>
+                        <div className="text-[10px] opacity-70">+{Math.round(((uc.card?.effect_value?.multiplier || 1) - 1) * 100)}% · {uc.uses_remaining ?? uc.uses_left} uses left</div>
+                      </button>
+                      {sel && (
+                        <button
+                          onClick={() => setTargetingCard(uc.id)}
+                          className="w-full px-2 py-1 text-[10px] border-t inline-flex items-center justify-between gap-1"
+                          style={{ borderColor: "var(--cp-border)", color: targetedPlayer ? "#A3E635" : "#FBBF24" }}
+                          data-testid={`wc-card-target-${uc.id}`}
+                        >
+                          <span>{targetedPlayer ? `→ ${targetedPlayer.name}` : "→ Pick target player"}</span>
+                          <span>change</span>
+                        </button>
+                      )}
+                    </div>
                   );
                 })}
               </div>
@@ -239,6 +268,45 @@ function GameEntryView({ game, onClose, onSaved }) {
             {busy ? "Saving…" : `Submit ${totalPicks}/11`}
           </button>
         </div>
+
+        {targetingCard && (
+          <div className="absolute inset-0 z-[10] flex items-center justify-center p-3" style={{ background: "rgba(0,0,0,0.85)" }} data-testid="wc-target-picker">
+            <div className="cp-surface w-full max-w-md max-h-[80vh] overflow-hidden flex flex-col">
+              <div className="px-4 py-3 flex items-center justify-between border-b" style={{ borderColor: "var(--cp-border)" }}>
+                <div>
+                  <div className="text-[10px] uppercase tracking-widest text-cp-lime">Boost target</div>
+                  <div className="text-sm font-extrabold">{ownedCards.find(o => o.id === targetingCard)?.card?.name || "Card"}</div>
+                </div>
+                <button onClick={() => { setAppliedCards(ac => ac.filter(c => c.user_card_id !== targetingCard)); setTargetingCard(null); }} className="cp-btn-ghost !p-2" data-testid="wc-target-cancel">✕</button>
+              </div>
+              <div className="overflow-y-auto p-2">
+                {Object.keys(picks).length === 0 && (
+                  <div className="p-4 text-xs text-center" style={{ color: "var(--cp-text-muted)" }}>Pick players first, then apply cards to them.</div>
+                )}
+                {Object.keys(picks).map(pid => {
+                  const p = eligible.find(x => x.id === pid);
+                  if (!p) return null;
+                  // Disable if another applied card already targets this player
+                  const usedByOther = appliedCards.find(c => c.target_player_id === pid && c.user_card_id !== targetingCard);
+                  return (
+                    <button
+                      key={pid}
+                      onClick={() => !usedByOther && targetCardToPlayer(targetingCard, pid)}
+                      disabled={!!usedByOther}
+                      className="w-full px-2 py-1.5 text-left text-sm rounded hover:bg-white/5 disabled:opacity-30 flex items-center gap-2"
+                      data-testid={`wc-target-pick-${pid}`}
+                    >
+                      {p.team_logo && <img src={p.team_logo} className="w-4 h-4 object-contain" alt="" onError={(e)=>{e.target.style.display="none"}}/>}
+                      <span className="cp-pill text-[9px] font-bold" style={{ background: "var(--cp-surface-2)", color: POS_COLOR[p.position] }}>{p.position}</span>
+                      <span className="flex-1 truncate">{p.name}</span>
+                      {usedByOther && <span className="text-[10px]" style={{ color: "var(--cp-text-muted)" }}>boosted</span>}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );

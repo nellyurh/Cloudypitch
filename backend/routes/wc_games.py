@@ -141,12 +141,36 @@ async def enter_game(game_id: str, body: GameEntryIn, user: dict = Depends(a.get
         if cu.user_card_id in seen_card_ids:
             raise HTTPException(status_code=400, detail="Each card can only be used once per game")
         seen_card_ids.add(cu.user_card_id)
-    # Validate cards belong to user with uses remaining
+    # Each card MUST target a picked player
+    picked_player_ids = {p.player_id for p in body.player_picks}
+    for cu in body.cards_used:
+        if not cu.target_player_id:
+            raise HTTPException(status_code=400, detail="Each card must target a player in your squad")
+        if cu.target_player_id not in picked_player_ids:
+            raise HTTPException(status_code=400, detail="Card target must be one of your picked players")
+
+    # Compare against previous entry — figure out which cards are NEW (consume) vs UNCHANGED (skip) vs REMOVED (refund)
+    existing = await db.wc_game_entries.find_one({"user_id": user["id"], "wc_game_id": game_id})
+    prev_card_ids: set[str] = set()
+    if existing:
+        for pcu in existing.get("cards_used") or []:
+            if pcu.get("user_card_id"):
+                prev_card_ids.add(pcu["user_card_id"])
+    new_card_ids = {cu.user_card_id for cu in body.cards_used}
+    to_consume = new_card_ids - prev_card_ids   # cards being added in this submit
+    to_refund = prev_card_ids - new_card_ids     # cards being removed in this submit
+
+    # Validate ownership + uses_remaining for NEW cards only
     valid_cards = []
     for cu in body.cards_used:
         owned = await db.user_cards.find_one({"id": cu.user_card_id, "user_id": user["id"]})
-        if owned and (owned.get("uses_remaining", 0) > 0 or owned.get("uses_left", 0) > 0):
-            valid_cards.append(cu.model_dump())
+        if not owned:
+            continue
+        if cu.user_card_id in to_consume:
+            remaining = owned.get("uses_remaining", owned.get("uses_left", 0))
+            if remaining <= 0:
+                raise HTTPException(status_code=400, detail="One of your selected cards has 0 uses left")
+        valid_cards.append(cu.model_dump())
     doc = {
         "user_id": user["id"], "wc_game_id": game_id,
         "player_picks": [p.model_dump() for p in body.player_picks],
@@ -156,15 +180,46 @@ async def enter_game(game_id: str, body: GameEntryIn, user: dict = Depends(a.get
         "points_scored": None, "rank_in_game": None, "settled_at": None,
         "updated_at": _now_iso(),
     }
-    existing = await db.wc_game_entries.find_one({"user_id": user["id"], "wc_game_id": game_id})
-    if existing:
-        await db.wc_game_entries.update_one({"id": existing["id"]}, {"$set": doc})
-        doc["id"] = existing["id"]
+    existing_doc = existing  # alias for clarity
+    if existing_doc:
+        await db.wc_game_entries.update_one({"id": existing_doc["id"]}, {"$set": doc})
+        doc["id"] = existing_doc["id"]
     else:
         doc["id"] = new_id()
         doc["created_at"] = _now_iso()
         await db.wc_game_entries.insert_one(doc)
         await db.wc_games.update_one({"id": game_id}, {"$inc": {"total_entries": 1}})
+
+    # Consume NEW cards (decrement uses + write a card_uses audit row)
+    for cu in body.cards_used:
+        if cu.user_card_id not in to_consume:
+            continue
+        owned = await db.user_cards.find_one({"id": cu.user_card_id, "user_id": user["id"]})
+        if not owned:
+            continue
+        await db.user_cards.update_one(
+            {"id": cu.user_card_id},
+            {"$inc": {"uses_remaining": -1, "uses_left": -1, "total_uses": 1}},
+        )
+        await db.card_uses.insert_one({
+            "id": new_id(), "user_id": user["id"],
+            "user_card_id": cu.user_card_id, "card_id": owned.get("card_id"),
+            "wc_game_id": game_id, "wc_game_entry_id": doc["id"],
+            "target_player_id": cu.target_player_id, "target_team_id": cu.target_team_id,
+            "created_at": _now_iso(),
+        })
+
+    # Refund REMOVED cards (only if not yet settled — game must still be open/upcoming)
+    if to_refund and g.get("status") in ("upcoming", "open"):
+        for uc_id in to_refund:
+            used_row = await db.card_uses.find_one({"user_card_id": uc_id, "wc_game_id": game_id, "user_id": user["id"]})
+            if used_row:
+                await db.user_cards.update_one(
+                    {"id": uc_id},
+                    {"$inc": {"uses_remaining": 1, "uses_left": 1, "total_uses": -1}},
+                )
+                await db.card_uses.delete_one({"id": used_row["id"]})
+
     doc.pop("_id", None)
     return {"entry": doc}
 
