@@ -52,6 +52,27 @@ Three integrated products:
 - ✅ New LineupPitch component: green pitch with center circle/penalty boxes/goals, player number badges (lime home / white away), formation auto-derived from position_code, full bench list
 - ✅ Verified by testing agent (iteration 2): 100% backend + frontend pass
 
+## Iteration 11 — Card consumption + per-player targeting + usage history (2026-05-29)
+
+### Card lifecycle is now strictly enforced
+- **One use per card per game** — `POST /api/wc/games/{id}/enter` rejects duplicate `user_card_id` in `cards_used[]`
+- **Cards consume on submit** — for each NEW card added in the entry, `user_cards.uses_remaining` decrements -1, `total_uses` increments +1, and a `card_uses` audit row is inserted (one per card per game per user)
+- **Refund on remove** — if user updates entry to remove a card while game is still `upcoming`/`open`, the use is refunded: `uses_remaining +1`, `total_uses -1`, `card_uses` row deleted
+- **Idempotent resubmits** — recomputes `to_consume = new - prev` and `to_refund = prev - new`, so saving the same entry twice does NOT double-charge
+
+### Per-player targeting
+- Each `cards_used` item MUST set `target_player_id` → backend returns 400 otherwise
+- Target MUST be one of the 11 picked players → backend returns 400 otherwise
+- Frontend GameEntryView auto-opens a player-target picker when a card is toggled on; same player can't be boosted by two cards in one entry
+
+### New "My Usage" tab on /cards
+- 3-tab page: **Catalog** · **My Cards** (owned cards + uses_remaining) · **My Usage** (history)
+- `GET /api/cards/me/history` returns the last 100 `card_uses` joined with `legend_cards`, `wc_games`, and `players` (target)
+- Sign-in gate on owned/history tabs
+
+### Test Results (iteration 11)
+- Backend: **7/7 pass** · Frontend integration: **PASS** · No retest needed
+
 ## Iteration 10 — Real WC2026 Schedule from Sportmonks + Card Per-Game Uniqueness (2026-05-29)
 
 ### Bug fix: WC schedule was pulling ALL historical seasons
