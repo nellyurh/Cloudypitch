@@ -19,21 +19,26 @@ RECHARGE_PRICE_USD_CENTS = 20                    # $0.20
 STARTER_USES = 5
 RECHARGE_USES = 5
 POOL_CONTRIBUTION_RATIO = 0.50  # 50% of revenue → prize pool
-WC_PRIZE_POOL_ID = "pool-wc2026-fantasy"
+WC_PRIZE_POOL_ID = "pool-cloudypitch-unified"
 
 
 async def _contribute_to_pool(db, amount_cents: int, user_id: str, source: str, reference: str | None):
-    """Move 50% of amount_cents into the WC prize pool, log a contribution row."""
+    """Move 50% of amount_cents into the UNIFIED prize pool (cards_cut_usd_cents),
+    log a contribution row."""
     contribution = int(amount_cents * POOL_CONTRIBUTION_RATIO)
     if contribution <= 0:
         return
     await db.prize_pools.update_one(
         {"id": WC_PRIZE_POOL_ID},
         {
-            "$inc": {"amount_usd_cents": contribution, "amount_total_ngn": int(contribution * 16)},
+            "$inc": {
+                "amount_usd_cents": contribution,
+                "cards_cut_usd_cents": contribution,
+                "amount_total_ngn": int(contribution * 16),
+            },
             "$set": {"updated_at": datetime.now(timezone.utc).isoformat()},
         },
-        upsert=False,
+        upsert=True,
     )
     await db.prize_pool_contributions.insert_one({
         "id": new_id(), "pool_id": WC_PRIZE_POOL_ID,

@@ -241,6 +241,9 @@ export const PredictionsHub = () => {
             <li key={r.user_id} className={`px-3 py-2 flex items-center gap-2 text-sm ${user && r.user_id === user.id ? "bg-cp-lime/10" : ""}`}>
               <span className="cp-logo-circle text-[10px] font-extrabold" style={{ width: 22, height: 22, background: r.rank === 1 ? "#A3E635" : "var(--cp-surface-2)", color: r.rank === 1 ? "#064E3B" : "var(--cp-text)" }}>{r.rank}</span>
               <span className="truncate flex-1">{r.display_name}</span>
+              {r.potential_prize_usd_cents > 0 && (
+                <span className="text-[10px] tabular-nums" style={{ color: "#A3E635" }}>${(r.potential_prize_usd_cents / 100).toFixed(0)}</span>
+              )}
               <span className="tabular-nums font-bold text-cp-lime">{r.total_points}</span>
             </li>
           ))}

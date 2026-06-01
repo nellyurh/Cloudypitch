@@ -102,5 +102,8 @@ for r in (auth_router, catalog_router, matches_router, worldcup_router,
           wallet_router, compliance_router, ads_router, payments_router,
           referrals_router, auth_extras_router,
           wc_games_router, wc_admin_router,
-          admin_cleanup_router):
+          admin_cleanup_router,
+          leaderboard_router):
+    app.include_router(r)
+r):
     app.include_router(r)

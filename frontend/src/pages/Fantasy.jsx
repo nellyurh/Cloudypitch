@@ -79,6 +79,7 @@ export const FantasyHub = () => {
   const [players, setPlayers] = useState([]);
   const [squad, setSquad] = useState({ name: "My WC Squad", players: [], captain: null, vice: null, appliedCards: [] });
   const [leaderboard, setLeaderboard] = useState([]);
+  const [pool, setPool] = useState(null);
   const [filter, setFilter] = useState("ALL");
   const [search, setSearch] = useState("");
   const [saved, setSaved] = useState(false);
@@ -97,6 +98,7 @@ export const FantasyHub = () => {
         setComp(c.data.competition);
         setPlayers(p.data.players || []);
         setLeaderboard(lb.data.leaderboard || []);
+        if (lb.data.pool) setPool(lb.data.pool);
         if (mine.data.squad) {
           setSquad({
             name: mine.data.squad.squad_name || "My WC Squad",
@@ -201,19 +203,44 @@ export const FantasyHub = () => {
       {tab === "games" && <div className="mt-3"><WcGamesPanel user={user}/></div>}
 
       {tab === "leaderboard" && (
-        <div className="cp-surface mt-3 overflow-hidden" data-testid="fantasy-leaderboard">
-          <div className="cp-card-header normal-case"><span className="flex items-center gap-2 font-bold"><Crown size={14} className="text-cp-lime"/> Top Squads — Tournament-Long</span></div>
-          <ul className="divide-y" style={{ borderColor: "var(--cp-border)" }}>
-            {leaderboard.length === 0 && <li className="p-4 text-sm" style={{ color: "var(--cp-text-muted)" }}>No squads scored yet — be first!</li>}
-            {leaderboard.map(r => (
-              <li key={r.user_id} className={`px-3 py-2 flex items-center gap-2 text-sm ${r.user_id === user.id ? "bg-cp-lime/10" : ""}`}>
-                <span className="cp-logo-circle text-[10px] font-extrabold" style={{ width: 22, height: 22, background: r.rank === 1 ? "#A3E635" : "var(--cp-surface-2)", color: r.rank === 1 ? "#064E3B" : "var(--cp-text)" }}>{r.rank}</span>
-                <span className="truncate flex-1">{r.display_name}</span>
-                <span className="text-[10px]" style={{ color: "var(--cp-text-muted)" }}>{r.squad_name}</span>
-                <span className="tabular-nums font-bold text-cp-lime">{r.total_points}</span>
-              </li>
-            ))}
-          </ul>
+        <div className="space-y-3 mt-3" data-testid="fantasy-leaderboard">
+          {pool && (
+            <div className="cp-surface p-4 text-center" data-testid="leaderboard-pool">
+              <div className="text-[10px] uppercase tracking-widest" style={{ color: "var(--cp-text-muted)" }}>Total Prize Pool</div>
+              <div className="text-3xl font-extrabold text-cp-lime mt-1">${((pool.total_usd_cents || 0) / 100).toLocaleString()}</div>
+              <div className="text-[11px] mt-1" style={{ color: "var(--cp-text-muted)" }}>
+                ${((pool.base_usd_cents || 0) / 100).toLocaleString()} base + ${((pool.cards_cut_usd_cents || 0) / 100).toLocaleString()} cards cut (50% of card spend)
+              </div>
+              <div className="grid grid-cols-4 gap-2 mt-3 text-[10px]">
+                {[{ p: 1, l: "🥇" }, { p: 2, l: "🥈" }, { p: 3, l: "🥉" }, { p: 4, l: "4️⃣" }].map(x => (
+                  <div key={x.p} className="cp-surface !bg-transparent ring-1 ring-white/10 p-2 rounded">
+                    <div>{x.l}</div>
+                    <div className="text-cp-lime font-bold tabular-nums">{[1000, 500, 300, 200][x.p - 1]}$</div>
+                  </div>
+                ))}
+              </div>
+              <div className="text-[10px] mt-2" style={{ color: "var(--cp-text-muted)" }}>
+                Pos 5–20 share ${((pool.base_usd_cents - 180000) / 100).toFixed(0)} equally · Pos 21+ earns from cards cut
+              </div>
+            </div>
+          )}
+          <div className="cp-surface overflow-hidden">
+            <div className="cp-card-header normal-case"><span className="font-bold flex items-center gap-2"><Crown size={14} className="text-cp-lime"/> Unified Leaderboard · Fantasy + Predictions</span></div>
+            <ul className="divide-y" style={{ borderColor: "var(--cp-border)" }}>
+              {leaderboard.length === 0 && <li className="p-4 text-sm" style={{ color: "var(--cp-text-muted)" }}>No scores yet — be first!</li>}
+              {leaderboard.map(r => (
+                <li key={r.user_id} className={`px-3 py-2 flex items-center gap-2 text-sm ${r.user_id === user.id ? "bg-cp-lime/10" : ""}`}>
+                  <span className="cp-logo-circle text-[10px] font-extrabold" style={{ width: 22, height: 22, background: r.rank === 1 ? "#A3E635" : r.rank <= 4 ? "rgba(163,230,53,0.4)" : "var(--cp-surface-2)", color: r.rank === 1 ? "#064E3B" : "var(--cp-text)" }}>{r.rank}</span>
+                  <span className="truncate flex-1">{r.display_name}</span>
+                  <span className="text-[10px]" style={{ color: "var(--cp-text-muted)" }}>F {r.fantasy_points} · P {r.prediction_points}</span>
+                  {r.potential_prize_usd_cents > 0 && (
+                    <span className="text-[11px] tabular-nums font-bold" style={{ color: "#A3E635" }}>${(r.potential_prize_usd_cents / 100).toFixed(0)}</span>
+                  )}
+                  <span className="tabular-nums font-bold text-cp-lime">{r.total_points}</span>
+                </li>
+              ))}
+            </ul>
+          </div>
         </div>
       )}
 
