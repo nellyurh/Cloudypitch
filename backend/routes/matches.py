@@ -17,6 +17,24 @@ def _today_range_iso():
     return start.isoformat(), end.isoformat()
 
 
+def _date_window_expr(start_key: str, end_key: str) -> dict:
+    """Build a $expr that compares `scheduled_at` after normalising space→T.
+
+    Returns a dict compatible with Mongo's $expr operator. Ensures that values
+    stored with either "YYYY-MM-DDTHH:MM:SS" or "YYYY-MM-DD HH:MM:SS" both sort
+    correctly into the window [start_key, end_key) where keys are in T-format.
+    """
+    return {
+        "$let": {
+            "vars": {"s": {"$replaceOne": {"input": {"$ifNull": ["$scheduled_at", ""]}, "find": " ", "replacement": "T"}}},
+            "in": {"$and": [
+                {"$gte": ["$$s", start_key]},
+                {"$lt": ["$$s", end_key]},
+            ]}
+        }
+    }
+
+
 @router.get("/matches")
 async def list_matches(
     sport: str = "football",
@@ -46,7 +64,7 @@ async def list_matches(
         local_end_of_day = (local_now.replace(hour=0, minute=0, second=0, microsecond=0) + timedelta(days=1)) - timedelta(seconds=1)
         end_utc = local_end_of_day - offset
         q["status"] = {"$in": ["NS", "TBD", "POSTP"]}
-        q["scheduled_at"] = {"$gte": now.isoformat(), "$lt": end_utc.isoformat()}
+        q["$expr"] = _date_window_expr(now.strftime("%Y-%m-%dT%H:%M:%S"), end_utc.strftime("%Y-%m-%dT%H:%M:%S"))
     elif status == "finished":
         # Matches finished earlier today (user's local day)
         offset = timedelta(minutes=tz_offset_min)
@@ -55,7 +73,7 @@ async def list_matches(
         local_start_of_day = local_now.replace(hour=0, minute=0, second=0, microsecond=0)
         start_utc = local_start_of_day - offset
         q["status"] = {"$in": ["FT", "AET", "PEN"]}
-        q["scheduled_at"] = {"$gte": start_utc.isoformat(), "$lt": now.isoformat()}
+        q["$expr"] = _date_window_expr(start_utc.strftime("%Y-%m-%dT%H:%M:%S"), now.strftime("%Y-%m-%dT%H:%M:%S"))
         sort_order = -1
     elif date:
         try:
@@ -63,26 +81,13 @@ async def list_matches(
             # UTC window that corresponds to that whole local day for the user.
             d = datetime.fromisoformat(date)
             offset = timedelta(minutes=tz_offset_min)
-            # 00:00 in user's local TZ on that calendar date, expressed in UTC.
             local_midnight = d.replace(hour=0, minute=0, second=0, microsecond=0, tzinfo=timezone.utc)
             start_dt = local_midnight - offset
             end_dt = start_dt + timedelta(days=1)
-            start_iso_tz = start_dt.isoformat()
-            end_iso_tz = end_dt.isoformat()
-            start_iso = start_dt.strftime("%Y-%m-%dT%H:%M:%S")
-            end_iso = end_dt.strftime("%Y-%m-%dT%H:%M:%S")
-            start_space = start_dt.strftime("%Y-%m-%d %H:%M:%S")
-            end_space = end_dt.strftime("%Y-%m-%d %H:%M:%S")
-            # Match across all possible scheduled_at formats: ISO with TZ, ISO without TZ, space-separator.
-            # Also handle adapter-stored date-only strings ("YYYY-MM-DD") by
-            # restricting to the user-local calendar date string itself.
-            q["$and"] = q.get("$and", []) + [{
-                "$or": [
-                    {"scheduled_at": {"$gte": start_iso_tz, "$lt": end_iso_tz}},
-                    {"scheduled_at": {"$gte": start_iso, "$lt": end_iso}},
-                    {"scheduled_at": {"$gte": start_space, "$lt": end_space}},
-                ]
-            }]
+            q["$expr"] = _date_window_expr(
+                start_dt.strftime("%Y-%m-%dT%H:%M:%S"),
+                end_dt.strftime("%Y-%m-%dT%H:%M:%S"),
+            )
         except Exception:
             pass
         # On-demand backfill: if this date's match count is below threshold,
@@ -118,9 +123,12 @@ async def list_matches(
         today_utc = datetime.now(timezone.utc)
         local_now = today_utc + offset
         local_start = local_now.replace(hour=0, minute=0, second=0, microsecond=0)
-        start = (local_start - offset).isoformat()
-        end = (local_start + timedelta(days=1) - offset).isoformat()
-        q["scheduled_at"] = {"$gte": start, "$lt": end}
+        start = local_start - offset
+        end = start + timedelta(days=1)
+        q["$expr"] = _date_window_expr(
+            start.strftime("%Y-%m-%dT%H:%M:%S"),
+            end.strftime("%Y-%m-%dT%H:%M:%S"),
+        )
 
     rows = await db.matches.find(q, {"_id": 0, "raw_data": 0}).sort("scheduled_at", sort_order).to_list(length=limit)
 

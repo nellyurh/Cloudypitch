@@ -634,3 +634,9 @@ See `/app/memory/test_credentials.md`. Admin: `admin@cloudypitch.com` / `CloudyA
 4. Paystack live integration (blocked — needs keys)
 5. Email verification + password reset via Resend/SendGrid (blocked — needs key)
 6. KYC provider integration (blocked — needs decision)
+
+
+## Iteration 20 — Critical date-window bug fixed (2026-06-02)
+- 🔴 **ROOT CAUSE FOUND**: The previous `$or` query mixed three string formats (`T`-separator, space-separator, with-TZ-suffix). ASCII collation means `" "` (0x20) < `"T"` (0x54), so the space-format branch matched ALL T-format rows in the same day window — leaking 168 already-played matches into "tomorrow" view.
+- ✅ **Fix**: introduced `_date_window_expr()` helper that uses Mongo `$expr` with `$replaceOne` to normalise `" "→"T"` on the field side, then does a single clean `$gte/$lt` against ONE canonical key format (`YYYY-MM-DDTHH:MM:SS`). Verified: tomorrow now returns 92 NS-only matches (down from 279 with 168 FT bleed). Today returns 222 with proper status mix.
+- Applied the same fix to `upcoming` and `finished` filter branches, plus the default-today branch.
