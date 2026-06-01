@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from "react";
 import api from "../lib/api";
 import { Trophy, Users, DollarSign, Sparkles, Crown } from "lucide-react";
+import PoolPulse from "../components/PoolPulse";
 
 const USD = (cents) => `$${((cents || 0) / 100).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
@@ -71,6 +72,9 @@ export const Leaderboards = () => {
 
       {/* Distribution breakdown */}
       {!isReferrals && <PrizeBreakdown pool={pool}/>}
+
+      {/* Pool Pulse — live feed of card purchases */}
+      {!isReferrals && <PoolPulse/>}
 
       <div className="cp-surface overflow-hidden">
         {loading && <div className="p-6 text-sm" style={{ color: "var(--cp-text-muted)" }} data-testid="lb-loading">Loading…</div>}

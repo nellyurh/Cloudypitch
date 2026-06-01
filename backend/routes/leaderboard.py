@@ -163,3 +163,69 @@ async def prize_split_preview(base_usd_cents: int = BASE_POOL_USD_CENTS, cards_c
         "total_usd_cents": base_usd_cents + cards_cut_usd_cents,
         "payouts": [{"position": p, "usd_cents": v} for p, v in sorted(payouts.items())],
     }
+
+
+def _redact_display_name(name: str | None) -> str:
+    """First-name + masked last-initial. e.g. 'Damilola Adebayo' → '@Damilola A.'"""
+    if not name or not isinstance(name, str):
+        return "@Anonymous"
+    parts = [p for p in name.strip().split() if p]
+    if not parts:
+        return "@Anonymous"
+    first = parts[0]
+    if len(parts) == 1:
+        return f"@{first}"
+    return f"@{first} {parts[1][0]}."
+
+
+@router.get("/pulse")
+async def pool_pulse(limit: int = 10):
+    """Live ticker of recent card purchases growing the prize pool.
+
+    Returns last N `card_purchase` wallet transactions with redacted user name,
+    amount spent, and the resulting pool delta (50% of spend).
+    """
+    db = get_db()
+    rows = await db.wallet_transactions.find(
+        {"kind": "card_purchase"},
+        {"_id": 0, "user_id": 1, "amount_usd_cents": 1, "created_at": 1, "metadata": 1},
+    ).sort("created_at", -1).limit(limit).to_list(length=limit)
+    user_ids = list({r.get("user_id") for r in rows if r.get("user_id")})
+    users = []
+    if user_ids:
+        users = await db.users.find(
+            {"id": {"$in": user_ids}},
+            {"_id": 0, "id": 1, "display_name": 1, "country_code": 1},
+        ).to_list(length=len(user_ids))
+    by_id = {u["id"]: u for u in users}
+    out = []
+    for r in rows:
+        u = by_id.get(r.get("user_id") or "", {})
+        amt = int(r.get("amount_usd_cents") or 0)
+        pool_delta = amt // 2  # 50% goes to pool
+        out.append({
+            "user_id": r.get("user_id"),
+            "handle": _redact_display_name(u.get("display_name")),
+            "country_code": u.get("country_code") or "—",
+            "amount_usd_cents": amt,
+            "pool_delta_usd_cents": pool_delta,
+            "card_name": (r.get("metadata") or {}).get("card_name") if isinstance(r.get("metadata"), dict) else None,
+            "created_at": r.get("created_at"),
+        })
+    # Aggregate today's totals
+    from datetime import datetime, timezone
+    start_of_day = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0).isoformat()
+    today_agg = await db.wallet_transactions.aggregate([
+        {"$match": {"kind": "card_purchase", "created_at": {"$gte": start_of_day}}},
+        {"$group": {"_id": None, "total_spend": {"$sum": "$amount_usd_cents"}, "count": {"$sum": 1}}},
+    ]).to_list(length=1)
+    today = today_agg[0] if today_agg else {"total_spend": 0, "count": 0}
+    return {
+        "events": out,
+        "today": {
+            "card_spend_usd_cents": int(today.get("total_spend") or 0),
+            "pool_delta_usd_cents": int(today.get("total_spend") or 0) // 2,
+            "purchases": int(today.get("count") or 0),
+        },
+    }
+
