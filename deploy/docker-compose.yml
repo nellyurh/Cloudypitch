@@ -34,7 +34,7 @@ services:
       mongo:
         condition: service_healthy
     environment:
-      MONGO_URL: mongodb://${MONGO_USER}:${MONGO_PASSWORD}@mongo:27017/${DB_NAME}?authSource=admin
+      MONGO_URL: mongodb://${MONGO_USER}:${MONGO_PASSWORD_URLENC:-${MONGO_PASSWORD}}@mongo:27017/${DB_NAME}?authSource=admin
       DB_NAME: ${DB_NAME}
       CORS_ORIGINS: ${CORS_ORIGINS}
       RUN_INGESTION: "0"          # API stays HTTP-only; worker does polling
@@ -67,7 +67,7 @@ services:
         condition: service_healthy
     command: ["python", "worker.py"]
     environment:
-      MONGO_URL: mongodb://${MONGO_USER}:${MONGO_PASSWORD}@mongo:27017/${DB_NAME}?authSource=admin
+      MONGO_URL: mongodb://${MONGO_USER}:${MONGO_PASSWORD_URLENC:-${MONGO_PASSWORD}}@mongo:27017/${DB_NAME}?authSource=admin
       DB_NAME: ${DB_NAME}
       RUN_INGESTION: "1"
       SPORTMONKS_API_TOKEN: ${SPORTMONKS_API_TOKEN}

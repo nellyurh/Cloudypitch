@@ -76,6 +76,11 @@ set -a; . ./.env; set +a
 [[ -n "${MONGO_PASSWORD:-}" ]]  || err "MONGO_PASSWORD unset in .env"
 [[ -n "${ADMIN_PASSWORD:-}" ]]  || err "ADMIN_PASSWORD unset in .env"
 
+# URL-encode the Mongo password (sed/awk-friendly chars only are unsafe in a URI).
+# We export MONGO_PASSWORD_URLENC for docker-compose to use in the MONGO_URL.
+MONGO_PASSWORD_URLENC=$(python3 -c "import urllib.parse,os;print(urllib.parse.quote(os.environ['MONGO_PASSWORD'],safe=''))")
+export MONGO_PASSWORD_URLENC
+
 # 6. Build + bring up
 log "Building images (frontend bakes REACT_APP_BACKEND_URL=$PUBLIC_URL)…"
 docker compose --env-file .env build
