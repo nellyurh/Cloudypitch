@@ -183,14 +183,40 @@ docker compose exec mongo mongosh -u "$MONGO_USER" -p "$MONGO_PASSWORD" --authen
 | `Worker not ingesting matches` | Missing provider keys in `.env`. `docker compose exec worker env \| grep API_KEY`. |
 | Out-of-memory builds | Add `--memory=2g` to docker build, or upgrade VPS RAM. |
 
-## 8. Hardening (recommended)
+## 8. Hardening (recommended — run AFTER `deploy.sh`)
 
-- Disable root SSH password login → enforce key-only.
-- Install `fail2ban` (already done by `deploy.sh`).
-- Move SSH to a non-standard port.
-- Enable Mongo backups to off-box storage (S3 / B2).
-- Set up Uptime monitoring → https://cloudypitch.com/api/health.
-- Add a CDN (Cloudflare) in front of Caddy for DDoS protection — set DNS to Cloudflare proxy mode, and update `CORS_ORIGINS` accordingly.
+Use the included `harden.sh` script which automates SSH key-only access, fail2ban, UFW lockdown, kernel sysctl, automatic security updates, Docker daemon hardening, and nightly Mongo backups:
+
+```bash
+# Optional — change defaults (SSH port + sudo user)
+export SSH_PORT=2222           # default 2222
+export NEW_USER=cloudy         # default 'cloudy'
+
+sudo ./harden.sh
+```
+
+⚠️ **Before logging out**, open a second terminal and verify:
+```bash
+ssh -p 2222 cloudy@<your-server-ip>
+```
+If you can log in, the lockdown worked. If not — keep your original root SSH session open and re-paste your public key into `/home/cloudy/.ssh/authorized_keys`.
+
+What `harden.sh` does:
+- Creates a non-root sudo user with SSH key login.
+- Disables SSH root login + password authentication.
+- Moves SSH to port 2222 (or your choice).
+- Configures fail2ban for SSH (3 attempts → 24 h ban) + Caddy 401/403/429 bursts.
+- Tightens UFW (only the new SSH port + 80 + 443).
+- Enables automatic Ubuntu security updates with weekly auto-reboot at 04:00.
+- Applies kernel sysctl hardening (SYN flood, IP spoofing, ICMP redirects).
+- Schedules nightly Mongo backups at 03:00 UTC.
+- Disables unused services (cups, bluetooth, avahi).
+- Hardens Docker daemon (`no-new-privileges`, capped log files, disabled inter-container ICC).
+
+Additional manual recommendations:
+- Add **Cloudflare** in front of Caddy → DNS proxy mode → blocks 99 % of bot traffic before it reaches the VPS. Update `CORS_ORIGINS` accordingly.
+- Enable **Uptime Kuma** (`docker run -d -p 3001:3001 louislam/uptime-kuma`) and monitor `https://cloudypitch.com/api/health`.
+- Off-box Mongo backups → after a few days, sync `/opt/cloudypitch/backups/` to S3 / Backblaze B2 with `rclone`.
 
 ---
 
