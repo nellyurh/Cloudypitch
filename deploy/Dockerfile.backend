@@ -14,8 +14,13 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 # Python deps — copy requirements first for cache efficiency
 COPY backend/requirements.txt /app/backend/requirements.txt
+# Two-stage install dodges a pip-resolver bug where `litellm` appears
+# both as a direct URL spec AND as a transitive dep of `emergentintegrations`.
 RUN pip install --extra-index-url https://d33sy5i8bnduwe.cloudfront.net/simple/ \
-    -r /app/backend/requirements.txt
+        emergentintegrations==0.1.2 \
+ && pip install --extra-index-url https://d33sy5i8bnduwe.cloudfront.net/simple/ \
+        --use-deprecated=legacy-resolver \
+        -r /app/backend/requirements.txt
 
 # Source
 COPY backend /app/backend
