@@ -10,7 +10,20 @@ const POSITIONS = ["GK", "DEF", "MID", "FWD"];
 const POS_LIMIT = { GK: 2, DEF: 5, MID: 5, FWD: 3 };
 const POS_COLOR = { GK: "#FFC857", DEF: "#A3E635", MID: "#7DD3FC", FWD: "#FB7185" };
 
-// Mini pitch with starting 11 placement
+/** FPL-style jersey SVG — colour drives stroke + body fill. */
+function Jersey({ color = "#A3E635", size = 40 }) {
+  return (
+    <svg viewBox="0 0 64 64" width={size} height={size} aria-hidden>
+      <path
+        d="M14 8 L24 4 C28 8 36 8 40 4 L50 8 L58 18 L50 24 L48 22 L48 56 C48 58 46 60 44 60 L20 60 C18 60 16 58 16 56 L16 22 L14 24 L6 18 Z"
+        fill={color} stroke="rgba(0,0,0,0.35)" strokeWidth="1.6"
+      />
+      <path d="M16 30 L48 30" stroke="rgba(255,255,255,0.6)" strokeWidth="2"/>
+    </svg>
+  );
+}
+
+// FPL-style mini pitch — jersey + last name + (opponent) for each slot
 function MiniPitch({ starters, players, captain, vice }) {
   const findMeta = (pid) => players.find(x => x.id === pid);
   const byPos = (pos) => starters.filter(s => s.position === pos).map(s => ({ ...s, meta: findMeta(s.player_id) }));
@@ -25,42 +38,49 @@ function MiniPitch({ starters, players, captain, vice }) {
       className="relative w-full rounded-lg overflow-hidden"
       style={{
         aspectRatio: "10 / 14",
-        background: "repeating-linear-gradient(180deg, #0e6b3a 0 6%, #0a5a31 6% 12%)",
+        background: "repeating-linear-gradient(180deg, #0E6B3A 0 6%, #0A5A31 6% 12%)",
       }}
       data-testid="fantasy-pitch"
     >
+      {/* Pitch markings */}
       <div className="absolute top-1/2 left-0 right-0 h-px bg-white/50" />
-      <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 w-14 h-14 border border-white/50 rounded-full" />
-      <div className="absolute top-0 left-1/2 -translate-x-1/2 w-[55%] h-[14%] border-x border-b border-white/50" />
-      <div className="absolute bottom-0 left-1/2 -translate-x-1/2 w-[55%] h-[14%] border-x border-t border-white/50" />
+      <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 w-16 h-16 border border-white/50 rounded-full" />
+      <div className="absolute top-0 left-1/2 -translate-x-1/2 w-[60%] h-[16%] border-x border-b border-white/50" />
+      <div className="absolute bottom-0 left-1/2 -translate-x-1/2 w-[60%] h-[16%] border-x border-t border-white/50" />
+      <div className="absolute top-0 left-1/2 -translate-x-1/2 w-[30%] h-[7%] border-x border-b border-white/50" />
+      <div className="absolute bottom-0 left-1/2 -translate-x-1/2 w-[30%] h-[7%] border-x border-t border-white/50" />
 
-      <div className="absolute inset-0 flex flex-col justify-around py-3">
+      <div className="absolute inset-0 flex flex-col justify-around py-2">
         {rows.map(({ pos, players: ps }) => (
-          <div key={pos} className="flex items-center justify-center gap-1 px-2">
+          <div key={pos} className="flex items-start justify-around gap-1 px-1">
             {ps.length === 0 ? (
-              <span className="text-[10px]" style={{ color: "rgba(255,255,255,0.5)" }}>—</span>
+              <span className="text-[10px]" style={{ color: "rgba(255,255,255,0.55)" }}>— add {pos} —</span>
             ) : ps.map(({ player_id, meta }) => {
               if (!meta) return null;
               const isCap = captain === player_id;
               const isVice = vice === player_id;
+              const lastName = (meta.name || "?").split(" ").slice(-1)[0];
               return (
-                <div key={player_id} className="flex flex-col items-center min-w-0 max-w-[80px]">
+                <div key={player_id} className="flex flex-col items-center min-w-0 max-w-[90px] w-full" data-testid={`pitch-slot-${player_id}`}>
                   <div className="relative">
-                    <div
-                      className="w-9 h-9 rounded-full flex items-center justify-center text-[10px] font-extrabold text-cp-forest shadow ring-2 ring-black/40"
-                      style={{ background: POS_COLOR[pos] }}
-                    >
-                      {(meta.name || "?").split(" ").slice(-1)[0].slice(0, 3).toUpperCase()}
-                    </div>
+                    <Jersey color={POS_COLOR[pos]} size={38}/>
                     {isCap && (
-                      <span className="absolute -top-1 -right-1 bg-cp-lime text-cp-forest text-[8px] font-extrabold w-4 h-4 rounded-full flex items-center justify-center ring-2 ring-black/40">C</span>
+                      <span className="absolute -top-1 -right-1 bg-cp-lime text-cp-forest text-[8px] font-extrabold w-4 h-4 rounded-full flex items-center justify-center ring-2 ring-black/40" data-testid="captain-badge">C</span>
                     )}
                     {isVice && (
-                      <span className="absolute -top-1 -right-1 bg-white text-cp-forest text-[8px] font-extrabold w-4 h-4 rounded-full flex items-center justify-center ring-2 ring-black/40">V</span>
+                      <span className="absolute -top-1 -right-1 bg-white text-cp-forest text-[8px] font-extrabold w-4 h-4 rounded-full flex items-center justify-center ring-2 ring-black/40" data-testid="vice-badge">V</span>
                     )}
                   </div>
-                  <div className="mt-0.5 text-[9px] font-medium px-1 leading-tight max-w-full truncate text-center" style={{ background: "rgba(0,0,0,0.55)", color: "#fff" }}>
-                    {(meta.name || "?").split(" ").slice(-1)[0]}
+                  {/* Name + opponent stacked in white pill */}
+                  <div className="mt-0.5 w-full max-w-[88px]">
+                    <div className="text-[9px] font-extrabold leading-tight px-1 py-0.5 rounded-t truncate text-center"
+                         style={{ background: "#FFFFFF", color: "#1A1F26" }}>
+                      {lastName}
+                    </div>
+                    <div className="text-[8px] font-medium leading-tight px-1 py-0.5 rounded-b truncate text-center"
+                         style={{ background: "#F1F4EF", color: "#475569" }}>
+                      £{(meta.price || 0).toFixed(1)}m
+                    </div>
                   </div>
                 </div>
               );
@@ -82,6 +102,8 @@ export const FantasyHub = () => {
   const [pool, setPool] = useState(null);
   const [filter, setFilter] = useState("ALL");
   const [search, setSearch] = useState("");
+  const [teamFilter, setTeamFilter] = useState("ALL");
+  const [sortBy, setSortBy] = useState("price"); // "price" | "name"
   const [saved, setSaved] = useState(false);
   const [err, setErr] = useState("");
   const [pickerOpen, setPickerOpen] = useState(false);
@@ -114,8 +136,20 @@ export const FantasyHub = () => {
 
   const filtered = useMemo(() => {
     const q = search.toLowerCase();
-    return players.filter(p => (filter === "ALL" || p.position === filter) && (!q || (p.name + " " + p.team_name).toLowerCase().includes(q)));
-  }, [players, filter, search]);
+    const arr = players.filter(p =>
+      (filter === "ALL" || p.position === filter) &&
+      (teamFilter === "ALL" || p.team_name === teamFilter) &&
+      (!q || (p.name + " " + p.team_name).toLowerCase().includes(q))
+    );
+    if (sortBy === "price") arr.sort((a, b) => (b.price || 0) - (a.price || 0));
+    else if (sortBy === "name") arr.sort((a, b) => a.name.localeCompare(b.name));
+    return arr;
+  }, [players, filter, teamFilter, search, sortBy]);
+
+  const teamOptions = useMemo(() => {
+    const set = new Set(players.map(p => p.team_name).filter(Boolean));
+    return ["ALL", ...Array.from(set).sort()];
+  }, [players]);
 
   const totalCost = useMemo(() => squad.players.reduce((s, p) => s + (Number(p.price_paid) || 0), 0), [squad.players]);
   const counts = useMemo(() => squad.players.reduce((acc, p) => { acc[p.position] = (acc[p.position] || 0) + 1; return acc; }, {}), [squad.players]);
@@ -298,6 +332,23 @@ export const FantasyHub = () => {
         <section>
           <div className="flex items-center gap-2 mb-2">
             <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search players or teams…" className="cp-input flex-1" data-testid="fantasy-search"/>
+            <select
+              value={teamFilter}
+              onChange={(e) => setTeamFilter(e.target.value)}
+              className="cp-input text-xs max-w-[140px]"
+              data-testid="team-filter"
+            >
+              {teamOptions.map(t => <option key={t} value={t}>{t === "ALL" ? "All teams" : t}</option>)}
+            </select>
+            <select
+              value={sortBy}
+              onChange={(e) => setSortBy(e.target.value)}
+              className="cp-input text-xs max-w-[110px]"
+              data-testid="sort-by"
+            >
+              <option value="price">£ High → Low</option>
+              <option value="name">Name A–Z</option>
+            </select>
             <div className="flex gap-1 cp-surface p-1">
               {["ALL", ...POSITIONS].map(p => (
                 <button key={p} onClick={() => setFilter(p)} className={`px-2.5 py-1 rounded text-xs font-bold ${filter === p ? "bg-cp-lime text-cp-forest" : "hover:bg-white/5"}`} data-testid={`pos-filter-${p}`}>{p}</button>

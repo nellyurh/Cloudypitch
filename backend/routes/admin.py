@@ -72,6 +72,48 @@ async def audit(_: dict = Depends(a.require_admin), limit: int = 100):
     return {"audit": rows}
 
 
+@router.post("/players/recompute-prices")
+async def admin_recompute_prices(_: dict = Depends(a.require_admin)):
+    """Reprice every existing WC2026 player using the new varied-price algorithm.
+    Idempotent — safe to call multiple times.
+    """
+    db = get_db()
+    rows = await db.players.find({"is_wc_2026": True}, {"_id": 0}).to_list(length=5000)
+    top_tier = {"brazil","argentina","france","england","spain","germany","portugal","netherlands","belgium","italy","croatia","uruguay","colombia","morocco"}
+    mid_tier = {"japan","south korea","mexico","usa","switzerland","denmark","poland","ecuador","senegal","ghana","ivory coast","côte d'ivoire","saudi arabia","australia","austria","sweden"}
+    updated = 0
+    for p in rows:
+        country_name = (p.get("country") or p.get("team_name") or "").lower().strip()
+        if country_name in top_tier:   tier_premium = 1.6
+        elif country_name in mid_tier: tier_premium = 0.6
+        else:                          tier_premium = -0.4
+        pos = p.get("position", "MID")
+        base_price = {"GK": 4.5, "DEF": 5.0, "MID": 7.0, "FWD": 8.5}.get(pos, 5.0)
+        jersey = p.get("shirt_number")
+        jersey_bump = 0.0
+        if isinstance(jersey, int):
+            if jersey == 10: jersey_bump = 2.0
+            elif jersey == 9: jersey_bump = 1.5
+            elif jersey == 7: jersey_bump = 1.2
+            elif jersey == 1: jersey_bump = 0.8
+            elif jersey <= 11: jersey_bump = 0.6
+            elif jersey <= 20: jersey_bump = 0.0
+            else: jersey_bump = -0.5
+        try:
+            sid = p.get("sportmonks_id") or p.get("id") or ""
+            h = int.from_bytes(str(sid).encode(), "big") % 7
+            dispersion = (h - 3) * 0.1
+        except Exception:
+            dispersion = 0.0
+        raw = base_price + tier_premium + jersey_bump + dispersion
+        snapped = round(raw * 2) / 2
+        new_price = max(4.0, min(14.0, snapped))
+        if new_price != p.get("price"):
+            await db.players.update_one({"id": p["id"]}, {"$set": {"price": new_price, "updated_at": utcnow_iso()}})
+            updated += 1
+    return {"ok": True, "scanned": len(rows), "updated": updated}
+
+
 @router.post("/ingest/sportmonks/sync")
 async def trigger_sportmonks_sync(_: dict = Depends(a.require_admin), days: int = 7):
     await sync_sportmonks_today_and_next(days_ahead=days)

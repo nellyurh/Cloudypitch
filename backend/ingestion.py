@@ -1219,8 +1219,40 @@ async def sync_wc2026_squads():
                     short_pos = "FWD"
                 else:
                     short_pos = "MID"
-            # Synthetic fantasy price by position
+            # ----- Synthetic fantasy price -----
+            # Varies by (a) position, (b) team strength (FIFA top-20 teams + UEFA powerhouses
+            # get a premium), (c) jersey number (lower number = senior/marquee = bump),
+            # (d) a deterministic hash of player id (small dispersion so players aren't tied).
+            country_name = (team.get("name") or "").lower().strip()
+            top_tier = {"brazil","argentina","france","england","spain","germany","portugal","netherlands","belgium","italy","croatia","uruguay","colombia","morocco"}
+            mid_tier = {"japan","south korea","mexico","usa","switzerland","denmark","poland","ecuador","senegal","ghana","ivory coast","côte d'ivoire","saudi arabia","australia","austria","sweden"}
+            if country_name in top_tier:
+                tier_premium = 1.6
+            elif country_name in mid_tier:
+                tier_premium = 0.6
+            else:
+                tier_premium = -0.4
             base_price = {"GK": 4.5, "DEF": 5.0, "MID": 7.0, "FWD": 8.5}.get(short_pos, 5.0)
+            jersey = entry.get("jersey_number") if isinstance(entry.get("jersey_number"), int) else None
+            jersey_bump = 0.0
+            if jersey is not None:
+                if jersey == 10: jersey_bump = 2.0           # the iconic #10
+                elif jersey == 9: jersey_bump = 1.5          # main striker
+                elif jersey == 7: jersey_bump = 1.2          # winger / star
+                elif jersey == 1: jersey_bump = 0.8          # first-choice keeper
+                elif jersey <= 11: jersey_bump = 0.6          # starting XI shirts
+                elif jersey <= 20: jersey_bump = 0.0          # squad regulars
+                else: jersey_bump = -0.5                      # squad fringes
+            # Deterministic dispersion so two same-position teammates differ slightly.
+            try:
+                h = int.from_bytes(str(pid).encode(), "big") % 7
+                dispersion = (h - 3) * 0.1   # range −0.3 … +0.3
+            except Exception:
+                dispersion = 0.0
+            raw_price = base_price + tier_premium + jersey_bump + dispersion
+            # Snap to 0.5 increments and clamp to [4.0, 14.0]
+            snapped = round(raw_price * 2) / 2
+            final_price = max(4.0, min(14.0, snapped))
             pid = player.get("id")
             if not pid:
                 continue
@@ -1234,8 +1266,8 @@ async def sync_wc2026_squads():
                 "position": short_pos,
                 "photo_url": player.get("image_path") or "",
                 "country": team.get("name"),
-                "price": base_price,
-                "shirt_number": entry.get("jersey_number"),
+                "price": final_price,
+                "shirt_number": jersey,
                 "is_wc_2026": True,
                 "updated_at": utcnow_iso(),
             }
