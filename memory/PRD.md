@@ -569,3 +569,25 @@ See `/app/memory/test_credentials.md`. Admin: `admin@cloudypitch.com` / `CloudyA
 2. Build per-sport score-display variants
 3. Ingest WC2026 official fixtures + actual squad rosters (Sportmonks teams/squads endpoint)
 4. Add Flutter-friendly token header path to auth
+
+
+## Iteration 17 — Unified Leaderboard + NBA Bracket + Box-Score Adapter (2026-06-01)
+- ✅ **Unified Leaderboard** (`/api/leaderboard`) — combines `prediction_points + fantasy_points + wc_fantasy_points` per user. Tabs: Global · Weekly · Premium · Referrals (referrals stays separate via `/api/referrals/leaderboard`).
+- ✅ **Prize Pool Structure** finalised in `compute_prize_split()`:
+  - BASE $2,500 → 1st $1,000 · 2nd $500 · 3rd $300 · 4th $200 · 5–20 split equally remaining $500 (16 winners × $31.25)
+  - **Cards Cut**: 50% of every $1 spent on Legend Cards goes to pool. Distributed: 25% → pos 1–4, 25% → pos 5–15, 50% → pos 16–100. Positions 21–100 only earn after cards-cut accumulates.
+  - Example verified: $10,000 spent → $5,000 cards cut → Pos1=$1,312.50 · Pos5=$144.88 · Pos16=$60.66 · Pos21=$29.41 · Pos100=$29.41
+- ✅ Frontend `Leaderboards.jsx` rewritten with prize-pool header card, distribution breakdown panel, per-row potential prize.
+- ✅ **NBA Playoffs/Bracket Tab** — `GET /api/nba/playoffs` returns 4-round bracket (First Round, Conf Semis, Conf Finals, Finals) with series wins from stored NBA games. New `NBABracket.jsx` component on Match Detail.
+- ✅ **Basketball Stats Adapter Mapping** — `_upsert_apisports_team_stats` canonicalises stat labels (Field Goals, 2-Pointers, 3-Pointers, Free Throws, Rebounds, Assists, Turnovers, Steals, Blocks, Fouls). Shooting-stat dicts `{total, attempts}` flattened to `"made/att"` strings so frontend regex parser works uniformly.
+- ✅ **Box Score Ingestion** — new `_upsert_apisports_box_score()` writes per-player rows from `apisports.fetch_game_players()` into `match.box_score`. Lazy-fetched on Match Detail open for basketball/nba/baseball/hockey.
+- ✅ Stage capture from API-Sports games into `match.stage` (used by NBA bracket classifier).
+- ✅ **Testing**: iteration_17.json — 13/13 backend pytest pass, frontend tabs/breakdown/pool card verified, prize math exact, no bugs.
+
+## Next Action Items
+1. **Paystack live integration** (blocked — needs user API keys)
+2. **Email verification + password reset via Resend/SendGrid** (blocked — needs user API key)
+3. **KYC provider integration** (blocked — needs decision: Smile Identity / Veriff / Sumsub)
+4. Wire NBA fixtures `sport_slug='basketball_nba'` canonicalisation so Playoffs tab activates on live matches (now both `nba` and `basketball_nba` map to SPORT_TABS)
+5. Refactor `/app/backend/ingestion.py` (2100+ lines) into per-adapter modules
+6. Optimise unified leaderboard aggregation (add `$sort+$limit` in aggregation pipeline for large user bases) — see iteration_17 code review note
