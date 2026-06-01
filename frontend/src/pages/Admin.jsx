@@ -373,9 +373,9 @@ function SettingsTab({ onMessage }) {
 
 function BrandUploader({ onMessage }) {
   const slots = [
-    { key: "logo",     label: "Combined logo (mark + wordmark, used in the header)" },
-    { key: "mark",     label: "Mark only (favicon, loader)" },
-    { key: "wordmark", label: "Wordmark only (text)" },
+    { key: "logo",     label: "Full logo (text + mark) — replaces everything in the header. Use this for your CloudyPitch logo image." },
+    { key: "mark",     label: "Mark only (no text) — used as favicon, loader animation, and standalone places." },
+    { key: "wordmark", label: "Wordmark only (text part) — used where the logo should be text-only." },
   ];
   const [current, setCurrent] = useState({});
   const load = async () => {
@@ -429,7 +429,7 @@ function BrandUploader({ onMessage }) {
           );
         })}
       </div>
-      <div className="text-[10px] mt-3 opacity-60">PNG / SVG / JPEG / WebP, max 2 MB. Transparent backgrounds render best.</div>
+      <div className="text-[10px] mt-3 opacity-60">PNG / SVG / JPEG / WebP, max 5 MB. Transparent backgrounds render best.</div>
     </div>
   );
 }

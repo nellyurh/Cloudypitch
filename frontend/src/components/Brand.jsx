@@ -2,7 +2,7 @@ import React, { useEffect, useState } from "react";
 import api from "../lib/api";
 
 // Global brand asset cache — loaded once on app boot, mutated by Admin.
-let _brand = { mark: "/cp-mark.png", logo: null, wordmark: null };
+let _brand = { mark: "/cp-mark.png", markUploaded: false, logo: null, wordmark: null };
 const _subs = new Set();
 function _emit() { _subs.forEach(fn => fn(_brand)); }
 
@@ -11,6 +11,7 @@ export async function refreshBrand() {
     const { data } = await api.get("/brand");
     _brand = {
       mark: data.brand_mark_url || data.brand_logo_url || "/cp-mark.png",
+      markUploaded: Boolean(data.brand_mark_url || data.brand_logo_url),
       logo: data.brand_logo_url || null,
       wordmark: data.brand_wordmark_url || null,
     };
@@ -43,11 +44,26 @@ export const Brand = ({ size = 30, variant = "logo", className = "" }) => {
   const b = useBrand();
 
   // If a combined logo upload exists, use it as a single image (preserves the
-  // shipped design exactly as the admin uploaded it).
+  // shipped design exactly as the admin uploaded it — no text appended).
   if (variant === "logo" && b.logo) {
     return (
       <img
         src={b.logo}
+        alt="Cloudy Pitch"
+        className={className}
+        style={{ height: size, width: "auto", objectFit: "contain", display: "inline-block" }}
+        data-testid="cp-brand"
+      />
+    );
+  }
+
+  // If only a mark upload exists (and the admin treats it as the full brand),
+  // render the mark alone WITHOUT the "CloudyPitch" text next to it. We can
+  // only know this on the default `logo` variant.
+  if (variant === "logo" && b.markUploaded) {
+    return (
+      <img
+        src={b.mark}
         alt="Cloudy Pitch"
         className={className}
         style={{ height: size, width: "auto", objectFit: "contain", display: "inline-block" }}

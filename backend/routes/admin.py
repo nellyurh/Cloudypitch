@@ -1,5 +1,5 @@
 """Admin panel routes."""
-from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form
 from typing import Optional
 from db import get_db, utcnow_iso
 import auth as a
@@ -99,16 +99,16 @@ async def trigger_statpal_tennis(_: dict = Depends(a.require_admin)):
 @router.post("/uploads")
 async def upload_logo(
     file: UploadFile = File(...),
-    entity_type: str = "league",
-    entity_id: str = "",
+    entity_type: str = Form("league"),
+    entity_id: str = Form(""),
     user: dict = Depends(a.require_admin),
 ):
     """Upload an image. For MVP we store as base64 in MongoDB (avoids needing object storage)."""
     if file.content_type not in ("image/png", "image/jpeg", "image/webp", "image/svg+xml"):
         raise HTTPException(status_code=400, detail="Only PNG/JPEG/WebP/SVG allowed")
     data = await file.read()
-    if len(data) > 2 * 1024 * 1024:
-        raise HTTPException(status_code=400, detail="Max 2MB")
+    if len(data) > 5 * 1024 * 1024:
+        raise HTTPException(status_code=400, detail="Max 5MB")
     import base64
     b64 = base64.b64encode(data).decode("ascii")
     data_url = f"data:{file.content_type};base64,{b64}"
