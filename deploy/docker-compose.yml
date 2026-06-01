@@ -39,7 +39,7 @@ services:
       CORS_ORIGINS: ${CORS_ORIGINS}
       RUN_INGESTION: "0"          # API stays HTTP-only; worker does polling
       # Provider keys (read in adapters/*)
-      SPORTMONKS_API_KEY: ${SPORTMONKS_API_KEY}
+      SPORTMONKS_API_TOKEN: ${SPORTMONKS_API_TOKEN}
       APISPORTS_API_KEY: ${APISPORTS_API_KEY}
       STATPAL_API_KEY: ${STATPAL_API_KEY}
       # Admin seed
@@ -70,7 +70,7 @@ services:
       MONGO_URL: mongodb://${MONGO_USER}:${MONGO_PASSWORD}@mongo:27017/${DB_NAME}?authSource=admin
       DB_NAME: ${DB_NAME}
       RUN_INGESTION: "1"
-      SPORTMONKS_API_KEY: ${SPORTMONKS_API_KEY}
+      SPORTMONKS_API_TOKEN: ${SPORTMONKS_API_TOKEN}
       APISPORTS_API_KEY: ${APISPORTS_API_KEY}
       STATPAL_API_KEY: ${STATPAL_API_KEY}
     networks: [cpnet]
