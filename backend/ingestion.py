@@ -517,6 +517,14 @@ async def upsert_apisports_game(sport_slug: str, game: dict):
             "api_sports_id": t.get("id"),
         }}, upsert=True)
 
+    # Capture stage info for NBA playoffs / cup competitions (used by /nba/playoffs endpoint)
+    stage_name = None
+    raw_stage = game.get("stage") or (league.get("stage") if isinstance(league, dict) else None)
+    if isinstance(raw_stage, dict):
+        stage_name = raw_stage.get("name")
+    elif isinstance(raw_stage, str):
+        stage_name = raw_stage
+
     doc = {
         "sport_slug": sport_slug, "league_id": league_doc_id,
         "league_name": league_name, "league_logo": league.get("logo") or "",
@@ -529,6 +537,7 @@ async def upsert_apisports_game(sport_slug: str, game: dict):
         "minute": None, "home_score": home_score or 0, "away_score": away_score or 0,
         "home_score_ht": None, "away_score_ht": None,
         "periods": periods,
+        "stage": stage_name,
         "primary_provider": "api-sports", "api_sports_id": gid,
         "api_sports_game_id": gid,
         "api_sports_home_id": home_t.get("id"),
@@ -856,6 +865,42 @@ async def _upsert_apisports_team_stats(match_id: str, match_doc: dict, rows: lis
     sport = match_doc.get("sport_slug")
     home_t_raw = match_doc.get("api_sports_home_id") or match_doc.get("home_team_id")
     away_t_raw = match_doc.get("api_sports_away_id") or match_doc.get("away_team_id")
+    # Canonical labels expected by frontend BasketballStatsView gauges/bars
+    LABEL_ALIASES = {
+        "Field Goals": ["field_goals", "fieldgoals", "fg", "field goals"],
+        "Free Throws": ["free_throws", "ft", "freethrows", "free throws"],
+        "2-Pointers":  ["two_points", "2_points", "2 pointers", "2-pointers", "twopointers", "two pointers"],
+        "3-Pointers":  ["three_points", "3_points", "3 pointers", "3-pointers", "threepointers", "three pointers"],
+        "Rebounds":    ["rebounds", "total_rebounds", "totalrebounds"],
+        "Defensive rebounds": ["defensive_rebounds", "def_rebounds", "defensiverebounds"],
+        "Offensive rebounds": ["offensive_rebounds", "off_rebounds", "offensiverebounds"],
+        "Assists":     ["assists"],
+        "Turnovers":   ["turnovers"],
+        "Steals":      ["steals"],
+        "Blocks":      ["blocks"],
+        "Fouls":       ["fouls", "personal_fouls", "personalfouls"],
+    }
+    def _canon(stats_in: dict) -> dict:
+        out = dict(stats_in)  # keep originals
+        normalised = {str(k).strip().lower().replace("-", "_").replace(" ", "_"): v for k, v in stats_in.items() if v is not None}
+        for canonical, aliases in LABEL_ALIASES.items():
+            if canonical in out:
+                continue
+            for alias in aliases:
+                key = alias.lower().replace("-", "_").replace(" ", "_")
+                if key in normalised:
+                    out[canonical] = normalised[key]
+                    break
+        # Convert shooting-stat dicts like {total, attempts, percentage} into "X/Y" string
+        # so the frontend regex parser works uniformly.
+        for shoot_label in ("Field Goals", "Free Throws", "2-Pointers", "3-Pointers"):
+            v = out.get(shoot_label)
+            if isinstance(v, dict):
+                made = v.get("total") or v.get("made") or 0
+                att  = v.get("attempts") or v.get("att") or 0
+                out[shoot_label] = f"{made}/{att}"
+        return out
+
     for r in rows:
         if not isinstance(r, dict):
             continue
@@ -882,12 +927,73 @@ async def _upsert_apisports_team_stats(match_id: str, match_doc: dict, rows: lis
             stats_map.update({k: v for k, v in s.items()})
         else:
             stats_map.update({k: v for k, v in r.items() if k not in ("team", "game")})
+        stats_map = _canon(stats_map)
         await db.match_statistics.insert_one({
             "id": new_id(), "match_id": match_id,
             "team_id": our_team_id, "team_name": team.get("name") or "",
             "sport_slug": sport, "stats": stats_map,
             "updated_at": utcnow_iso(),
         })
+
+
+async def _upsert_apisports_box_score(match_id: str, match_doc: dict, rows: list) -> None:
+    """Persist per-player box score rows into match.box_score for basketball/nba/baseball/hockey.
+
+    API-Sports payload shape: response: [{player:{id,name}, team:{id,name}, game:{...},
+       points, minutes, assists, rebounds.total, blocks, steals, fg:{total,attempts,...}, ...}, ...]
+    """
+    if not isinstance(rows, list) or not rows:
+        return
+    db = get_db()
+    home_raw = match_doc.get("api_sports_home_id")
+    away_raw = match_doc.get("api_sports_away_id")
+    box: list = []
+    for r in rows:
+        if not isinstance(r, dict):
+            continue
+        player = r.get("player") or {}
+        team = r.get("team") or {}
+        tid_raw = team.get("id")
+        if tid_raw == home_raw:
+            our_team_id = match_doc.get("home_team_id")
+        elif tid_raw == away_raw:
+            our_team_id = match_doc.get("away_team_id")
+        else:
+            our_team_id = match_doc.get("home_team_id") if (team.get("name") or "").strip() == (match_doc.get("home_team_name") or "").strip() else match_doc.get("away_team_id")
+        # Field-goal / 3pt / FT can be nested objects or strings
+        def _shoot(o):
+            if isinstance(o, dict):
+                return {"made": o.get("total"), "att": o.get("attempts"), "pct": o.get("percentage")}
+            if isinstance(o, str):
+                import re as _re
+                mm = _re.match(r"\s*(\d+)\D+(\d+)", o or "")
+                if mm: return {"made": int(mm.group(1)), "att": int(mm.group(2)), "pct": None}
+            return {"made": None, "att": None, "pct": None}
+        reb = r.get("rebounds") if isinstance(r.get("rebounds"), dict) else {}
+        box.append({
+            "player_id": player.get("id"),
+            "name": player.get("name") or "",
+            "team_id": our_team_id,
+            "team_name": team.get("name") or "",
+            "minutes": r.get("minutes") or r.get("min"),
+            "points": r.get("points") or r.get("pts"),
+            "rebounds": (reb.get("total") if isinstance(reb, dict) else None) or r.get("rebounds") or r.get("reb"),
+            "off_reb": reb.get("offence") if isinstance(reb, dict) else r.get("off_reb"),
+            "def_reb": reb.get("defense") if isinstance(reb, dict) else r.get("def_reb"),
+            "assists": r.get("assists") or r.get("ast"),
+            "steals":  r.get("steals") or r.get("stl"),
+            "blocks":  r.get("blocks") or r.get("blk"),
+            "turnovers": r.get("turnovers") or r.get("to"),
+            "fg": _shoot(r.get("field_goals") or r.get("fg")),
+            "three": _shoot(r.get("threepoint_goals") or r.get("three_points") or r.get("3pt")),
+            "ft": _shoot(r.get("freethrows_goals") or r.get("free_throws") or r.get("ft")),
+            "plus_minus": r.get("plus_minus") or r.get("pm"),
+            "started": r.get("started") if r.get("started") is not None else (r.get("is_starter")),
+        })
+    await db.matches.update_one(
+        {"id": match_id},
+        {"$set": {"box_score": box, "box_score_updated_at": utcnow_iso()}},
+    )
 
 
 # ---------- Sportmonks: standings, top scorers, WC squads ----------

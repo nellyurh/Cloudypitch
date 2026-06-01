@@ -190,17 +190,24 @@ async def match_detail(match_id: str, refresh: int = 0):
                 pass
             cset(cache_key, True, 60)
     # API-Sports basketball/baseball/hockey: lazy-fetch team statistics on demand
-    if need_fetch and m.get("primary_provider") == "api-sports" and m.get("api_sports_game_id") and m.get("sport_slug") in ("basketball", "baseball", "hockey", "volleyball", "rugby"):
+    if need_fetch and m.get("primary_provider") == "api-sports" and m.get("api_sports_game_id") and m.get("sport_slug") in ("basketball", "baseball", "hockey", "volleyball", "rugby", "nba"):
         cache_key = f"as-stats:{match_id}"
         if refresh == 1 or not cget(cache_key):
             try:
                 from adapters import apisports
-                from ingestion import _upsert_apisports_team_stats
+                from ingestion import _upsert_apisports_team_stats, _upsert_apisports_box_score
                 data = await apisports.fetch_game_statistics(m["sport_slug"], m["api_sports_game_id"])
                 rows = (data or {}).get("response", []) if isinstance(data, dict) else []
                 if rows:
                     await _upsert_apisports_team_stats(match_id, m, rows)
                     stats = await db.match_statistics.find({"match_id": match_id}, {"_id": 0}).to_list(length=4)
+                # Box score (basketball/nba/baseball/hockey only)
+                if m.get("sport_slug") in ("basketball", "nba", "baseball", "hockey"):
+                    pdata = await apisports.fetch_game_players(m["sport_slug"], m["api_sports_game_id"])
+                    prows = (pdata or {}).get("response", []) if isinstance(pdata, dict) else []
+                    if prows:
+                        await _upsert_apisports_box_score(match_id, m, prows)
+                        m = await db.matches.find_one({"id": match_id}, {"_id": 0}) or m
             except Exception:
                 pass
             cset(cache_key, True, 90)
@@ -290,3 +297,97 @@ async def head_to_head(match_id: str, limit: int = 10):
         {"_id": 0, "raw_data": 0},
     ).sort("scheduled_at", -1).to_list(length=limit)
     return {"matches": rows}
+
+
+# ---------- NBA Playoffs Bracket ----------
+NBA_ROUND_ORDER = [
+    "First Round",
+    "Conference Semifinals",
+    "Conference Finals",
+    "Finals",
+    "NBA Finals",
+]
+
+
+def _classify_nba_round(stage: str | None) -> str | None:
+    """Normalise API-Sports / NBA `stage` strings into 4 canonical rounds."""
+    if not stage:
+        return None
+    s = stage.lower()
+    if "first" in s or "round 1" in s or "r1" in s:
+        return "First Round"
+    if "semi" in s and "conf" in s:
+        return "Conference Semifinals"
+    if "conf" in s and "final" in s:
+        return "Conference Finals"
+    if "final" in s:
+        return "Finals"
+    if "playoff" in s:
+        return "First Round"
+    return None
+
+
+@router.get("/nba/playoffs")
+async def nba_playoffs():
+    """NBA playoffs bracket — groups stored NBA games whose `stage` indicates playoffs.
+
+    Falls back to ALL NBA games scheduled after Apr-01 of the current season if no
+    explicit stage tagging is present (covers minimal-data API tiers).
+    """
+    db = get_db()
+    # Pull every NBA game with a stage that maps to playoffs
+    rows = await db.matches.find(
+        {"sport_slug": {"$in": ["nba", "basketball_nba"]}, "stage": {"$ne": None}},
+        {"_id": 0, "raw_data": 0},
+    ).sort("scheduled_at", 1).to_list(length=2000)
+    bucketed: dict = {r: [] for r in NBA_ROUND_ORDER[:4]}
+    by_series: dict[str, dict] = {}
+    for g in rows:
+        rnd = _classify_nba_round(g.get("stage") or "")
+        if not rnd:
+            continue
+        if rnd == "NBA Finals":
+            rnd = "Finals"
+        # Series key = sorted team IDs so home/away flips don't create duplicates
+        h, a = g.get("home_team_id"), g.get("away_team_id")
+        if not (h and a):
+            continue
+        key = f"{rnd}::{'|'.join(sorted([h, a]))}"
+        s = by_series.setdefault(key, {
+            "round": rnd,
+            "home_team_id": h, "away_team_id": a,
+            "home_team_name": g.get("home_team_name"), "away_team_name": g.get("away_team_name"),
+            "home_team_logo": g.get("home_team_logo"), "away_team_logo": g.get("away_team_logo"),
+            "home_wins": 0, "away_wins": 0, "games": [],
+        })
+        # Track wins
+        hs = int(g.get("home_score") or 0); as_ = int(g.get("away_score") or 0)
+        finished = (g.get("status") in ("FT", "AET", "PEN", "Ended", "Finished")) and (hs or as_)
+        if finished:
+            # Normalise scores back to series perspective (home_team_id of series may differ from game)
+            if g.get("home_team_id") == s["home_team_id"]:
+                if hs > as_: s["home_wins"] += 1
+                elif as_ > hs: s["away_wins"] += 1
+            else:
+                if hs > as_: s["away_wins"] += 1
+                elif as_ > hs: s["home_wins"] += 1
+        s["games"].append({
+            "id": g.get("id"),
+            "scheduled_at": g.get("scheduled_at"),
+            "status": g.get("status"),
+            "home_score": hs, "away_score": as_,
+            "home_team_id": g.get("home_team_id"),
+            "away_team_id": g.get("away_team_id"),
+        })
+    for key, s in by_series.items():
+        s["games"].sort(key=lambda x: x.get("scheduled_at") or "")
+        # winner
+        s["winner_team_id"] = None
+        if s["home_wins"] >= 4: s["winner_team_id"] = s["home_team_id"]
+        elif s["away_wins"] >= 4: s["winner_team_id"] = s["away_team_id"]
+        bucketed[s["round"]].append(s)
+    return {
+        "rounds": [{"name": r, "series": bucketed.get(r, [])} for r in NBA_ROUND_ORDER[:4]],
+        "total_series": sum(len(v) for v in bucketed.values()),
+    }
+

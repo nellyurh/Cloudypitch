@@ -11,6 +11,7 @@ import Innings from "../components/match/Innings";
 import { StatGauge, CompareBar, ScoreBox } from "../components/match/StatGauges";
 import AttackMomentum from "../components/match/AttackMomentum";
 import StandingsTable from "../components/match/StandingsTable";
+import NBABracket from "../components/match/NBABracket";
 import Commentary from "../components/match/Commentary";
 import Trends from "../components/match/Trends";
 import SidelinedCard from "../components/match/SidelinedCard";
@@ -21,7 +22,7 @@ import AdSlot from "../components/AdSlot";
 const SPORT_TABS = {
   football:          [{ k: "lineups", l: "Lineups" }, { k: "stats", l: "Stats" }, { k: "events", l: "Events" }, { k: "commentary", l: "Commentary" }, { k: "trends", l: "Trends" }, { k: "h2h", l: "H2H" }, { k: "standings", l: "Standings" }],
   basketball:        [{ k: "box",     l: "Box Score" }, { k: "stats", l: "Statistics" }, { k: "h2h", l: "H2H" }, { k: "standings", l: "Standings" }],
-  basketball_nba:    [{ k: "box",     l: "Box Score" }, { k: "stats", l: "Statistics" }, { k: "h2h", l: "H2H" }, { k: "standings", l: "Playoffs" }],
+  basketball_nba:    [{ k: "box",     l: "Box Score" }, { k: "stats", l: "Statistics" }, { k: "playoffs", l: "Playoffs" }, { k: "h2h", l: "H2H" }, { k: "standings", l: "Standings" }],
   "american-football": [{ k: "box",   l: "Box Score" }, { k: "stats", l: "Statistics" }, { k: "h2h", l: "H2H" }, { k: "standings", l: "Standings" }],
   tennis:            [{ k: "sets",    l: "Sets" }, { k: "stats", l: "Stats" }, { k: "h2h", l: "H2H" }],
   volleyball:        [{ k: "sets",    l: "Sets" }, { k: "stats", l: "Stats" }, { k: "h2h", l: "H2H" }, { k: "standings", l: "Standings" }],
@@ -255,6 +256,7 @@ export const MatchDetail = () => {
             {tab === "sets" && <Sets match={m}/>}
             {tab === "innings" && <Innings match={m}/>}
             {tab === "standings" && <StandingsTable matchId={id}/>}
+            {tab === "playoffs" && <NBABracket/>}
             {tab === "h2h" && (
               h2h.length === 0
                 ? <div className="text-center text-sm py-6" style={{ color: "var(--cp-text-muted)" }}>No prior head-to-head found.</div>

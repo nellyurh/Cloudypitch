@@ -1,0 +1,43 @@
+{
+  "summary": "Iteration 17 (unified leaderboard + new prize-split + NBA bracket + box-score adapter): All 12 listed acceptance items verified. Backend 13/13 pytest pass (3 scopes, 2 prize-split math cases incl. zero cards_cut, referrals separate, NBA playoffs structure, 6 regression endpoints). Frontend Leaderboards page renders all 4 tabs (Global/Weekly/Premium/Referrals) with pool card, prize distribution breakdown, per-row potential prize. Tab switching verified; Referrals correctly hides breakdown+note. Prize math matches spec exactly: Pos1=$1312.50, Pos4=$512.50, Pos5/15=$144.88, Pos16/20=$60.66, Pos21/100=$29.41 (with $5k cards cut); Pos21=0 when cards_cut=0.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iteration17.py",
+    "/app/test_reports/pytest/iteration17.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "leaderboard.py compute_prize_split() has a dead/confusing variable: cc_top4 (line 44) is computed but immediately superseded by cc_top4_each (line 48). The first assignment is unused — remove for clarity.",
+    "compute_prize_split() uses integer-floor division (`//`) which silently drops 1-2 cents of rounding remainder. With $5,000 cards cut: 25% bucket = $1250 / 11 = 113.6363… floored to 113 cents, losing ~$1.40 across the pool. Not a bug per spec (matches stated $113.63 per the assertions), but means the pool sum-of-payouts will be slightly less than base+cards_cut. Consider documenting the rounding-down policy or adding a 'house remainder' field.",
+    "NBA playoffs endpoint key 'basketball_nba' is checked in matches.find filter ({\"$in\": [\"nba\",\"basketball_nba\"]}) but SPORT_TABS only adds the Playoffs tab when sport_slug === 'basketball_nba'. Ingestion will need to canonicalise NBA fixtures to sport_slug='basketball_nba' (not 'basketball'+'nba' league) for the bracket UI to ever show on a live match — currently 0 NBA fixtures exist in DB. Worth a one-line ingestion mapping.",
+    "Leaderboards.jsx PrizeBreakdown function recomputes the entire prize-split formula client-side (lines 191-201). This duplicates backend logic — if backend formula ever changes, frontend silently goes out of sync. Better to read tier-summary values from a dedicated /api/leaderboard/tiers endpoint or include them in the pool object.",
+    "leaderboard.py unified_leaderboard aggregates over predictions, fantasy_squads, wc_game_entries WITHOUT any limit on the aggregation pipeline; only the final list is sliced to `limit`. With a large user base this loads every scoring user into memory. Add a $sort + $limit in the aggregation, or maintain a materialized leaderboards collection."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iteration17.py (new)"
+  ],
+  "success_rate": {"backend": "100% (13/13)", "frontend": "100% (all spec items visually verified except live NBA playoffs UI — no NBA matches in DB, acceptable per spec)"},
+  "verification_evidence": {
+    "prize_split_math_with_cards_cut": "GET /api/leaderboard/prize-split?base_usd_cents=250000&cards_cut_usd_cents=500000 → Pos1=131250 ($1312.50), Pos2=81250, Pos3=61250, Pos4=51250 ($512.50), Pos5=14488 ($144.88), Pos15=14488, Pos16=6066 ($60.66), Pos20=6066, Pos21=2941 ($29.41), Pos100=2941. 100 positions returned. Matches spec exactly.",
+    "prize_split_zero_cards_cut": "GET /api/leaderboard/prize-split?base_usd_cents=250000&cards_cut_usd_cents=0 → Pos1=100000, Pos2=50000, Pos3=30000, Pos4=20000, Pos5-20=3125 ($31.25), Pos21-100=0. Positions 21+ correctly gated until cards spend accumulates.",
+    "unified_leaderboard": "GET /api/leaderboard?scope=global&limit=5 returns 5 users sorted desc by total_points with rank + potential_prize_usd_cents + per-source breakdown (prediction_points / fantasy_points / wc_fantasy_points). Top user Pos1 sees $1000 prize, Pos2 $500, Pos3 $300 etc. Pool {base:250000, cards_cut:0, total:250000}.",
+    "scope_filtering": "weekly + premium scopes return 200 with filtered lists. Premium-only verified: all returned entries have is_premium=true.",
+    "referrals_separate": "GET /api/referrals/leaderboard?limit=20 → returns separate {leaderboard:[]} structure with referred_count/active_count/total_credits_usd_cents — confirmed independent from unified leaderboard.",
+    "nba_playoffs": "GET /api/nba/playoffs → {rounds:[4], total_series:0}. 4 canonical rounds: First Round, Conference Semifinals, Conference Finals, Finals. Empty as expected (no NBA fixtures in DB).",
+    "frontend_leaderboards": "Page loaded with 4 tabs (Global/Weekly/Premium/Referrals). Pool card shows $2,500 total / $2,500 base / $0 cards. PrizeBreakdown shows 7 tiers (1st $1000 .. 21–100 $0 'unlocks via cards' faded). 5 rows rendered in Global, all with potential prize. Tab switching to Weekly/Premium/Referrals works. Referrals tab correctly hides breakdown + note + per-row prize, shows referrals leaderboard (1 row: Cloudy Admin · NG · 2 referrals · 1 active · $0.20 earned).",
+    "regression": "All 6 regression endpoints OK: /api/matches (200, grouped+count), /api/wc/games/today (200), /api/fantasy/players (200/401), /api/predictions/upcoming (200/401), /api/wallet/me (200/401), /api/cards (200/401)."
+  },
+  "seed_data_creation": "None — used existing seeded users (5 in global leaderboard, 1 in referrals).",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Backend tests in /app/backend/tests/test_iteration17.py (13 passing). Prize-split math is exact: cents-floor division — confirm any future tier rule changes against test_prize_split_with_cards_cut. NBA playoffs UI couldn't be validated on a live match because 0 fixtures have sport_slug='basketball_nba' (only sport_slug='basketball' + league_name in {BSN,CIBACOPA,LNB 2,…}). When NBA ingestion is mapped, test bracket render on a Match Detail page using a basketball_nba match ID and verify the 'playoffs' tab renders <NBABracket/> with non-empty rounds. Leaderboards page selectors: [data-testid=\"lb-tab-{global|weekly|premium|referrals}\"], [data-testid=\"lb-pool-total/base/cards\"], [data-testid=\"lb-tier-{1st|2nd|3rd|4th|5–15|16–20|21–100}\"], [data-testid=\"lb-row-{user_id}\"], [data-testid=\"lb-prize-{user_id}\"], [data-testid=\"lb-breakdown\"], [data-testid=\"lb-note\"].",
+  "rca of the issue": "N/A — no bugs found; all 12 spec items verified."
+}

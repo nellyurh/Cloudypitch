@@ -38,6 +38,7 @@ from routes.ads import router as ads_router
 from routes.payments import router as payments_router
 from routes.wc_games import router as wc_games_router, admin_router as wc_admin_router
 from routes.admin_cleanup import router as admin_cleanup_router
+from routes.leaderboard import router as leaderboard_router
 
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
@@ -104,6 +105,4 @@ for r in (auth_router, catalog_router, matches_router, worldcup_router,
           wc_games_router, wc_admin_router,
           admin_cleanup_router,
           leaderboard_router):
-    app.include_router(r)
-r):
     app.include_router(r)
