@@ -1,5 +1,39 @@
-# Caddyfile — reverse proxy with automatic Let's Encrypt SSL.
-# Replace {$DOMAIN} via the env var in docker-compose.yml.
+# Caddyfile — Cloudy Pitch production reverse proxy.
+# Auto-issues Let's Encrypt SSL and (when running behind Cloudflare) trusts
+# Cloudflare's edge IP ranges so the backend sees real client IPs in
+# X-Forwarded-For instead of Cloudflare's edge IPs.
+
+{
+    # Trust Cloudflare's edge IPs — required when DNS is in "Proxied" mode.
+    # When the orange cloud is OFF (DNS only), this is harmless.
+    # IP list from https://www.cloudflare.com/ips/ (refreshed 2026-Q1).
+    servers {
+        trusted_proxies static \
+            173.245.48.0/20 \
+            103.21.244.0/22 \
+            103.22.200.0/22 \
+            103.31.4.0/22 \
+            141.101.64.0/18 \
+            108.162.192.0/18 \
+            190.93.240.0/20 \
+            188.114.96.0/20 \
+            197.234.240.0/22 \
+            198.41.128.0/17 \
+            162.158.0.0/15 \
+            104.16.0.0/13 \
+            104.24.0.0/14 \
+            172.64.0.0/13 \
+            131.0.72.0/22 \
+            2400:cb00::/32 \
+            2606:4700::/32 \
+            2803:f800::/32 \
+            2405:b500::/32 \
+            2405:8100::/32 \
+            2a06:98c0::/29 \
+            2c0f:f248::/32
+        client_ip_headers CF-Connecting-IP X-Forwarded-For
+    }
+}
 
 {$DOMAIN} {
     encode gzip zstd
@@ -7,18 +41,22 @@
     # Backend API (everything under /api → FastAPI on port 8001)
     handle /api/* {
         reverse_proxy api:8001 {
-            header_up X-Real-IP {remote_host}
-            header_up X-Forwarded-For {remote_host}
+            header_up X-Real-IP {client_ip}
+            header_up X-Forwarded-For {client_ip}
             header_up X-Forwarded-Proto {scheme}
+            header_up X-Forwarded-Host {host}
         }
     }
 
     # Everything else → static React build served by frontend container nginx
     handle {
-        reverse_proxy frontend:80
+        reverse_proxy frontend:80 {
+            header_up X-Real-IP {client_ip}
+            header_up X-Forwarded-For {client_ip}
+        }
     }
 
-    # Sensible security headers
+    # Sensible security headers (Cloudflare may strip/replace some; that's fine)
     header {
         Strict-Transport-Security "max-age=31536000; includeSubDomains; preload"
         X-Content-Type-Options "nosniff"
@@ -28,7 +66,6 @@
         -Server
     }
 
-    # Compress logs
     log {
         output file /var/log/caddy/access.log {
             roll_size 50mb
@@ -38,7 +75,7 @@
     }
 }
 
-# Redirect bare IP / non-matching hosts → www-canonical 404 (optional safety net)
+# Bare-IP / wrong-host fallback (keeps probes off the real site)
 :80 {
-    respond "Cloudy Pitch — set DOMAIN env var to your real hostname." 404
+    respond "Cloudy Pitch — host header mismatch." 404
 }

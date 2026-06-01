@@ -45,6 +45,11 @@ export const Dashboard = ({ sport = "football" }) => {
 
   useEffect(() => {
     let cancelled = false;
+    // Clear stale data immediately when the query changes so the UI never
+    // shows yesterday's matches while tomorrow's request is in-flight.
+    setGrouped([]);
+    setCount(0);
+    setLoading(true);
     const load = async () => {
       try {
         const params = new URLSearchParams({ sport, tz_offset_min: String(TZ_OFFSET_MIN) });
@@ -62,8 +67,11 @@ export const Dashboard = ({ sport = "football" }) => {
       } catch (_) { if (!cancelled) setLoading(false); }
     };
     load();
-    const t = setInterval(load, 20000);
-    return () => { cancelled = true; clearInterval(t); };
+    // Only auto-refresh for live/today views — avoids replacing tomorrow's
+    // sparse data with stale today rows on the same date param.
+    const isLiveOrToday = mode === "live" || (mode === "date" && isoDate(selectedDate) === isoDate(today));
+    const t = isLiveOrToday ? setInterval(load, 20000) : null;
+    return () => { cancelled = true; if (t) clearInterval(t); };
   }, [sport, selectedDate, mode]);
 
   return (

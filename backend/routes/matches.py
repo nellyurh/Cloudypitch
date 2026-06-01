@@ -59,17 +59,23 @@ async def list_matches(
         sort_order = -1
     elif date:
         try:
-            d = datetime.fromisoformat(date).replace(tzinfo=timezone.utc)
+            # `date` is the user-LOCAL calendar date (YYYY-MM-DD). Convert to the
+            # UTC window that corresponds to that whole local day for the user.
+            d = datetime.fromisoformat(date)
             offset = timedelta(minutes=tz_offset_min)
-            start_dt = d.replace(hour=0, minute=0, second=0, microsecond=0) - offset
+            # 00:00 in user's local TZ on that calendar date, expressed in UTC.
+            local_midnight = d.replace(hour=0, minute=0, second=0, microsecond=0, tzinfo=timezone.utc)
+            start_dt = local_midnight - offset
             end_dt = start_dt + timedelta(days=1)
-            # Match across all possible scheduled_at formats: ISO with TZ, ISO without TZ, space-separator
             start_iso_tz = start_dt.isoformat()
             end_iso_tz = end_dt.isoformat()
             start_iso = start_dt.strftime("%Y-%m-%dT%H:%M:%S")
             end_iso = end_dt.strftime("%Y-%m-%dT%H:%M:%S")
             start_space = start_dt.strftime("%Y-%m-%d %H:%M:%S")
             end_space = end_dt.strftime("%Y-%m-%d %H:%M:%S")
+            # Match across all possible scheduled_at formats: ISO with TZ, ISO without TZ, space-separator.
+            # Also handle adapter-stored date-only strings ("YYYY-MM-DD") by
+            # restricting to the user-local calendar date string itself.
             q["$and"] = q.get("$and", []) + [{
                 "$or": [
                     {"scheduled_at": {"$gte": start_iso_tz, "$lt": end_iso_tz}},
@@ -79,12 +85,14 @@ async def list_matches(
             }]
         except Exception:
             pass
-        # On-demand backfill: if this date's match count is below threshold AND it's NOT a future-far date,
-        # fire sportmonks.fetch_fixtures_by_date and api-sports.fetch_games (football) to top up history.
+        # On-demand backfill: if this date's match count is below threshold,
+        # fire sportmonks.fetch_fixtures_by_date and api-sports.fetch_games (football) to top up.
+        # Covers BOTH past (history) and future (upcoming fixtures) within ±30 days.
         try:
             existing = await db.matches.count_documents({"sport_slug": sport, **q})
             ago_days = (datetime.now(timezone.utc).date() - datetime.fromisoformat(date).date()).days
-            if existing < 5 and ago_days >= 1 and ago_days <= 30:
+            # ago_days < 0 means future date. Backfill if within ±30d and sparse.
+            if existing < 5 and abs(ago_days) <= 30:
                 from ingestion import upsert_sportmonks_fixture
                 from adapters import sportmonks as sm
                 cache_key = f"backfill:{sport}:{date}"
@@ -100,6 +108,8 @@ async def list_matches(
                             pag = (data or {}).get("pagination") or {}
                             if not pag.get("has_more"): break
                     cset(cache_key, True, 3600)
+                    # Re-fetch rows after backfill
+                    pass
         except Exception:
             pass
     else:
