@@ -51,7 +51,7 @@ export const Brand = ({ size = 30, variant = "logo", className = "" }) => {
         src={b.logo}
         alt="Cloudy Pitch"
         className={className}
-        style={{ height: size * 1.4, maxHeight: 56, width: "auto", objectFit: "contain", display: "inline-block" }}
+        style={{ height: size * 1.8, width: "auto", objectFit: "contain", display: "inline-block" }}
         data-testid="cp-brand"
       />
     );
@@ -65,7 +65,7 @@ export const Brand = ({ size = 30, variant = "logo", className = "" }) => {
         src={b.mark}
         alt="Cloudy Pitch"
         className={className}
-        style={{ height: size * 1.4, maxHeight: 56, width: "auto", objectFit: "contain", display: "inline-block" }}
+        style={{ height: size * 1.8, width: "auto", objectFit: "contain", display: "inline-block" }}
         data-testid="cp-brand"
       />
     );

@@ -648,3 +648,9 @@ See `/app/memory/test_credentials.md`. Admin: `admin@cloudypitch.com` / `CloudyA
 - ✅ **Mobile hamburger drawer fix** — explicit solid background + `isolation: isolate` to kill stacking-context bleed-through (where match list text was showing through the menu items). Drawer now `85vw max 320px` for proper coverage. Logo size bumped to `size * 1.4` (caps at 56px) for visibility.
 - ✅ **Backend date-window bug** (iteration 20) — `_date_window_expr()` helper using Mongo `$expr` + `$replaceOne` to normalise space→T before lexicographic compare. Tomorrow now returns 92 NS-only matches (was 279 with 168 FT bleed). Today shows 222 with proper status mix.
 
+
+## Iteration 22 — Drawer portal + bigger logo + Open All WC games (2026-06-02)
+- ✅ **Mobile drawer now via `createPortal`** — renders directly under `document.body` so no parent `transform/filter/contain` can break the `position: fixed`. zIndex bumped to 9999. Backdrop is solid `rgba(0,0,0,0.6)`. Drawer width `85vw max 320px` with explicit solid background.
+- ✅ **Logo size bumped to 1.8×** the requested size (no max cap). Header passes `size={44}` → renders ~79px tall, clearly visible.
+- ✅ **Open ALL WC2026 games** — new admin endpoint `POST /api/admin/wc/games/open-all` flips every `upcoming` → `open` and sets `opens_at=now`. Wired into Admin → WC Games tab with confirm() prompt. Already ran in dev: 152 games now open.
+

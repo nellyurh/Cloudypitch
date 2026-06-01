@@ -1,4 +1,5 @@
 import React, { useState } from "react";
+import { createPortal } from "react-dom";
 import { Link, useNavigate, NavLink } from "react-router-dom";
 import { Brand } from "./Brand";
 import { SportIcon } from "./SportIcon";
@@ -147,27 +148,30 @@ export const Header = () => {
         </div>
       </div>
 
-      {/* Mobile drawer */}
-      {drawer && (
-        <>
+      {/* Mobile drawer — rendered via portal directly under <body> so no
+          parent's `transform`, `filter`, or `contain` can break the fixed
+          positioning. */}
+      {drawer && createPortal((
+        <div className="lg:hidden" data-testid="mobile-drawer-root">
           <div
-            className="lg:hidden fixed inset-0 z-40"
+            className="fixed inset-0"
             onClick={() => setDrawer(false)}
-            style={{ background: "rgba(0,0,0,0.55)" }}
+            style={{ background: "rgba(0,0,0,0.6)", zIndex: 9998 }}
             data-testid="mobile-drawer-backdrop"
           />
           <aside
-            className="lg:hidden fixed left-0 top-0 bottom-0 w-[85vw] max-w-[320px] z-50 p-4 flex flex-col gap-2 animate-fade-in overflow-y-auto"
+            className="fixed left-0 top-0 bottom-0 w-[85vw] max-w-[320px] p-4 flex flex-col gap-2 animate-fade-in overflow-y-auto"
             data-testid="mobile-drawer"
             style={{
               background: "var(--cp-surface)",
+              color: "var(--cp-text)",
               borderRight: "1px solid var(--cp-border)",
-              boxShadow: "8px 0 32px rgba(0,0,0,0.4)",
-              isolation: "isolate",  // creates its own stacking context — prevents bleed-through
+              boxShadow: "8px 0 32px rgba(0,0,0,0.5)",
+              zIndex: 9999,
             }}
           >
             <div className="flex items-center justify-between mb-2 shrink-0">
-              <Brand size={36}/>
+              <Brand size={40}/>
               <button onClick={() => setDrawer(false)} className="cp-btn-ghost !p-2" data-testid="drawer-close-btn"><X size={16}/></button>
             </div>
             <form onSubmit={(e) => { submit(e); setDrawer(false); }} className="relative" data-testid="mobile-search-form">
@@ -197,8 +201,8 @@ export const Header = () => {
               </>
             )}
           </aside>
-        </>
-      )}
+        </div>
+      ), document.body)}
     </header>
   );
 };

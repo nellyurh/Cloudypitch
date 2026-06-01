@@ -319,6 +319,18 @@ export const AdminPanel = () => {
             <button onClick={async () => { setBusy(true); try { const { data } = await api.post("/admin/wc/refresh-bracket"); setMsg(`Generated ${data.created} · transitions ${data.transitions}`); refreshWcGames(); } catch (e) { setMsg(e?.response?.data?.detail || "Refresh failed"); } setBusy(false); }} className="cp-btn-primary" data-testid="wcgames-generate">
               <Calendar size={14}/> Generate / Tick
             </button>
+            <button onClick={async () => {
+              if (!confirm("Open ALL upcoming WC2026 games for entry NOW? Users will be able to enter every game.")) return;
+              setBusy(true);
+              try {
+                const { data } = await api.post("/admin/wc/games/open-all");
+                setMsg(`✓ Opened ${data.modified} games (total now open: ${data.now_open_total})`);
+                refreshWcGames();
+              } catch (e) { setMsg(e?.response?.data?.detail || "Failed"); }
+              setBusy(false);
+            }} className="cp-btn-primary" style={{ background: "var(--cp-lime)", color: "var(--cp-forest)" }} data-testid="wcgames-open-all">
+              <Trophy size={14}/> Open ALL 148 games
+            </button>
           </div>
           <div className="cp-surface overflow-x-auto">
             <table className="w-full text-xs">

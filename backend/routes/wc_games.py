@@ -428,3 +428,26 @@ async def admin_refresh_bracket(admin: dict = Depends(a.require_admin)):
     created = await generate_wc_games()
     transitions = await tick_wc_game_states()
     return {"ok": True, "ingested": ingested, "created": created, "transitions": transitions}
+
+
+
+@admin_router.post("/games/open-all")
+async def admin_open_all_games(admin: dict = Depends(a.require_admin)):
+    """One-click: switch every `upcoming` WC2026 game to `open` so users can enter.
+    Also relaxes `opens_at` to now so they're not blocked by the time check.
+    Use sparingly — this overrides the natural stage cadence.
+    """
+    db = get_db()
+    now = _now_iso()
+    res = await db.wc_games.update_many(
+        {"status": {"$in": ["upcoming", "open"]}},
+        {"$set": {"status": "open", "opens_at": now, "updated_at": now}},
+    )
+    await db.audit_log.insert_one({
+        "id": new_id(), "user_id": admin["id"], "email": admin.get("email"),
+        "action": "wc_games_open_all",
+        "metadata": {"affected": res.modified_count, "total_matched": res.matched_count},
+        "created_at": now,
+    })
+    total = await db.wc_games.count_documents({"status": "open"})
+    return {"ok": True, "modified": res.modified_count, "matched": res.matched_count, "now_open_total": total}
