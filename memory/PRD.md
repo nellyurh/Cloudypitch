@@ -591,3 +591,29 @@ See `/app/memory/test_credentials.md`. Admin: `admin@cloudypitch.com` / `CloudyA
 4. Wire NBA fixtures `sport_slug='basketball_nba'` canonicalisation so Playoffs tab activates on live matches (now both `nba` and `basketball_nba` map to SPORT_TABS)
 5. Refactor `/app/backend/ingestion.py` (2100+ lines) into per-adapter modules
 6. Optimise unified leaderboard aggregation (add `$sort+$limit` in aggregation pipeline for large user bases) — see iteration_17 code review note
+
+
+## Iteration 18 — Pool Pulse Live Ticker + Contabo VPS Deploy Kit (2026-06-01)
+- ✅ **Pool Pulse** — animated live feed on `/leaderboards` showing each card purchase fuelling the prize pool. Endpoint: `GET /api/leaderboard/pulse?limit=N`. Returns `{events:[{handle:"@First L.", country_code, amount_usd_cents, pool_delta_usd_cents, card_name, created_at}], today:{card_spend_usd_cents, pool_delta_usd_cents, purchases}}`.
+- ✅ `PoolPulse.jsx` component — Zap lime "Live" indicator with `animate-ping`, CountUp animated totals, per-event row with country flag emoji, redacted handle, card name, amount, +pool delta, time-ago. Polls every 6 s. Hidden on Referrals tab.
+- ✅ **API/Worker split** for production scalability — `server.py` lifespan reads `RUN_INGESTION` env (defaults `1` for backward compat). New `/app/backend/worker.py` is the dedicated ingestion-only entry point.
+- ✅ **Contabo VPS deploy kit** under `/app/deploy/`:
+  - `docker-compose.yml` — 5 services: caddy (auto-SSL), frontend (nginx + React build), api (FastAPI, ingestion off), worker (singleton ingestion poller), mongo (persistent volume)
+  - `Dockerfile.backend` + `Dockerfile.frontend`
+  - `Caddyfile` — auto Let's Encrypt + security headers + gzip/zstd
+  - `nginx.frontend.conf` — SPA history-mode fallback
+  - `.env.example` — all required env vars documented
+  - `deploy.sh` — one-shot bootstrap for fresh Ubuntu 22.04/24.04 (installs Docker, configures UFW, builds, brings up)
+  - `backup-mongo.sh` — cron-friendly mongodump → archive
+  - `README.md` — full runbook (architecture, configure, deploy, ops, troubleshoot, hardening)
+- ✅ **Testing**: iteration_18.json — 13 new pytest + 13 regression = 26/26 pass. Frontend Pool Pulse rendering + tab visibility verified. Worker module imports cleanly.
+
+## Next Action Items
+1. **Push repo to GitHub** (user uses "Save to GitHub" button in Emergent chat)
+2. **Spin up Contabo VPS** and run `cd /opt/cloudypitch/deploy && ./deploy.sh` (see `/app/deploy/README.md`)
+3. **Point DNS A record** `cloudypitch.com → <VPS_IP>` so Caddy can provision SSL
+4. **Paystack live integration** (blocked — needs user API keys)
+5. **Email verification + password reset via Resend/SendGrid** (blocked — needs user API key)
+6. **KYC provider integration** (blocked — needs decision)
+7. Refactor `ingestion.py` (2100+ lines) into per-adapter modules
+8. Visibility-aware throttling for Pool Pulse polling (skip when tab backgrounded)
