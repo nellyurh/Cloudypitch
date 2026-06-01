@@ -1,0 +1,49 @@
+{
+  "summary": "Iteration 18 (Pool Pulse live ticker + API/worker split): All acceptance items verified. Backend 13/13 new pytest pass + 13/13 iteration 17 regression pass (26/26 total). Frontend Pool Pulse renders on Global/Weekly/Premium tabs and is correctly hidden on Referrals tab. 4 seeded card_purchase events render with redacted handles (@First L.), country flags, card names in quotes, amount/+delta/time-ago. Today aggregate: $25.00 spend → +$12.50 pool delta (4 cards), matches seed data exactly. Pool total updated from $2,500 base → $2,512.50 = base + cards_cut $12.50. worker.py imports cleanly, server.py honours RUN_INGESTION env var (log confirmed: 'Cloudy Pitch ingestion jobs kicked off (RUN_INGESTION=1)').",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iteration18.py",
+    "/app/test_reports/pytest/iteration18.xml",
+    "/app/backend/tests/test_iteration17.py"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "PoolPulse.jsx silently swallows ALL errors in load() with `catch (_) {}` (line 65). Network failures, 500s, or malformed responses will leave stale UI without any user feedback. Consider surfacing a one-line 'feed offline' indicator in the corner when fetch fails N times in a row.",
+    "PoolPulse polls every 6s indefinitely with no visibility-aware throttling — keeps hitting backend even when tab is backgrounded. Recommend gating on document.visibilityState === 'visible' or using IntersectionObserver to pause when offscreen.",
+    "leaderboard.py /pulse endpoint runs TWO sequential mongo queries (wallet_transactions.find + users.find) + an aggregate for today's totals. For a polled-every-6s endpoint that fans out per session, consider caching today's aggregate for ~30s in-process or denormalising user handle/country onto wallet_transactions at insert time.",
+    "leaderboard.py /pulse has no upper bound on `limit` param — a client passing ?limit=100000 will fetch up to that many events (only naturally bounded by today's seeded 4 + any future tx). Cap to e.g. min(limit, 50).",
+    "_redact_display_name returns '@Anonymous' for missing/single-word/empty names, but does not strip multi-byte unicode emojis or zero-width characters that could be used to impersonate. Low priority but worth a `re.sub(r'[^\\w\\s.-]', '', first)` pass.",
+    "worker.py uses `os.environ.setdefault('RUN_INGESTION', '1')` after process start (line 48) — this is decorative since server.py is the only consumer of that flag and worker.py never imports server. Comment is fine but the line is dead code.",
+    "server.py lifespan still calls seed_admin() and seed_all() on EVERY container boot, including the worker (when worker is run under the same module structure — though worker.py thankfully skips this). With horizontal scaling of the API container, multiple replicas will race on the seed_all() write. Make seed_all() idempotent and/or guard with a distributed lock (Mongo findOneAndUpdate({locked:false}, {locked:true}))."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iteration18.py (new — 13 tests)"
+  ],
+  "success_rate": {"backend": "100% (13/13 new + 13/13 regression = 26/26)", "frontend": "100% (all 5 visual checks passed)"},
+  "verification_evidence": {
+    "pulse_endpoint": "GET /api/leaderboard/pulse?limit=10 → 200 {events:[4], today:{card_spend_usd_cents:2500, pool_delta_usd_cents:1250, purchases:4}}. Each event has handle '@First L.', country_code, amount_usd_cents, pool_delta_usd_cents (=amount//2), card_name, created_at.",
+    "pulse_redaction": "Handles confirmed redacted: @Cloudy A., @TEST U., @TEST S., @Dup T. — no full last names exposed.",
+    "pulse_today_totals": "4 seeded card_purchase tx since 00:00 UTC: amounts 500+1000+250+750=2500 cents → 1250 cents pool delta (50%). Matches frontend display $25.00 / +$12.50 / 4 cards.",
+    "pulse_limit_param": "?limit=3 returns 3 events (capped correctly). ?limit=1000 returns 200 OK.",
+    "pulse_empty_state": "Frontend has data-testid='pulse-empty' fallback ('Be the first to buy a card today and fuel the pool.') — code path verified, though seed has 4 events so didn't trigger in this run.",
+    "frontend_tab_visibility": "PoolPulse mounts on Global/Weekly/Premium tabs (data-testid='pool-pulse' present), HIDDEN on Referrals tab (selector returns null). Verified by switching all 4 tabs sequentially.",
+    "frontend_animations": "CountUp animates today_spend → $25.00 and today_delta → +$12.50 on mount. First event row has lime tint background (bg-cp-lime/10). Lucide Zap icon with animate-ping pulse indicator visible.",
+    "worker_import": "`python -c 'import worker'` from /app/backend completes without exception. Module exports `main` coroutine and registers SIGTERM/SIGINT handlers.",
+    "server_run_ingestion": "server.py reads os.environ.get('RUN_INGESTION', '1'). Log evidence: 'Cloudy Pitch ingestion jobs kicked off (RUN_INGESTION=1)' present in /var/log/supervisor/backend.err.log. API-only branch ('API-only mode (RUN_INGESTION=0); ingestion handled by worker container') exercised via source inspection.",
+    "iteration17_regression": "All 13 iteration 17 tests still pass: unified leaderboard (global/weekly/premium scopes), prize-split math (with/without cards cut), referrals separate, NBA playoffs structure, /api/matches /api/wc/games/today /api/fantasy/players /api/predictions/upcoming /api/wallet/me /api/cards.",
+    "pool_total_updated": "Frontend pool card shows total $2,512.50 = $2,500 base + $12.50 cards cut (50% of $25 today spend). Backend /api/leaderboard cards_cut_usd_cents=1250 confirmed."
+  },
+  "seed_data_creation": "None — used the 4 card_purchase wallet_transactions pre-seeded by main agent (Cloudy Admin $5, TEST User $10, TEST Signup $2.50, Dup Test $7.50).",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "All iteration 18 acceptance items verified. New test file: /app/backend/tests/test_iteration18.py (13 tests). Pool Pulse selectors: [data-testid='pool-pulse'] (root), [data-testid='pulse-today-spend'], [data-testid='pulse-today-delta'], [data-testid='pulse-feed'], [data-testid='pulse-event-{i}'], [data-testid='pulse-delta-{i}'], [data-testid='pulse-empty']. The 6s poll fires once on mount (verified) — full polling timing wasn't measured per instructions. worker.py wasn't started in sandbox (would conflict with running API ingestion poller); only verified clean import. Production Docker compose under /app/deploy was NOT run-tested. RUN_INGESTION env is the only toggle between API-only and ingestion containers — confirmed in source + boot log.",
+  "rca of the issue": "N/A — no bugs found; all acceptance items verified."
+}

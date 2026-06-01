@@ -1,0 +1,119 @@
+name: cloudypitch
+
+services:
+  # ---------------- MongoDB ----------------
+  mongo:
+    image: mongo:7.0
+    container_name: cp-mongo
+    restart: unless-stopped
+    command: ["--bind_ip_all"]
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: ${MONGO_USER}
+      MONGO_INITDB_ROOT_PASSWORD: ${MONGO_PASSWORD}
+      MONGO_INITDB_DATABASE: ${DB_NAME}
+    volumes:
+      - mongo_data:/data/db
+      - mongo_config:/data/configdb
+    networks: [cpnet]
+    healthcheck:
+      test: ["CMD", "mongosh", "--quiet", "--eval", "db.runCommand({ ping: 1 }).ok"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  # ---------------- API (FastAPI, NO ingestion) ----------------
+  api:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile.backend
+    image: cloudypitch-backend:latest
+    container_name: cp-api
+    restart: unless-stopped
+    depends_on:
+      mongo:
+        condition: service_healthy
+    environment:
+      MONGO_URL: mongodb://${MONGO_USER}:${MONGO_PASSWORD}@mongo:27017/${DB_NAME}?authSource=admin
+      DB_NAME: ${DB_NAME}
+      CORS_ORIGINS: ${CORS_ORIGINS}
+      RUN_INGESTION: "0"          # API stays HTTP-only; worker does polling
+      # Provider keys (read in adapters/*)
+      SPORTMONKS_API_KEY: ${SPORTMONKS_API_KEY}
+      APISPORTS_API_KEY: ${APISPORTS_API_KEY}
+      STATPAL_API_KEY: ${STATPAL_API_KEY}
+      # Admin seed
+      ADMIN_EMAIL: ${ADMIN_EMAIL}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD}
+      # Optional integrations
+      PAYSTACK_SECRET_KEY: ${PAYSTACK_SECRET_KEY:-}
+      RESEND_API_KEY: ${RESEND_API_KEY:-}
+      EMERGENT_LLM_KEY: ${EMERGENT_LLM_KEY:-}
+    networks: [cpnet]
+    healthcheck:
+      test: ["CMD", "curl", "-fs", "http://localhost:8001/api/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+
+  # ---------------- Worker (ingestion poller) ----------------
+  worker:
+    image: cloudypitch-backend:latest
+    container_name: cp-worker
+    restart: unless-stopped
+    depends_on:
+      api:
+        condition: service_healthy
+    command: ["python", "worker.py"]
+    environment:
+      MONGO_URL: mongodb://${MONGO_USER}:${MONGO_PASSWORD}@mongo:27017/${DB_NAME}?authSource=admin
+      DB_NAME: ${DB_NAME}
+      RUN_INGESTION: "1"
+      SPORTMONKS_API_KEY: ${SPORTMONKS_API_KEY}
+      APISPORTS_API_KEY: ${APISPORTS_API_KEY}
+      STATPAL_API_KEY: ${STATPAL_API_KEY}
+    networks: [cpnet]
+
+  # ---------------- Frontend (static React build) ----------------
+  frontend:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile.frontend
+      args:
+        REACT_APP_BACKEND_URL: ${PUBLIC_URL}
+    image: cloudypitch-frontend:latest
+    container_name: cp-frontend
+    restart: unless-stopped
+    networks: [cpnet]
+
+  # ---------------- Caddy (reverse proxy + auto SSL) ----------------
+  caddy:
+    image: caddy:2.8-alpine
+    container_name: cp-caddy
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      DOMAIN: ${DOMAIN}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+      - caddy_logs:/var/log/caddy
+    depends_on:
+      - api
+      - frontend
+    networks: [cpnet]
+
+volumes:
+  mongo_data:
+  mongo_config:
+  caddy_data:
+  caddy_config:
+  caddy_logs:
+
+networks:
+  cpnet:
+    driver: bridge

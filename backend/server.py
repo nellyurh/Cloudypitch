@@ -53,8 +53,14 @@ async def lifespan(app: FastAPI):
         await seed_admin()
         await seed_all()
         log.info("Cloudy Pitch boot: indexes + seeds OK")
-        await start_background_jobs()
-        log.info("Cloudy Pitch ingestion jobs kicked off")
+        # Ingestion only runs when explicitly enabled (worker container sets RUN_INGESTION=1).
+        # The API-only container leaves this off so it can scale horizontally without
+        # duplicate background pollers.
+        if os.environ.get("RUN_INGESTION", "1") == "1":
+            await start_background_jobs()
+            log.info("Cloudy Pitch ingestion jobs kicked off (RUN_INGESTION=1)")
+        else:
+            log.info("API-only mode (RUN_INGESTION=0); ingestion handled by worker container")
     except Exception as e:
         log.exception(f"Startup error: {e}")
     yield

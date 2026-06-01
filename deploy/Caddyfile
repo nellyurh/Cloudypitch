@@ -1,0 +1,44 @@
+# Caddyfile — reverse proxy with automatic Let's Encrypt SSL.
+# Replace {$DOMAIN} via the env var in docker-compose.yml.
+
+{$DOMAIN} {
+    encode gzip zstd
+
+    # Backend API (everything under /api → FastAPI on port 8001)
+    handle /api/* {
+        reverse_proxy api:8001 {
+            header_up X-Real-IP {remote_host}
+            header_up X-Forwarded-For {remote_host}
+            header_up X-Forwarded-Proto {scheme}
+        }
+    }
+
+    # Everything else → static React build served by frontend container nginx
+    handle {
+        reverse_proxy frontend:80
+    }
+
+    # Sensible security headers
+    header {
+        Strict-Transport-Security "max-age=31536000; includeSubDomains; preload"
+        X-Content-Type-Options "nosniff"
+        X-Frame-Options "SAMEORIGIN"
+        Referrer-Policy "strict-origin-when-cross-origin"
+        Permissions-Policy "geolocation=(), microphone=(), camera=()"
+        -Server
+    }
+
+    # Compress logs
+    log {
+        output file /var/log/caddy/access.log {
+            roll_size 50mb
+            roll_keep 5
+        }
+        format console
+    }
+}
+
+# Redirect bare IP / non-matching hosts → www-canonical 404 (optional safety net)
+:80 {
+    respond "Cloudy Pitch — set DOMAIN env var to your real hostname." 404
+}
