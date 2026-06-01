@@ -101,6 +101,19 @@ async def health():
     return {"ok": True}
 
 
+@app.get("/api/brand")
+async def get_brand():
+    """Public brand settings — frontend reads on boot to render the live logo."""
+    from db import get_db
+    db = get_db()
+    doc = await db.app_settings.find_one({"id": "brand"}, {"_id": 0}) or {}
+    return {
+        "brand_logo_url": doc.get("brand_logo_url"),
+        "brand_mark_url": doc.get("brand_mark_url"),
+        "brand_wordmark_url": doc.get("brand_wordmark_url"),
+    }
+
+
 # Mount routers
 for r in (auth_router, catalog_router, matches_router, worldcup_router,
           predictions_router, fantasy_router, cards_router, card_usage_router,

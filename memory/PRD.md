@@ -617,3 +617,20 @@ See `/app/memory/test_credentials.md`. Admin: `admin@cloudypitch.com` / `CloudyA
 6. **KYC provider integration** (blocked — needs decision)
 7. Refactor `ingestion.py` (2100+ lines) into per-adapter modules
 8. Visibility-aware throttling for Pool Pulse polling (skip when tab backgrounded)
+
+
+## Iteration 19 — Date-toggle fix, Cloudflare-aware Caddy, Brand uploader, Admin seeder (2026-06-02)
+- ✅ **Date toggle bug fixed** — Dashboard now clears stale `grouped` state when `selectedDate`/`mode` changes, so users no longer see yesterday's matches flashing while tomorrow's request is in flight. Auto-refresh polling now ONLY fires on live/today views (was indiscriminately replacing all dates every 20s).
+- ✅ **Backend date window math hardened** — `matches.py` now correctly treats `date=YYYY-MM-DD` as the user's LOCAL calendar date (using `tz_offset_min`) and produces a clean 24-hour UTC window matching only that local day. Backfill now triggers for both past AND future dates within ±30d.
+- ✅ **Cloudflare-aware Caddyfile** — added trusted_proxies with hard-coded Cloudflare IPv4+IPv6 ranges + `client_ip_headers CF-Connecting-IP X-Forwarded-For` so the backend sees real client IPs when DNS is proxied (orange cloud). Critical for Airtel Nigeria reachability via Cloudflare edge.
+- ✅ **Admin brand-asset uploader** — new `Settings` tab in Admin panel with 3 slots (logo, mark, wordmark). Files stored as base64 data URLs in `uploads` + `app_settings` collections. `<Brand/>` component now subscribes to `/api/brand` and live-swaps everywhere (header, loader, login). Removed broken `mixBlendMode: "screen"` hack — new logo is transparent.
+- ✅ **Create-admin endpoint** — `POST /api/admin/users/create-admin` accepts `{email, password, display_name?}`. Creates new admin OR promotes existing user. Wired to Admin → Settings UI.
+- ✅ **Public `GET /api/brand`** mounted directly on `server.py` (no auth required) so the login screen can already render the custom logo.
+
+## Next Action Items
+1. **Open all WC2026 fantasy games for team-building** (next user priority)
+2. **Build out team-building / squad selection page UX**
+3. SSH/firewall: ensure Contabo external firewall allows ports 22, 2222, 80, 443
+4. Paystack live integration (blocked — needs keys)
+5. Email verification + password reset via Resend/SendGrid (blocked — needs key)
+6. KYC provider integration (blocked — needs decision)

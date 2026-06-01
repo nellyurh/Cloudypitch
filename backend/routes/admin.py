@@ -124,5 +124,58 @@ async def upload_logo(
         await db.leagues.update_one({"id": entity_id}, {"$set": {"logo_url": data_url}})
     elif entity_type == "team" and entity_id:
         await db.teams.update_one({"id": entity_id}, {"$set": {"logo_url": data_url}})
+    elif entity_type == "brand":
+        # entity_id picks the slot: "logo" | "mark" | "wordmark"
+        slot = entity_id or "logo"
+        await db.app_settings.update_one(
+            {"id": "brand"},
+            {"$set": {f"brand_{slot}_url": data_url, "updated_at": utcnow_iso(), "updated_by": user["id"]}},
+            upsert=True,
+        )
     rec.pop("_id", None)
     return {"upload": rec}
+
+
+@router.post("/users/create-admin")
+async def create_admin_user(
+    payload: dict,
+    user: dict = Depends(a.require_admin),
+):
+    """Create a brand-new admin user (or promote existing) from the admin panel.
+
+    Body: {email, password, display_name?}
+    """
+    email = (payload.get("email") or "").strip().lower()
+    password = payload.get("password") or ""
+    display_name = (payload.get("display_name") or "").strip() or email.split("@")[0]
+    if not email or "@" not in email:
+        raise HTTPException(status_code=400, detail="Valid email required")
+    if len(password) < 8:
+        raise HTTPException(status_code=400, detail="Password must be at least 8 characters")
+
+    db = get_db()
+    existing = await db.users.find_one({"email": email}, {"_id": 0})
+    if existing:
+        # Promote in place
+        await db.users.update_one({"email": email}, {"$set": {"role": "admin", "is_active": True}})
+        return {"ok": True, "promoted": True, "user_id": existing.get("id")}
+
+    # Fresh creation — mirror the auth registration flow
+    import uuid
+    new_user = {
+        "id": str(uuid.uuid4()),
+        "email": email,
+        "password_hash": a.hash_password(password),
+        "display_name": display_name,
+        "role": "admin",
+        "is_active": True,
+        "is_premium": False,
+        "country_code": "NG",
+        "wallet_balance_usd_cents": 0,
+        "created_at": utcnow_iso(),
+        "created_by": user["id"],
+    }
+    await db.users.insert_one(new_user)
+    new_user.pop("_id", None)
+    new_user.pop("password_hash", None)
+    return {"ok": True, "created": True, "user": new_user}

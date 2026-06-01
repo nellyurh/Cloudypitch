@@ -2,7 +2,8 @@ import React, { useEffect, useState } from "react";
 import { Navigate } from "react-router-dom";
 import api from "../lib/api";
 import { useAuth } from "../lib/auth";
-import { Users, Database, Radio, Activity, RefreshCw, Trophy, Coins, Calendar, Settings2 } from "lucide-react";
+import { Users, Database, Radio, Activity, RefreshCw, Trophy, Coins, Calendar, Settings2, Image as ImageIcon, UserPlus } from "lucide-react";
+import { refreshBrand } from "../components/Brand";
 
 export const AdminPanel = () => {
   const { user, loading } = useAuth();
@@ -73,7 +74,7 @@ export const AdminPanel = () => {
     <div data-testid="admin-panel">
       <h1 className="text-2xl font-extrabold mb-3">Admin Panel</h1>
       <div className="flex gap-1 cp-surface p-1 w-fit mb-3 flex-wrap">
-        {["dashboard", "matches", "users", "ingest", "audit", "pools", "wcconfig", "wcgames"].map(t => (
+        {["dashboard", "matches", "users", "ingest", "audit", "pools", "wcconfig", "wcgames", "settings"].map(t => (
           <button key={t} onClick={() => setTab(t)} className={`px-3 py-1.5 text-sm rounded transition ${tab === t ? "bg-cp-lime text-cp-forest font-bold" : "hover:bg-white/5"}`} data-testid={`admin-tab-${t}`}>{t.toUpperCase()}</button>
         ))}
       </div>
@@ -351,8 +352,150 @@ export const AdminPanel = () => {
           {msg && <div className="cp-surface p-2 text-xs font-mono">{msg}</div>}
         </div>
       )}
+
+      {tab === "settings" && (
+        <SettingsTab onMessage={setMsg}/>
+      )}
     </div>
   );
 };
+
+/* ──────────────────────────────────────────────────────────────────────── */
+
+function SettingsTab({ onMessage }) {
+  return (
+    <div className="space-y-4 max-w-2xl" data-testid="admin-settings">
+      <BrandUploader onMessage={onMessage}/>
+      <CreateAdminForm onMessage={onMessage}/>
+    </div>
+  );
+}
+
+function BrandUploader({ onMessage }) {
+  const slots = [
+    { key: "logo",     label: "Combined logo (mark + wordmark, used in the header)" },
+    { key: "mark",     label: "Mark only (favicon, loader)" },
+    { key: "wordmark", label: "Wordmark only (text)" },
+  ];
+  const [current, setCurrent] = useState({});
+  const load = async () => {
+    try { const { data } = await api.get("/brand"); setCurrent(data); } catch (_) {}
+  };
+  useEffect(() => { load(); }, []);
+
+  const upload = async (slotKey, file) => {
+    if (!file) return;
+    const fd = new FormData();
+    fd.append("file", file);
+    fd.append("entity_type", "brand");
+    fd.append("entity_id", slotKey);
+    try {
+      await api.post("/admin/uploads", fd, { headers: { "Content-Type": "multipart/form-data" } });
+      onMessage(`✓ ${slotKey} updated. Refresh the page to see it everywhere.`);
+      await refreshBrand();
+      await load();
+    } catch (e) {
+      onMessage(`✗ Upload failed: ${e?.response?.data?.detail || e.message}`);
+    }
+  };
+
+  return (
+    <div className="cp-surface p-4" data-testid="brand-uploader">
+      <div className="flex items-center gap-2 mb-3">
+        <ImageIcon size={16} className="text-cp-lime"/>
+        <h2 className="font-extrabold">Brand assets</h2>
+      </div>
+      <div className="space-y-3">
+        {slots.map(s => {
+          const url = current[`brand_${s.key}_url`];
+          return (
+            <div key={s.key} className="flex items-center gap-3" data-testid={`brand-slot-${s.key}`}>
+              <div className="w-20 h-12 rounded flex items-center justify-center" style={{ background: "var(--cp-surface-2)", border: "1px solid var(--cp-border)" }}>
+                {url ? (
+                  <img src={url} alt={s.key} style={{ maxHeight: "100%", maxWidth: "100%", objectFit: "contain" }}/>
+                ) : (
+                  <span className="text-[9px] opacity-40">empty</span>
+                )}
+              </div>
+              <div className="flex-1 min-w-0">
+                <div className="text-xs font-bold uppercase">{s.key}</div>
+                <div className="text-[10px]" style={{ color: "var(--cp-text-muted)" }}>{s.label}</div>
+              </div>
+              <label className="text-xs px-3 py-1.5 rounded cursor-pointer hover:opacity-80" style={{ background: "var(--cp-lime)", color: "var(--cp-forest)", fontWeight: 700 }} data-testid={`brand-upload-${s.key}`}>
+                Upload
+                <input type="file" accept="image/*" className="hidden" onChange={e => upload(s.key, e.target.files?.[0])}/>
+              </label>
+            </div>
+          );
+        })}
+      </div>
+      <div className="text-[10px] mt-3 opacity-60">PNG / SVG / JPEG / WebP, max 2 MB. Transparent backgrounds render best.</div>
+    </div>
+  );
+}
+
+function CreateAdminForm({ onMessage }) {
+  const [form, setForm] = useState({ email: "", password: "", display_name: "" });
+  const [busy, setBusy] = useState(false);
+  const submit = async (e) => {
+    e.preventDefault();
+    setBusy(true);
+    try {
+      const { data } = await api.post("/admin/users/create-admin", form);
+      if (data.created) onMessage(`✓ Admin created: ${form.email}`);
+      else if (data.promoted) onMessage(`✓ Existing user promoted to admin: ${form.email}`);
+      setForm({ email: "", password: "", display_name: "" });
+    } catch (e) {
+      onMessage(`✗ ${e?.response?.data?.detail || e.message}`);
+    }
+    setBusy(false);
+  };
+  return (
+    <form onSubmit={submit} className="cp-surface p-4 space-y-2" data-testid="create-admin-form">
+      <div className="flex items-center gap-2 mb-2">
+        <UserPlus size={16} className="text-cp-lime"/>
+        <h2 className="font-extrabold">Create / promote admin</h2>
+      </div>
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+        <input
+          required type="email"
+          placeholder="email@example.com"
+          value={form.email}
+          onChange={e => setForm({ ...form, email: e.target.value })}
+          className="px-3 py-2 rounded text-sm"
+          style={{ background: "var(--cp-surface-2)", border: "1px solid var(--cp-border)", color: "var(--cp-text)" }}
+          data-testid="create-admin-email"
+        />
+        <input
+          type="text"
+          placeholder="Display name (optional)"
+          value={form.display_name}
+          onChange={e => setForm({ ...form, display_name: e.target.value })}
+          className="px-3 py-2 rounded text-sm"
+          style={{ background: "var(--cp-surface-2)", border: "1px solid var(--cp-border)", color: "var(--cp-text)" }}
+          data-testid="create-admin-name"
+        />
+      </div>
+      <input
+        required type="password" minLength={8}
+        placeholder="Password (min 8 characters)"
+        value={form.password}
+        onChange={e => setForm({ ...form, password: e.target.value })}
+        className="w-full px-3 py-2 rounded text-sm"
+        style={{ background: "var(--cp-surface-2)", border: "1px solid var(--cp-border)", color: "var(--cp-text)" }}
+        data-testid="create-admin-password"
+      />
+      <button
+        type="submit" disabled={busy}
+        className="px-4 py-2 rounded text-sm font-extrabold disabled:opacity-50"
+        style={{ background: "var(--cp-lime)", color: "var(--cp-forest)" }}
+        data-testid="create-admin-submit"
+      >
+        {busy ? "Creating…" : "Create / promote"}
+      </button>
+      <div className="text-[10px] opacity-60">If the email already exists it will be promoted to admin instead of creating a new account.</div>
+    </form>
+  );
+}
 
 export default AdminPanel;
