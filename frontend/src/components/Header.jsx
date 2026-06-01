@@ -49,7 +49,9 @@ export const Header = () => {
           <Menu size={18} />
         </button>
 
-        <Link to="/" data-testid="brand-home-link"><Brand /></Link>
+        <Link to="/" data-testid="brand-home-link" className="shrink-0">
+          <Brand size={44} />
+        </Link>
 
         {/* Desktop nav links — minimal, content-first. Fantasy/Cards/WC-Games live in user menu. */}
         <nav className="hidden lg:flex items-center gap-1 ml-4">
@@ -148,10 +150,24 @@ export const Header = () => {
       {/* Mobile drawer */}
       {drawer && (
         <>
-          <div className="lg:hidden fixed inset-0 z-40 bg-black/60" onClick={() => setDrawer(false)} />
-          <aside className="lg:hidden fixed left-0 top-0 bottom-0 w-72 z-50 cp-surface p-4 flex flex-col gap-2 animate-fade-in" data-testid="mobile-drawer">
-            <div className="flex items-center justify-between mb-2">
-              <Brand />
+          <div
+            className="lg:hidden fixed inset-0 z-40"
+            onClick={() => setDrawer(false)}
+            style={{ background: "rgba(0,0,0,0.55)" }}
+            data-testid="mobile-drawer-backdrop"
+          />
+          <aside
+            className="lg:hidden fixed left-0 top-0 bottom-0 w-[85vw] max-w-[320px] z-50 p-4 flex flex-col gap-2 animate-fade-in overflow-y-auto"
+            data-testid="mobile-drawer"
+            style={{
+              background: "var(--cp-surface)",
+              borderRight: "1px solid var(--cp-border)",
+              boxShadow: "8px 0 32px rgba(0,0,0,0.4)",
+              isolation: "isolate",  // creates its own stacking context — prevents bleed-through
+            }}
+          >
+            <div className="flex items-center justify-between mb-2 shrink-0">
+              <Brand size={36}/>
               <button onClick={() => setDrawer(false)} className="cp-btn-ghost !p-2" data-testid="drawer-close-btn"><X size={16}/></button>
             </div>
             <form onSubmit={(e) => { submit(e); setDrawer(false); }} className="relative" data-testid="mobile-search-form">

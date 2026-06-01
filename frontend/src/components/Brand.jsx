@@ -51,22 +51,21 @@ export const Brand = ({ size = 30, variant = "logo", className = "" }) => {
         src={b.logo}
         alt="Cloudy Pitch"
         className={className}
-        style={{ height: size, width: "auto", objectFit: "contain", display: "inline-block" }}
+        style={{ height: size * 1.4, maxHeight: 56, width: "auto", objectFit: "contain", display: "inline-block" }}
         data-testid="cp-brand"
       />
     );
   }
 
   // If only a mark upload exists (and the admin treats it as the full brand),
-  // render the mark alone WITHOUT the "CloudyPitch" text next to it. We can
-  // only know this on the default `logo` variant.
+  // render the mark alone WITHOUT the "CloudyPitch" text next to it.
   if (variant === "logo" && b.markUploaded) {
     return (
       <img
         src={b.mark}
         alt="Cloudy Pitch"
         className={className}
-        style={{ height: size, width: "auto", objectFit: "contain", display: "inline-block" }}
+        style={{ height: size * 1.4, maxHeight: 56, width: "auto", objectFit: "contain", display: "inline-block" }}
         data-testid="cp-brand"
       />
     );
