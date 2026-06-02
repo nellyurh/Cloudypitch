@@ -44,7 +44,7 @@ export const Header = () => {
       data-testid="site-header"
     >
       {/* Top row */}
-      <div className="max-w-[1400px] mx-auto px-3 md:px-5 py-2.5 flex items-center gap-3">
+      <div className="max-w-[1400px] mx-auto px-3 md:px-5 py-1 md:py-2.5 flex items-center gap-3 min-h-[56px]">
         {/* Mobile hamburger */}
         <button onClick={() => setDrawer(true)} className="lg:hidden cp-btn-ghost !p-2" aria-label="Open menu" data-testid="mobile-menu-btn">
           <Menu size={18} />
@@ -94,6 +94,9 @@ export const Header = () => {
               <div onMouseLeave={() => setMenu(false)} className="absolute right-0 mt-2 w-56 cp-surface p-1 shadow-xl z-40" data-testid="user-menu">
                 <Link to="/fantasy" className="flex items-center gap-2 px-2 py-2 text-sm hover:bg-white/5 rounded" data-testid="menu-fantasy">
                   <ShieldCheck size={14} className="text-cp-lime"/> Fantasy & WC Games
+                </Link>
+                <Link to="/build-team" className="flex items-center gap-2 px-2 py-2 text-sm hover:bg-white/5 rounded" data-testid="menu-build-team">
+                  <ShieldCheck size={14} className="text-cp-lime"/> Build a Team
                 </Link>
                 <Link to="/cards" className="flex items-center gap-2 px-2 py-2 text-sm hover:bg-white/5 rounded" data-testid="menu-cards">
                   <Crown size={14} className="text-cp-lime"/> Legend Cards
@@ -181,6 +184,7 @@ export const Header = () => {
             <Link to="/worldcup" onClick={() => setDrawer(false)} className="cp-btn-ghost justify-start" data-testid="drawer-wc"><Trophy size={14} className="text-cp-lime"/> WC 2026</Link>
             <Link to="/predictions" onClick={() => setDrawer(false)} className="cp-btn-ghost justify-start" data-testid="drawer-predictions"><Target size={14}/> Predictions</Link>
             <Link to="/fantasy" onClick={() => setDrawer(false)} className="cp-btn-ghost justify-start" data-testid="drawer-fantasy"><ShieldCheck size={14}/> Fantasy & WC Games</Link>
+            <Link to="/build-team" onClick={() => setDrawer(false)} className="cp-btn-ghost justify-start" data-testid="drawer-build-team"><ShieldCheck size={14}/> Build a Team</Link>
             <Link to="/cards" onClick={() => setDrawer(false)} className="cp-btn-ghost justify-start" data-testid="drawer-cards"><Crown size={14}/> Legend Cards</Link>
             <Link to="/leaderboards" onClick={() => setDrawer(false)} className="cp-btn-ghost justify-start" data-testid="drawer-leaderboards"><Trophy size={14}/> Leaderboards</Link>
             <Link to="/prize-pools" onClick={() => setDrawer(false)} className="cp-btn-ghost justify-start" data-testid="drawer-pools"><Coins size={14}/> Prize Pools</Link>

@@ -261,3 +261,15 @@
 @layer base {
   [data-debug-wrapper="true"] { display: contents !important; }
 }
+
+/* Brand logo — uses CSS var so we can tune mobile vs desktop without prop changes */
+.cp-brand-img {
+  height: var(--cp-logo-h, 56px);
+  width: auto;
+  object-fit: contain;
+  display: inline-block;
+  max-height: 44px;          /* mobile cap so the header stays tight */
+}
+@media (min-width: 768px) {
+  .cp-brand-img { max-height: 80px; }  /* desktop: let the var win */
+}

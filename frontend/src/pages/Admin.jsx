@@ -385,9 +385,10 @@ function SettingsTab({ onMessage }) {
 
 function BrandUploader({ onMessage }) {
   const slots = [
-    { key: "logo",     label: "Full logo (text + mark) — replaces everything in the header. Use this for your CloudyPitch logo image." },
-    { key: "mark",     label: "Mark only (no text) — used as favicon, loader animation, and standalone places." },
-    { key: "wordmark", label: "Wordmark only (text part) — used where the logo should be text-only." },
+    { key: "logo",      label: "Light-theme logo (header default)." },
+    { key: "logo_dark", label: "Dark-theme logo (auto-used when site is in dark mode)." },
+    { key: "mark",      label: "Mark only (no text) — favicon, loader animation." },
+    { key: "wordmark",  label: "Wordmark only (text part)." },
   ];
   const [current, setCurrent] = useState({});
   const load = async () => {

@@ -654,3 +654,14 @@ See `/app/memory/test_credentials.md`. Admin: `admin@cloudypitch.com` / `CloudyA
 - ✅ **Logo size bumped to 1.8×** the requested size (no max cap). Header passes `size={44}` → renders ~79px tall, clearly visible.
 - ✅ **Open ALL WC2026 games** — new admin endpoint `POST /api/admin/wc/games/open-all` flips every `upcoming` → `open` and sets `opens_at=now`. Wired into Admin → WC Games tab with confirm() prompt. Already ran in dev: 152 games now open.
 
+
+
+## Iteration 23 — Dedicated "Build a Team" page + price rebalance + light/dark logo (2026-06-02)
+- ✅ **New `/build-team` page** — focused squad-build UX, NO WC card / WC Games / Leaderboard cruft on the page. Just budget header, position progress dots, Pitch/List toggle, and FAB save button (sticky on mobile).
+- ✅ **Pitch view** matches FPL reference exactly: 2 GK / 5 DEF / 5 MID / 3 FWD slots laid out across rows with jersey graphics. Empty slots are tappable `+` tiles labeled with position.
+- ✅ **List view** groups picks by position with "+ Add" buttons inline. Tapping `+ Add GK` or any empty slot opens the player-picker modal.
+- ✅ **Player picker modal** — bottom-sheet on mobile / centered on desktop. Filters: search, team dropdown, sort (price/name). Add button greys out for over-budget or position-full.
+- ✅ **Squad limits enforced** — `2 GK / 5 DEF / 5 MID / 3 FWD = 15 players`, £100m budget. Real-time validation in picker.
+- ✅ **Player prices rebalanced** — top tier premium lowered from +£1.6 to +£0.8, #10 jersey bump from +£2.0 to +£1.0, base ceiling £10.0 (was £14.0). Cheapest valid 15-man squad: £64.5 (was £105+). 1000/1358 players re-priced.
+- ✅ **Light/dark logo variants** — Brand component now auto-swaps between `brand_logo_url` and `brand_logo_dark_url` based on `prefers-color-scheme` or `data-theme="dark"` on `<html>`. New `logo_dark` slot added to Admin → Settings.
+- ✅ **Mobile header tightened** — reduced vertical padding (`py-1 md:py-2.5`), logo capped at 44px on mobile via `max-height` CSS, lets through up to 80px on desktop.

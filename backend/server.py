@@ -109,6 +109,7 @@ async def get_brand():
     doc = await db.app_settings.find_one({"id": "brand"}, {"_id": 0}) or {}
     return {
         "brand_logo_url": doc.get("brand_logo_url"),
+        "brand_logo_dark_url": doc.get("brand_logo_dark_url"),
         "brand_mark_url": doc.get("brand_mark_url"),
         "brand_wordmark_url": doc.get("brand_wordmark_url"),
     }

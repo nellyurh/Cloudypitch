@@ -84,21 +84,21 @@ async def admin_recompute_prices(_: dict = Depends(a.require_admin)):
     updated = 0
     for p in rows:
         country_name = (p.get("country") or p.get("team_name") or "").lower().strip()
-        if country_name in top_tier:   tier_premium = 1.6
-        elif country_name in mid_tier: tier_premium = 0.6
+        if country_name in top_tier:   tier_premium = 0.8
+        elif country_name in mid_tier: tier_premium = 0.3
         else:                          tier_premium = -0.4
         pos = p.get("position", "MID")
-        base_price = {"GK": 4.5, "DEF": 5.0, "MID": 7.0, "FWD": 8.5}.get(pos, 5.0)
+        base_price = {"GK": 4.0, "DEF": 4.5, "MID": 5.5, "FWD": 6.5}.get(pos, 5.0)
         jersey = p.get("shirt_number")
         jersey_bump = 0.0
         if isinstance(jersey, int):
-            if jersey == 10: jersey_bump = 2.0
-            elif jersey == 9: jersey_bump = 1.5
-            elif jersey == 7: jersey_bump = 1.2
-            elif jersey == 1: jersey_bump = 0.8
-            elif jersey <= 11: jersey_bump = 0.6
+            if jersey == 10: jersey_bump = 1.0
+            elif jersey == 9: jersey_bump = 0.8
+            elif jersey == 7: jersey_bump = 0.6
+            elif jersey == 1: jersey_bump = 0.4
+            elif jersey <= 11: jersey_bump = 0.3
             elif jersey <= 20: jersey_bump = 0.0
-            else: jersey_bump = -0.5
+            else: jersey_bump = -0.3
         try:
             sid = p.get("sportmonks_id") or p.get("id") or ""
             h = int.from_bytes(str(sid).encode(), "big") % 7
@@ -107,7 +107,7 @@ async def admin_recompute_prices(_: dict = Depends(a.require_admin)):
             dispersion = 0.0
         raw = base_price + tier_premium + jersey_bump + dispersion
         snapped = round(raw * 2) / 2
-        new_price = max(4.0, min(14.0, snapped))
+        new_price = max(3.5, min(10.0, snapped))
         if new_price != p.get("price"):
             await db.players.update_one({"id": p["id"]}, {"$set": {"price": new_price, "updated_at": utcnow_iso()}})
             updated += 1

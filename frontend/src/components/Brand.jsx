@@ -2,7 +2,7 @@ import React, { useEffect, useState } from "react";
 import api from "../lib/api";
 
 // Global brand asset cache — loaded once on app boot, mutated by Admin.
-let _brand = { mark: "/cp-mark.png", markUploaded: false, logo: null, wordmark: null };
+let _brand = { mark: "/cp-mark.png", markUploaded: false, logo: null, logoDark: null, wordmark: null };
 const _subs = new Set();
 function _emit() { _subs.forEach(fn => fn(_brand)); }
 
@@ -13,21 +13,39 @@ export async function refreshBrand() {
       mark: data.brand_mark_url || data.brand_logo_url || "/cp-mark.png",
       markUploaded: Boolean(data.brand_mark_url || data.brand_logo_url),
       logo: data.brand_logo_url || null,
+      logoDark: data.brand_logo_dark_url || null,
       wordmark: data.brand_wordmark_url || null,
     };
     _emit();
   } catch (_) {}
 }
 
+function _detectDark() {
+  if (typeof document === "undefined") return false;
+  // Respect explicit data-theme="dark" on <html>, else use prefers-color-scheme
+  const html = document.documentElement;
+  if (html.getAttribute("data-theme") === "dark") return true;
+  if (html.classList.contains("dark")) return true;
+  if (window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches) return true;
+  return false;
+}
+
 function useBrand() {
   const [b, setB] = useState(_brand);
+  const [isDark, setIsDark] = useState(_detectDark());
   useEffect(() => {
     const fn = (next) => setB({ ...next });
     _subs.add(fn);
     if (!_brand.logo && !_brand.wordmark) refreshBrand();
-    return () => _subs.delete(fn);
+    // Watch for theme changes
+    const mq = window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)");
+    const onTheme = () => setIsDark(_detectDark());
+    if (mq) mq.addEventListener("change", onTheme);
+    const obs = new MutationObserver(onTheme);
+    obs.observe(document.documentElement, { attributes: true, attributeFilter: ["class", "data-theme"] });
+    return () => { _subs.delete(fn); if (mq) mq.removeEventListener("change", onTheme); obs.disconnect(); };
   }, []);
-  return b;
+  return { ...b, isDark, activeLogo: (isDark && b.logoDark) ? b.logoDark : b.logo };
 }
 
 /**
@@ -45,13 +63,15 @@ export const Brand = ({ size = 30, variant = "logo", className = "" }) => {
 
   // If a combined logo upload exists, use it as a single image (preserves the
   // shipped design exactly as the admin uploaded it — no text appended).
-  if (variant === "logo" && b.logo) {
+  // Auto-switches between light and dark variants when both are uploaded.
+  if (variant === "logo" && b.activeLogo) {
+    const desktopH = size * 1.8;
     return (
       <img
-        src={b.logo}
+        src={b.activeLogo}
         alt="Cloudy Pitch"
-        className={className}
-        style={{ height: size * 1.8, width: "auto", objectFit: "contain", display: "inline-block" }}
+        className={`cp-brand-img ${className}`}
+        style={{ "--cp-logo-h": `${desktopH}px` }}
         data-testid="cp-brand"
       />
     );
