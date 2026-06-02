@@ -282,12 +282,21 @@ WC2026_GROUPS = [
 # ===== Prize Pools =====
 PRIZE_POOLS = [
     {
+        "id": "pool-cloudypitch-unified",
+        "kind": "fantasy_predictions_unified",
+        "competition_id": None,
+        "title": "Cloudy Pitch Grand Prize Pool",
+        "amount_usd_cents": 250_000,      # $2,500 base
+        "currency": "USD",
+        "status": "live",
+    },
+    {
         "id": "pool-wc2026-fantasy",
         "kind": "fantasy_wc2026",
         "competition_id": "fantasy-wc2026",
         "title": "FIFA WC 2026 Grand Prize Pool",
         "amount_total_ngn": 50_000_000,
-        "amount_usd_cents": 3_000_000,   # $30,000 seed; auto-grows from card revenue
+        "amount_usd_cents": 3_000_000,
         "currency": "USD",
         "payout_structure": [
             {"rank_min": 1, "rank_max": 1, "pct": 40},
@@ -306,12 +315,12 @@ PRIZE_POOLS = [
         "competition_id": None,
         "title": "Referral Champions Pool",
         "amount_total_ngn": 0,
-        "amount_usd_cents": 500_000,   # $5,000 seed
+        "amount_usd_cents": 100_000,   # $1,000 base
         "currency": "USD",
         "payout_structure": [
-            {"rank_min": 1, "rank_max": 1, "pct": 40},
-            {"rank_min": 2, "rank_max": 3, "pct": 15},
-            {"rank_min": 4, "rank_max": 10, "pct": 3},
+            {"rank_min": 1, "rank_max": 1, "pct": 50},
+            {"rank_min": 2, "rank_max": 2, "pct": 30},
+            {"rank_min": 3, "rank_max": 3, "pct": 20},
         ],
         "starts_at": "2026-02-09T00:00:00+00:00",
         "ends_at": "2026-07-19T22:00:00+00:00",
@@ -367,10 +376,17 @@ async def seed_all():
         {"$set": {**WC2026_COMPETITION, "created_at": utcnow_iso()}},
         upsert=True,
     )
-    # Prize pools
+    # Prize pools — IMPORTANT: only set the amount on FIRST insert, otherwise
+    # admin edits get clobbered every time the server boots.
     for p in PRIZE_POOLS:
         await db.prize_pools.update_one(
-            {"id": p["id"]}, {"$set": {**p, "created_at": utcnow_iso()}}, upsert=True
+            {"id": p["id"]},
+            {
+                "$setOnInsert": {**p, "created_at": utcnow_iso()},
+                # Update safe metadata only (id, label, type) — leave amount_usd_cents alone.
+                "$set": {k: v for k, v in p.items() if k not in ("amount_usd_cents", "id", "created_at")},
+            },
+            upsert=True,
         )
     # WC groups (one doc per group)
     for g in WC2026_GROUPS:

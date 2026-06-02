@@ -696,3 +696,15 @@ See `/app/memory/test_credentials.md`. Admin: `admin@cloudypitch.com` / `CloudyA
 - ✅ Nav links added in desktop dropdown + mobile drawer.
 - ✅ Backend `/api/fantasy/my-teams` returns enriched squads (with game title resolution).
 
+
+## Iteration 27 — Prize-pool seed fix + Naira currency + dollar input (2026-06-02)
+- 🔴 **CRITICAL BUG FIXED**: `seed_data.py` was using `$set` on every server boot — so any admin edit to prize pool amounts got CLOBBERED on every deploy. Now uses `$setOnInsert` for `amount_usd_cents` (only sets on first insert) + `$set` for safe metadata (title, kind, currency). Admin edits stick across all future deploys.
+- ✅ **Pools rebased to user spec**: Cloudy Pitch Grand Prize $2,500, Referral Champions $1,000. Force-updated existing DB rows once.
+- ✅ **New referral structure**: Base split — 1st $500 / 2nd $300 / 3rd $200. PLUS 5% of card revenue → referral pool, distributed as 2% to 1st / 1% to 2nd / 0.5% to 3rd / 1.5% spread evenly across ranks 4–10. Returned in `potential_prize_usd_cents` (combined) + breakdown `potential_prize_base_usd_cents` and `potential_prize_cards_usd_cents`.
+- ✅ **Admin prize-pool input now in DOLLARS**, not cents. UI auto-divides DB cents by 100 for display, multiplies back by 100 on save (`Math.round(usd * 100)`). Shows "Stored as N cents" hint below.
+- ✅ **Naira (₦) auto-detection** for Nigerian visitors:
+  - `GET /api/currency` reads `CF-IPCountry` header (set by Cloudflare proxy). Returns `{code: "NGN", symbol: "₦", rate: 1400}` for `country == NG`, else `{USD, $, 1.0}`.
+  - Admin can edit the NGN exchange rate in **Admin → Settings → Naira exchange rate** (`POST /api/admin/currency`).
+  - New `useCurrency()` React hook + `formatCents()` helper. Leaderboards page already wired — Nigerian users see prize pool as `₦3,500,000` (= $2,500 × 1,400). Other countries continue seeing `$2,500.00`.
+- 🟡 **Deferred to next iteration**: formation + bench picker, transfer-card consumption in BuildTeam (acknowledged).
+

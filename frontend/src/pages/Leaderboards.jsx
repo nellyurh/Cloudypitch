@@ -2,8 +2,15 @@ import React, { useEffect, useState } from "react";
 import api from "../lib/api";
 import { Trophy, Users, DollarSign, Sparkles, Crown } from "lucide-react";
 import PoolPulse from "../components/PoolPulse";
+import { useCurrency } from "../lib/currency";
 
 const USD = (cents) => `$${((cents || 0) / 100).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+
+// Currency-aware formatter used inside components via useCurrency()
+function formatPrize(cents, cur) {
+  if (!cur) return USD(cents);
+  return cur.formatCents(cents);
+}
 
 const TABS = [
   { k: "global",   l: "Global",   icon: Trophy },
@@ -159,6 +166,7 @@ export const Leaderboards = () => {
 };
 
 function PrizePoolCard({ pool, isReferrals }) {
+  const cur = useCurrency();
   const base = pool.base_usd_cents || 0;
   const cardsCut = pool.cards_cut_usd_cents || 0;
   const total = pool.total_usd_cents || (base + cardsCut);

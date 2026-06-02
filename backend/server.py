@@ -7,7 +7,7 @@ ROOT = Path(__file__).parent
 load_dotenv(ROOT / ".env")
 
 import logging
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from starlette.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
 
@@ -113,6 +113,56 @@ async def get_brand():
         "brand_mark_url": doc.get("brand_mark_url"),
         "brand_wordmark_url": doc.get("brand_wordmark_url"),
     }
+
+
+@app.get("/api/currency")
+async def currency_settings(request: Request):
+    """Returns {code, symbol, rate} based on the visitor's country.
+
+    Country is taken from CF-IPCountry (set by Cloudflare proxy) or X-Country.
+    Admin can edit the NGN exchange rate in app_settings.id='currency'.
+    """
+    from db import get_db
+    db = get_db()
+    doc = await db.app_settings.find_one({"id": "currency"}, {"_id": 0}) or {}
+    ngn_rate = float(doc.get("ngn_per_usd") or 1400)
+    headers = request.headers
+    country = (
+        headers.get("cf-ipcountry")
+        or headers.get("x-country")
+        or headers.get("x-vercel-ip-country")
+        or ""
+    ).upper().strip()
+    # Allow ?force=NG for testing
+    forced = (request.query_params.get("force") or "").upper().strip()
+    if forced:
+        country = forced
+    if country == "NG":
+        return {"country": "NG", "code": "NGN", "symbol": "₦", "rate": ngn_rate, "base": "USD"}
+    return {"country": country or "WORLD", "code": "USD", "symbol": "$", "rate": 1.0, "base": "USD"}
+
+
+@app.post("/api/admin/currency")
+async def set_currency_rate(payload: dict, request: Request):
+    """Admin: set the NGN exchange rate. Requires admin session."""
+    from db import get_db
+    import auth as a
+    # Manual auth check (this isn't on the router with global dep)
+    user = await a.get_current_user(request)
+    if not user or user.get("role") != "admin":
+        from fastapi import HTTPException
+        raise HTTPException(status_code=403, detail="Admin required")
+    db = get_db()
+    rate = float(payload.get("ngn_per_usd") or 0)
+    if not (1 <= rate <= 100000):
+        from fastapi import HTTPException
+        raise HTTPException(status_code=400, detail="rate must be 1–100000")
+    await db.app_settings.update_one(
+        {"id": "currency"},
+        {"$set": {"ngn_per_usd": rate, "updated_by": user["id"], "updated_at": __import__("datetime").datetime.now(__import__("datetime").timezone.utc).isoformat()}},
+        upsert=True,
+    )
+    return {"ok": True, "ngn_per_usd": rate}
 
 
 # Mount routers

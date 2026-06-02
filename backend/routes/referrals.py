@@ -102,8 +102,44 @@ async def leaderboard(limit: int = 50, scope: str = "all_time"):
             "referred_count": r["referred_count"],
             "active_count": r["active_count"],
         })
-    # Referral prize pool details
-    pool = await db.prize_pools.find_one({"id": "pool-referrals"}, {"_id": 0})
+    # Referral prize pool — base + cards-cut (5% of all card spend) split among top 10.
+    # Distribution within the cards-cut: 2% to 1st, 1% to 2nd, 0.5% to 3rd,
+    # remaining 1.5% split equally among ranks 4-10 (≈0.214% each).
+    pool_doc = await db.prize_pools.find_one({"id": "pool-referrals"}, {"_id": 0}) or {}
+    base_cents = int(pool_doc.get("amount_usd_cents") or 100_000)
+    # Total card spend (proxy: sum of `card_purchase` wallet transactions ever)
+    agg = await db.wallet_transactions.aggregate([
+        {"$match": {"kind": "card_purchase"}},
+        {"$group": {"_id": None, "total": {"$sum": "$amount_usd_cents"}}},
+    ]).to_list(length=1)
+    total_card_spend = int(agg[0]["total"]) if agg else 0
+    cards_cut_total = int(round(total_card_spend * 0.05))     # 5% of card revenue
+    # Per-rank cents from cards-cut
+    cc_1 = int(round(total_card_spend * 0.020))
+    cc_2 = int(round(total_card_spend * 0.010))
+    cc_3 = int(round(total_card_spend * 0.005))
+    cc_4_10_each = int(round(total_card_spend * 0.015 / 7))
+    # Base split per spec: 1st $500, 2nd $300, 3rd $200
+    base_split = {
+        1: int(round(base_cents * 0.50)),
+        2: int(round(base_cents * 0.30)),
+        3: int(round(base_cents * 0.20)),
+    }
+    for i, r in enumerate(out, start=1):
+        cards_part = 0
+        if i == 1: cards_part = cc_1
+        elif i == 2: cards_part = cc_2
+        elif i == 3: cards_part = cc_3
+        elif 4 <= i <= 10: cards_part = cc_4_10_each
+        r["potential_prize_usd_cents"] = base_split.get(i, 0) + cards_part
+        r["potential_prize_base_usd_cents"] = base_split.get(i, 0)
+        r["potential_prize_cards_usd_cents"] = cards_part
+    pool = {
+        **(pool_doc or {}),
+        "base_usd_cents": base_cents,
+        "cards_cut_usd_cents": cards_cut_total,
+        "total_usd_cents": base_cents + cards_cut_total,
+    }
     return {"scope": scope, "leaderboard": out, "pool": pool}
 
 

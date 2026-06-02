@@ -228,8 +228,15 @@ export const AdminPanel = () => {
                       <input className="cp-input w-full" value={editingPool.title || ""} onChange={(e) => setEditingPool(s => ({ ...s, title: e.target.value }))} data-testid={`pool-title-${p.id}`}/>
                     </div>
                     <div>
-                      <label className="text-[10px] uppercase tracking-widest" style={{ color: "var(--cp-text-muted)" }}>USD Cents</label>
-                      <input type="number" className="cp-input w-full" value={editingPool.amount_usd_cents || 0} onChange={(e) => setEditingPool(s => ({ ...s, amount_usd_cents: Number(e.target.value) }))} data-testid={`pool-usd-${p.id}`}/>
+                      <label className="text-[10px] uppercase tracking-widest" style={{ color: "var(--cp-text-muted)" }}>Amount (USD $)</label>
+                      <input
+                        type="number" step="0.01" min="0"
+                        className="cp-input w-full"
+                        value={((editingPool.amount_usd_cents || 0) / 100).toString()}
+                        onChange={(e) => setEditingPool(s => ({ ...s, amount_usd_cents: Math.round(Number(e.target.value || 0) * 100) }))}
+                        data-testid={`pool-usd-${p.id}`}
+                      />
+                      <div className="text-[9px] opacity-60 mt-1">Stored as {editingPool.amount_usd_cents || 0} cents</div>
                     </div>
                     <div>
                       <label className="text-[10px] uppercase tracking-widest" style={{ color: "var(--cp-text-muted)" }}>Starts At (ISO)</label>
@@ -486,9 +493,51 @@ function PlayerPricesTab({ onMessage }) {
 function SettingsTab({ onMessage }) {
   return (
     <div className="space-y-4 max-w-2xl" data-testid="admin-settings">
+      <CurrencyRateForm onMessage={onMessage}/>
       <BrandUploader onMessage={onMessage}/>
       <CreateAdminForm onMessage={onMessage}/>
     </div>
+  );
+}
+
+function CurrencyRateForm({ onMessage }) {
+  const [rate, setRate] = useState(1400);
+  const [loaded, setLoaded] = useState(false);
+  useEffect(() => {
+    (async () => {
+      try {
+        const { data } = await api.get("/currency?force=NG");
+        setRate(data.rate || 1400);
+      } catch (_) {}
+      setLoaded(true);
+    })();
+  }, []);
+  const save = async (e) => {
+    e.preventDefault();
+    try {
+      await api.post("/admin/currency", { ngn_per_usd: Number(rate) });
+      onMessage(`✓ NGN exchange rate updated to ₦${rate}/$1`);
+    } catch (e) {
+      onMessage(`✗ ${e?.response?.data?.detail || e.message}`);
+    }
+  };
+  return (
+    <form onSubmit={save} className="cp-surface p-4" data-testid="currency-rate-form">
+      <h2 className="font-extrabold mb-1">Naira exchange rate</h2>
+      <div className="text-[11px] opacity-60 mb-3">Nigerian visitors will see all prices auto-converted at this rate. Other countries continue seeing USD.</div>
+      <div className="flex items-center gap-2">
+        <span className="text-xs">₦</span>
+        <input
+          type="number" step="1" min="1" max="100000"
+          value={loaded ? rate : ""}
+          onChange={e => setRate(e.target.value)}
+          className="cp-input flex-1"
+          data-testid="ngn-rate-input"
+        />
+        <span className="text-xs">/ $1</span>
+        <button type="submit" className="cp-btn-primary" data-testid="ngn-rate-save">Save</button>
+      </div>
+    </form>
   );
 }
 
