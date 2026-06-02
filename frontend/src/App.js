@@ -40,7 +40,8 @@ function App() {
               <Route path="/league/:id" element={<LeaguePage />} />
               <Route path="/worldcup" element={<WorldCupHub />} />
               <Route path="/predictions" element={<PredictionsHub />} />
-              <Route path="/fantasy" element={<FantasyHub />} />
+              <Route path="/fantasy" element={<BuildTeam />} />
+              <Route path="/fantasy/hub" element={<FantasyHub />} />
               <Route path="/build-team" element={<BuildTeam />} />
               <Route path="/cards" element={<LegendCards />} />
               <Route path="/prize-pools" element={<PrizePoolsList />} />

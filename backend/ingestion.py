@@ -1250,6 +1250,15 @@ async def sync_wc2026_squads():
             # Snap to 0.5 increments and clamp to [3.5, 10.0]
             snapped = round(raw_price * 2) / 2
             final_price = max(3.5, min(10.0, snapped))
+            # Curated star override — known elite players always at the top of the ladder.
+            try:
+                from star_tiers import star_floor
+                pname = player.get("display_name") or player.get("name") or ""
+                floor = star_floor(pname)
+                if floor and floor > final_price:
+                    final_price = min(11.5, floor)
+            except Exception:
+                pass
             pid = player.get("id")
             if not pid:
                 continue

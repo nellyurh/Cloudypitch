@@ -665,3 +665,11 @@ See `/app/memory/test_credentials.md`. Admin: `admin@cloudypitch.com` / `CloudyA
 - ✅ **Player prices rebalanced** — top tier premium lowered from +£1.6 to +£0.8, #10 jersey bump from +£2.0 to +£1.0, base ceiling £10.0 (was £14.0). Cheapest valid 15-man squad: £64.5 (was £105+). 1000/1358 players re-priced.
 - ✅ **Light/dark logo variants** — Brand component now auto-swaps between `brand_logo_url` and `brand_logo_dark_url` based on `prefers-color-scheme` or `data-theme="dark"` on `<html>`. New `logo_dark` slot added to Admin → Settings.
 - ✅ **Mobile header tightened** — reduced vertical padding (`py-1 md:py-2.5`), logo capped at 44px on mobile via `max-height` CSS, lets through up to 80px on desktop.
+
+
+## Iteration 24 — Curated star prices + 20-man mode + /fantasy route fix (2026-06-02)
+- ✅ **`/fantasy` now serves the new clean BuildTeam page** — old FantasyHub moved to `/fantasy/hub` (kept for legacy links). Users tapping "Fantasy" or "Build a Team" land on the focused squad-build UX immediately. No more WC card cruft on the team-build page.
+- ✅ **Curated star tier pricing** — `/app/backend/star_tiers.py` with hand-tuned WC2026 tiers (S+ / S / A+ / A) for ~150 known elite players. Star floor overrides synthetic price when applicable. Word-boundary matching (NOT substring) so "Rodri" no longer matches "Rodriguez". 67 star overrides applied. **Top 15 priciest now ALL genuine elite**: Mbappé, Haaland, Bellingham, Vinicius, Van Dijk, KDB, Rodri, Neymar, Messi, Courtois, Alisson…
+- ✅ **20-man / £120m squad mode** — `/fantasy?mode=20` (or `/build-team?mode=20`) renders 3 GK / 7 DEF / 6 MID / 4 FWD = 20 slots with £120m budget. Used for games with >2 teams selectable.
+- ✅ **Bench Boost toggle** — visible only in `mode=20` since it's exclusive to multi-team games (per user spec: "bench boost card available for every match with more than 2 teams"). Posted with squad save as `bench_boost: true|false`.
+- ✅ Save button reflects mode: "Save squad" (15) or "Save 20-man" (20).

@@ -108,6 +108,14 @@ async def admin_recompute_prices(_: dict = Depends(a.require_admin)):
         raw = base_price + tier_premium + jersey_bump + dispersion
         snapped = round(raw * 2) / 2
         new_price = max(3.5, min(10.0, snapped))
+        # Curated star floor — real elite players always end up on top of the price ladder.
+        try:
+            from star_tiers import star_floor
+            floor = star_floor(p.get("name") or "")
+            if floor and floor > new_price:
+                new_price = min(11.5, floor)
+        except Exception:
+            pass
         if new_price != p.get("price"):
             await db.players.update_one({"id": p["id"]}, {"$set": {"price": new_price, "updated_at": utcnow_iso()}})
             updated += 1

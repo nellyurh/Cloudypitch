@@ -1,13 +1,16 @@
 import React, { useEffect, useMemo, useState } from "react";
+import { useSearchParams } from "react-router-dom";
 import api from "../lib/api";
 import { useAuth } from "../lib/auth";
-import { CheckCircle2, X, Search, ChevronLeft, Trophy, Save } from "lucide-react";
+import { CheckCircle2, X, Search, ChevronLeft, Trophy, Save, Zap } from "lucide-react";
 
 const POSITIONS = ["GK", "DEF", "MID", "FWD"];
-const POS_LIMIT = { GK: 2, DEF: 5, MID: 5, FWD: 3 };
+const SQUAD_PROFILES = {
+  "15": { total: 15, budget: 100, slots: { GK: 2, DEF: 5, MID: 5, FWD: 3 } },
+  "20": { total: 20, budget: 120, slots: { GK: 3, DEF: 7, MID: 6, FWD: 4 } },
+};
 const POS_LABEL = { GK: "Goalkeepers", DEF: "Defenders", MID: "Midfielders", FWD: "Forwards" };
 const POS_COLOR = { GK: "#FFC857", DEF: "#A3E635", MID: "#7DD3FC", FWD: "#FB7185" };
-const BUDGET = 100.0;
 
 const fmt = (n) => `£${(n || 0).toFixed(1)}`;
 
@@ -70,12 +73,19 @@ function PitchSlot({ pos, picked, onPick, onRemove }) {
 /** Build A Team — focused page, only the squad-build UI. */
 export default function BuildTeam() {
   const { user } = useAuth();
+  const [searchParams] = useSearchParams();
+  // ?mode=15 (default, 15 players £100m) | ?mode=20 (20 players £120m for >2-team games)
+  const mode = searchParams.get("mode") === "20" ? "20" : "15";
+  const profile = SQUAD_PROFILES[mode];
+  const POS_LIMIT = profile.slots;
+  const BUDGET = profile.budget;
   const [players, setPlayers] = useState([]);
-  const [squad, setSquad] = useState([]);            // [{id, name, position, price, ...}]
-  const [view, setView] = useState("pitch");          // "pitch" | "list"
-  const [pickerPos, setPickerPos] = useState(null);   // when set → opens picker modal
+  const [squad, setSquad] = useState([]);
+  const [view, setView] = useState("pitch");
+  const [pickerPos, setPickerPos] = useState(null);
   const [saving, setSaving] = useState(false);
   const [savedAt, setSavedAt] = useState(null);
+  const [benchBoost, setBenchBoost] = useState(false);
 
   useEffect(() => {
     (async () => {
@@ -112,7 +122,7 @@ export default function BuildTeam() {
   const totalSpent = useMemo(() => squad.reduce((s, p) => s + (p.price || 0), 0), [squad]);
   const remaining = BUDGET - totalSpent;
   const totalCount = squad.length;
-  const isFull = totalCount === 15;
+  const isFull = totalCount === profile.total;
 
   const addPlayer = (p) => {
     if (squad.find(x => x.id === p.id)) return;
@@ -128,6 +138,8 @@ export default function BuildTeam() {
     try {
       await api.post("/fantasy/squad", {
         players: squad.map(p => ({ player_id: p.id, position: p.position, is_captain: false, is_vice: false })),
+        mode,
+        bench_boost: benchBoost,
       });
       setSavedAt(new Date());
     } catch (e) {
@@ -139,16 +151,34 @@ export default function BuildTeam() {
   return (
     <div className="max-w-[1400px] mx-auto p-3 md:p-5" data-testid="build-team-page">
       <div className="flex items-center justify-between gap-3 flex-wrap mb-3">
-        <h1 className="text-xl md:text-2xl font-extrabold">Build a Team</h1>
-        <div className="flex items-center gap-1 cp-surface p-1 text-xs" role="tablist">
-          <button onClick={() => setView("pitch")} className={`px-3 py-1.5 rounded ${view === "pitch" ? "bg-cp-lime text-cp-forest font-bold" : "hover:bg-white/5"}`} data-testid="view-pitch">Pitch</button>
-          <button onClick={() => setView("list")}  className={`px-3 py-1.5 rounded ${view === "list"  ? "bg-cp-lime text-cp-forest font-bold" : "hover:bg-white/5"}`} data-testid="view-list">List</button>
+        <div className="flex items-center gap-2">
+          <h1 className="text-xl md:text-2xl font-extrabold">Build a Team</h1>
+          <span className="text-[10px] font-bold px-2 py-0.5 rounded uppercase tracking-wider" style={{ background: "var(--cp-surface-2)", color: "var(--cp-text-muted)" }}>
+            {profile.total}-man · £{profile.budget}m
+          </span>
+        </div>
+        <div className="flex items-center gap-2">
+          {mode === "20" && (
+            <button
+              onClick={() => setBenchBoost(!benchBoost)}
+              className={`px-2.5 py-1.5 rounded text-xs font-bold flex items-center gap-1 ${benchBoost ? "bg-cp-lime text-cp-forest" : ""}`}
+              style={!benchBoost ? { background: "var(--cp-surface-2)" } : {}}
+              data-testid="bench-boost-toggle"
+              title="Bench Boost — bench players also score this game"
+            >
+              <Zap size={12}/> Bench Boost
+            </button>
+          )}
+          <div className="flex items-center gap-1 cp-surface p-1 text-xs" role="tablist">
+            <button onClick={() => setView("pitch")} className={`px-3 py-1.5 rounded ${view === "pitch" ? "bg-cp-lime text-cp-forest font-bold" : "hover:bg-white/5"}`} data-testid="view-pitch">Pitch</button>
+            <button onClick={() => setView("list")}  className={`px-3 py-1.5 rounded ${view === "list"  ? "bg-cp-lime text-cp-forest font-bold" : "hover:bg-white/5"}`} data-testid="view-list">List</button>
+          </div>
         </div>
       </div>
 
       {/* Budget header */}
       <div className="cp-surface p-3 mb-3 grid grid-cols-3 md:grid-cols-4 gap-2 text-center" data-testid="budget-bar">
-        <Stat label="Players" value={`${totalCount}/15`} tone={isFull ? "good" : "warn"}/>
+        <Stat label="Players" value={`${totalCount}/${profile.total}`} tone={isFull ? "good" : "warn"}/>
         <Stat label="Spent"   value={fmt(totalSpent)}/>
         <Stat label="Bank"    value={fmt(remaining)} tone={remaining < 0 ? "bad" : "good"}/>
         <button
@@ -158,12 +188,12 @@ export default function BuildTeam() {
           style={{ background: "var(--cp-lime)", color: "var(--cp-forest)" }}
           data-testid="save-squad"
         >
-          <Save size={14}/> {saving ? "Saving…" : (savedAt ? "Saved ✓" : "Save squad")}
+          <Save size={14}/> {saving ? "Saving…" : (savedAt ? "Saved ✓" : (mode === "20" ? "Save 20-man" : "Save squad"))}
         </button>
       </div>
 
       {/* Position progress dots */}
-      <div className="grid grid-cols-4 gap-2 mb-3" data-testid="position-progress">
+      <div className={`grid grid-cols-4 gap-2 mb-3`} data-testid="position-progress">
         {POSITIONS.map(pos => (
           <div key={pos} className="cp-surface p-2 text-center">
             <div className="text-[10px] uppercase font-bold opacity-60">{pos}</div>
@@ -178,9 +208,9 @@ export default function BuildTeam() {
       </div>
 
       {view === "pitch" ? (
-        <PitchView counts={counts} squad={squad} onPick={setPickerPos} onRemove={removePlayer}/>
+        <PitchView counts={counts} squad={squad} onPick={setPickerPos} onRemove={removePlayer} posLimit={POS_LIMIT}/>
       ) : (
-        <ListView squad={squad} counts={counts} onPick={setPickerPos} onRemove={removePlayer}/>
+        <ListView squad={squad} counts={counts} onPick={setPickerPos} onRemove={removePlayer} posLimit={POS_LIMIT}/>
       )}
 
       {/* Mobile sticky save bar */}
@@ -191,7 +221,7 @@ export default function BuildTeam() {
         style={{ background: "var(--cp-lime)", color: "var(--cp-forest)", boxShadow: "0 6px 24px rgba(0,0,0,0.4)" }}
         data-testid="save-squad-mobile"
       >
-        <Save size={14}/> {saving ? "Saving…" : isFull ? (savedAt ? "Saved ✓" : "Save squad") : `Pick ${15 - totalCount} more`}
+        <Save size={14}/> {saving ? "Saving…" : isFull ? (savedAt ? "Saved ✓" : "Save squad") : `Pick ${profile.total - totalCount} more`}
       </button>
 
       {/* Player picker modal */}
@@ -204,6 +234,7 @@ export default function BuildTeam() {
           remaining={remaining}
           onClose={() => setPickerPos(null)}
           onAdd={addPlayer}
+          posLimit={POS_LIMIT}
         />
       )}
     </div>
@@ -220,10 +251,10 @@ function Stat({ label, value, tone }) {
   );
 }
 
-function PitchView({ counts, squad, onPick, onRemove }) {
+function PitchView({ counts, squad, onPick, onRemove, posLimit }) {
   const slots = POSITIONS.flatMap(pos => {
     const picks = squad.filter(p => p.position === pos);
-    const emptyN = POS_LIMIT[pos] - picks.length;
+    const emptyN = posLimit[pos] - picks.length;
     return [
       ...picks.map(p => ({ pos, player: p })),
       ...Array.from({ length: emptyN }, () => ({ pos, player: null })),
@@ -260,12 +291,12 @@ function PitchView({ counts, squad, onPick, onRemove }) {
   );
 }
 
-function ListView({ squad, counts, onPick, onRemove }) {
+function ListView({ squad, counts, onPick, onRemove, posLimit }) {
   return (
     <div className="space-y-3" data-testid="build-team-list">
       {POSITIONS.map(pos => {
         const picks = squad.filter(p => p.position === pos);
-        const empty = POS_LIMIT[pos] - picks.length;
+        const empty = posLimit[pos] - picks.length;
         return (
           <div key={pos} className="cp-surface overflow-hidden">
             <div
@@ -275,7 +306,7 @@ function ListView({ squad, counts, onPick, onRemove }) {
               <div className="flex items-center gap-2">
                 <span className="w-2 h-2 rounded-full" style={{ background: POS_COLOR[pos] }}/>
                 <span className="font-extrabold">{POS_LABEL[pos]}</span>
-                <span className="text-xs opacity-60">{counts[pos]}/{POS_LIMIT[pos]}</span>
+                <span className="text-xs opacity-60">{counts[pos]}/{posLimit[pos]}</span>
               </div>
               {empty > 0 && (
                 <button onClick={() => onPick(pos)} className="text-xs font-bold px-2 py-1 rounded" style={{ background: POS_COLOR[pos], color: "var(--cp-forest)" }} data-testid={`list-add-${pos}`}>
@@ -309,11 +340,11 @@ function ListView({ squad, counts, onPick, onRemove }) {
   );
 }
 
-function PlayerPicker({ position, allPlayers, alreadyPickedIds, counts, remaining, onClose, onAdd }) {
+function PlayerPicker({ position, allPlayers, alreadyPickedIds, counts, remaining, onClose, onAdd, posLimit }) {
   const [search, setSearch] = useState("");
   const [teamFilter, setTeamFilter] = useState("ALL");
   const [sortBy, setSortBy] = useState("price");
-  const limitReached = counts[position] >= POS_LIMIT[position];
+  const limitReached = counts[position] >= posLimit[position];
 
   const teamOptions = useMemo(() => {
     const set = new Set(allPlayers.filter(p => p.position === position).map(p => p.team_name).filter(Boolean));
@@ -368,7 +399,7 @@ function PlayerPicker({ position, allPlayers, alreadyPickedIds, counts, remainin
         </div>
         <div className="flex-1 overflow-y-auto" data-testid="picker-list">
           {limitReached && (
-            <div className="p-3 text-xs text-center bg-red-500/10 text-red-400">You already have {POS_LIMIT[position]} {position}s. Remove one first.</div>
+            <div className="p-3 text-xs text-center bg-red-500/10 text-red-400">You already have {posLimit[position]} {position}s. Remove one first.</div>
           )}
           {list.length === 0 ? (
             <div className="p-6 text-center opacity-60 text-sm">No players match your filters.</div>
