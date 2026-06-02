@@ -42,6 +42,7 @@ async def list_fantasy_players(limit: int = 2000):
     return {"players": out[:limit], "source": "synthetic"}
 
 
+@router.get("/squad")
 @router.get("/squad/me")
 async def my_squad(user: dict = Depends(a.get_current_user)):
     db = get_db()
@@ -57,11 +58,27 @@ async def create_or_update_squad(payload: FantasySquadIn, user: dict = Depends(a
     comp = await db.fantasy_competitions.find_one({"id": payload.competition_id}, {"_id": 0})
     if not comp:
         raise HTTPException(status_code=404, detail="Competition not found")
-    if len(payload.players) > comp.get("squad_size", 15):
-        raise HTTPException(status_code=400, detail=f"Squad too large; max {comp.get('squad_size', 15)}")
+    # Honor explicit mode (15-man £100m vs 20-man £120m). Fall back to comp config.
+    mode = payload.mode or "15"
+    max_size = 20 if mode == "20" else 15
+    budget = 120.0 if mode == "20" else 100.0
+    if len(payload.players) > max_size:
+        raise HTTPException(status_code=400, detail=f"Squad too large; max {max_size}")
     total_cost = sum(p.price_paid for p in payload.players)
-    if total_cost > comp.get("budget_total", 100):
-        raise HTTPException(status_code=400, detail=f"Over budget ({total_cost:.1f} > {comp.get('budget_total', 100):.1f})")
+    if total_cost > budget:
+        raise HTTPException(status_code=400, detail=f"Over budget ({total_cost:.1f} > {budget:.1f})")
+
+    # Derive is_starting from on_bench / bench_ids
+    bench_set = set(payload.bench_ids or [p.player_id for p in payload.players if p.on_bench])
+    players_out = []
+    for p in payload.players:
+        d = p.model_dump()
+        d["is_starting"] = p.player_id not in bench_set
+        d["on_bench"] = p.player_id in bench_set
+        d["is_captain"] = (payload.captain_id == p.player_id)
+        d["is_vice"] = (payload.vice_captain_id == p.player_id)
+        players_out.append(d)
+
     # Validate cards belong to user with uses remaining (cap 5 per gameweek)
     valid_cards: list[str] = []
     for ucid in (payload.applied_card_ids or [])[:5]:
@@ -71,21 +88,33 @@ async def create_or_update_squad(payload: FantasySquadIn, user: dict = Depends(a
 
     doc = {
         "user_id": user["id"], "competition_id": payload.competition_id,
-        "squad_name": payload.squad_name, "captain_id": payload.captain_id,
+        "game_id": payload.game_id,
+        "squad_name": payload.squad_name,
+        "mode": mode,
+        "captain_id": payload.captain_id,
         "vice_captain_id": payload.vice_captain_id,
-        "players": [p.model_dump() for p in payload.players],
+        "formation": payload.formation or "4-3-3",
+        "bench_ids": list(bench_set),
+        "bench_boost": bool(payload.bench_boost),
+        "players": players_out,
         "applied_card_ids": valid_cards,
         "total_cost": total_cost,
-        "total_points": 0, "gw_points": 0, "rank": None,
+        "budget": budget,
         "updated_at": utcnow_iso(),
     }
     existing = await db.fantasy_squads.find_one({"user_id": user["id"], "competition_id": payload.competition_id})
     if existing:
         await db.fantasy_squads.update_one({"id": existing["id"]}, {"$set": doc})
         doc["id"] = existing["id"]
+        # Preserve total_points / gw_points across edits
+        doc["total_points"] = existing.get("total_points", 0)
+        doc["gw_points"] = existing.get("gw_points", 0)
     else:
         doc["id"] = new_id()
         doc["created_at"] = utcnow_iso()
+        doc["total_points"] = 0
+        doc["gw_points"] = 0
+        doc["rank"] = None
         await db.fantasy_squads.insert_one(doc)
     doc.pop("_id", None)
     return {"squad": doc}

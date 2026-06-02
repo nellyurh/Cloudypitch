@@ -2,7 +2,8 @@ import React, { useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import api from "../lib/api";
 import { useAuth } from "../lib/auth";
-import { CheckCircle2, X, Search, ChevronLeft, Trophy, Save, Zap } from "lucide-react";
+import { useCurrency } from "../lib/currency";
+import { CheckCircle2, X, Search, ChevronLeft, Trophy, Save, Zap, AlertTriangle, CreditCard, MinusCircle, ShoppingCart } from "lucide-react";
 
 const POSITIONS = ["GK", "DEF", "MID", "FWD"];
 const SQUAD_PROFILES = {
@@ -13,6 +14,13 @@ const POS_LABEL = { GK: "Goalkeepers", DEF: "Defenders", MID: "Midfielders", FWD
 const POS_COLOR = { GK: "#FFC857", DEF: "#A3E635", MID: "#7DD3FC", FWD: "#FB7185" };
 
 const fmt = (n) => `£${(n || 0).toFixed(1)}`;
+
+/** Parse "4-3-3" → { GK:1, DEF:4, MID:3, FWD:3 } */
+function parseFormation(f) {
+  const parts = (f || "4-3-3").split("-").map(n => parseInt(n, 10) || 0);
+  const [DEF = 4, MID = 3, FWD = 3] = parts;
+  return { GK: 1, DEF, MID, FWD };
+}
 
 function Jersey({ color = "#A3E635", size = 44 }) {
   return (
@@ -27,7 +35,7 @@ function Jersey({ color = "#A3E635", size = 44 }) {
 }
 
 /** A pitch slot — either populated or an empty "+ add" tile */
-function PitchSlot({ pos, picked, onPick, onTap, isCaptain, isVice }) {
+function PitchSlot({ pos, picked, onPick, onTap, isCaptain, isVice, isBench }) {
   if (!picked) {
     return (
       <button
@@ -49,8 +57,8 @@ function PitchSlot({ pos, picked, onPick, onTap, isCaptain, isVice }) {
   }
   const lastName = (picked.name || "?").split(" ").slice(-1)[0];
   return (
-    <div className="flex flex-col items-center min-w-0 max-w-[90px] w-full" data-testid={`pitch-slot-${picked.id}`}>
-      <button onClick={() => onTap(picked)} className="relative hover:scale-105 transition" title={isCaptain ? "Captain" : isVice ? "Vice-captain" : "Tap to remove"}>
+    <div className={`flex flex-col items-center min-w-0 max-w-[90px] w-full ${isBench ? "opacity-70" : ""}`} data-testid={`pitch-slot-${picked.id}`}>
+      <button onClick={() => onTap(picked)} className="relative hover:scale-105 transition" title={isCaptain ? "Captain" : isVice ? "Vice-captain" : (isBench ? "On bench — tap to start" : "Tap to bench / remove")}>
         <Jersey color={POS_COLOR[pos]} size={42}/>
         {picked.shirt_number && (
           <span className="absolute inset-0 flex items-center justify-center text-[11px] font-extrabold text-cp-forest pointer-events-none" style={{ paddingTop: 6 }}>
@@ -62,6 +70,9 @@ function PitchSlot({ pos, picked, onPick, onTap, isCaptain, isVice }) {
         )}
         {isVice && (
           <span className="absolute -top-1 -right-1 bg-white text-cp-forest text-[8px] font-extrabold w-4 h-4 rounded-full flex items-center justify-center ring-2 ring-black/40" data-testid={`vice-${picked.id}`}>V</span>
+        )}
+        {isBench && (
+          <span className="absolute -bottom-1 -left-1 bg-amber-400 text-cp-forest text-[7px] font-extrabold px-1 rounded ring-1 ring-black/40" data-testid={`bench-${picked.id}`}>B</span>
         )}
       </button>
       <div className="mt-0.5 w-full max-w-[88px]">
@@ -105,6 +116,10 @@ export default function BuildTeam() {
     ? ["4-4-2", "4-3-3", "3-5-2", "3-4-3", "5-3-2", "5-4-1", "4-5-1"] // 11 starters in 20-man too
     : ["4-3-3", "4-4-2", "3-5-2", "3-4-3", "5-3-2", "5-4-1", "4-5-1"];
   const benchTarget = profile.total - 11; // 4 for 15-man, 9 for 20-man
+  const startersNeeded = parseFormation(formation); // { GK:1, DEF, MID, FWD }
+  const cur = useCurrency();
+  const [transferModal, setTransferModal] = useState(null); // { count, transfersInfo }
+  const [transferBusy, setTransferBusy] = useState(false);
 
   useEffect(() => {
     (async () => {
@@ -164,6 +179,34 @@ export default function BuildTeam() {
   const totalCount = squad.length;
   const isFull = totalCount === profile.total;
 
+  // Auto-bench helper: given formation, mark cheapest extras in each position as benched.
+  // Always keeps a valid formation (1 GK + DEF/MID/FWD from formation) starting.
+  const autoBenchFor = (squadList, fmtParts) => {
+    const need = fmtParts; // { GK:1, DEF, MID, FWD }
+    const benched = new Set();
+    POSITIONS.forEach(pos => {
+      const inPos = squadList.filter(p => p.position === pos)
+        .sort((a, b) => (b.price || 0) - (a.price || 0)); // expensive first → keep as starters
+      const extra = inPos.slice(need[pos]); // everything past the formation quota goes to bench
+      extra.forEach(p => benched.add(p.id));
+    });
+    return benched;
+  };
+
+  // When squad first becomes full OR formation changes, snap bench to a valid starting XI.
+  // Only auto-reshuffle when current bench is empty/invalid; respect user manual picks otherwise.
+  useEffect(() => {
+    if (!isFull) return;
+    // Count current starters by position
+    const startersByPos = { GK: 0, DEF: 0, MID: 0, FWD: 0 };
+    squad.forEach(p => { if (!benchIds.has(p.id)) startersByPos[p.position] += 1; });
+    const matchesFormation = POSITIONS.every(pos => startersByPos[pos] === startersNeeded[pos]);
+    if (matchesFormation && benchIds.size === benchTarget) return; // already valid
+    const next = autoBenchFor(squad, startersNeeded);
+    setBenchIds(next);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isFull, formation, mode]);
+
   const addPlayer = (p) => {
     if (squad.find(x => x.id === p.id)) return;
     if (counts[p.position] >= POS_LIMIT[p.position]) return;
@@ -194,24 +237,34 @@ export default function BuildTeam() {
       return;
     }
     if (isFull) {
-      // Toggle bench. Enforce max benchTarget AND keep at least 1 GK starting (formation needs 1 GK + 10 outfield).
+      // Toggle bench. Enforce formation: starters must match `startersNeeded`.
       setBenchIds(prev => {
         const next = new Set(prev);
+        const startersByPos = { GK: 0, DEF: 0, MID: 0, FWD: 0 };
+        squad.forEach(x => { if (!next.has(x.id)) startersByPos[x.position] += 1; });
         if (next.has(p.id)) {
-          next.delete(p.id);
-        } else {
-          if (next.size >= benchTarget) {
-            alert(`Bench is full (${benchTarget}). Remove someone first.`);
+          // Moving p from bench → starter. Need quota room in p.position.
+          if (startersByPos[p.position] >= startersNeeded[p.position]) {
+            alert(`${formation} formation already has ${startersNeeded[p.position]} starting ${p.position}. Bench another ${p.position} first.`);
             return prev;
           }
-          // Ensure not benching both GKs in 15-man (need 1 starting GK)
-          if (p.position === "GK") {
-            const benchedGKs = squad.filter(x => x.position === "GK" && next.has(x.id)).length;
-            const totalGK = squad.filter(x => x.position === "GK").length;
-            if (benchedGKs + 1 >= totalGK) {
-              alert("You need at least 1 starting GK.");
+          next.delete(p.id);
+        } else {
+          // Moving p from starter → bench. Don't drop below formation minimum (else broken XI).
+          if (startersByPos[p.position] <= startersNeeded[p.position] && (startersByPos[p.position] - 1) < startersNeeded[p.position]) {
+            // benching would break formation — only allow if we have a benched player of same position to promote
+            const benchedSamePos = squad.find(x => x.position === p.position && next.has(x.id));
+            if (!benchedSamePos) {
+              alert(`Cannot bench: formation ${formation} needs ${startersNeeded[p.position]} starting ${p.position}.`);
               return prev;
             }
+            next.add(p.id);
+            next.delete(benchedSamePos.id);
+            return next;
+          }
+          if (next.size >= benchTarget) {
+            alert(`Bench is full (${benchTarget}). Promote someone first.`);
+            return prev;
           }
           next.add(p.id);
         }
@@ -228,45 +281,29 @@ export default function BuildTeam() {
       setArmbandStep(true);
       return;
     }
-    // If editing a saved squad and we have transfers, ask how to pay
-    if (originalIds && transferCount > 0) {
-      const haveCard = (transfersInfo.remaining || 0) >= transferCount;
-      const card = transfersInfo.card_uses || 5;
-      const cardCost = `$${((transfersInfo.card_price_usd_cents || 200) / 100).toFixed(2)}`;
-      const penalty = (transfersInfo.point_penalty_per_transfer || 4) * transferCount;
-      const choice = window.prompt(
-        `You're transferring ${transferCount} player${transferCount > 1 ? "s" : ""}.\n\n` +
-        `Pay with TRANSFER CARDS (${transfersInfo.remaining || 0} left, need ${transferCount}): type "card"\n` +
-        `Buy a pack (${cardCost} for +${card}): type "buy"\n` +
-        `Take a points penalty (−${penalty}pt total): type "points"\n` +
-        `Cancel save: leave empty.`,
-        haveCard ? "card" : "points"
-      );
-      if (!choice) return;
-      try {
-        if (choice === "buy") {
-          await api.post("/fantasy/transfers/buy");
-        }
-        if (choice === "card" || choice === "buy") {
-          for (let i = 0; i < transferCount; i += 1) {
-            await api.post("/fantasy/transfers/spend", { pay_with: "card" });
-          }
-        } else if (choice === "points") {
-          for (let i = 0; i < transferCount; i += 1) {
-            await api.post("/fantasy/transfers/spend", { pay_with: "points" });
-          }
-        } else {
-          alert(`Unknown option "${choice}". Save cancelled.`);
-          return;
-        }
-      } catch (e) {
-        alert(`✗ ${e?.response?.data?.detail || e.message}`);
+    // Validate formation produces exactly 11 starters
+    if (isFull) {
+      const startersByPos = { GK: 0, DEF: 0, MID: 0, FWD: 0 };
+      squad.forEach(p => { if (!benchIds.has(p.id)) startersByPos[p.position] += 1; });
+      const wrong = POSITIONS.filter(pos => startersByPos[pos] !== startersNeeded[pos]);
+      if (wrong.length) {
+        alert(`Formation ${formation} needs ${startersNeeded.GK}-${startersNeeded.DEF}-${startersNeeded.MID}-${startersNeeded.FWD} starters. Fix ${wrong.join(", ")} before saving.`);
         return;
       }
     }
+    // If editing a saved squad and we have transfers, show the modal
+    if (originalIds && transferCount > 0) {
+      setTransferModal({ count: transferCount });
+      return;
+    }
+    await persistSquad();
+  };
+
+  const persistSquad = async () => {
     setSaving(true);
     try {
       await api.post("/fantasy/squad", {
+        competition_id: "fantasy-wc2026",
         squad_name: "My Squad",
         captain_id: captainId,
         vice_captain_id: viceId,
@@ -275,18 +312,50 @@ export default function BuildTeam() {
         players: squad.map(p => ({
           player_id: p.id,
           position: p.position,
+          price_paid: p.price || 0,
           is_captain: p.id === captainId,
           is_vice: p.id === viceId,
           on_bench: benchIds.has(p.id),
+          is_starting: !benchIds.has(p.id),
         })),
         mode,
         bench_boost: benchBoost,
       });
       setSavedAt(new Date());
+      setOriginalIds(new Set(squad.map(p => p.id))); // reset transfer baseline
     } catch (e) {
       alert(e?.response?.data?.detail || "Save failed");
     }
     setSaving(false);
+  };
+
+  const onTransferChoice = async (choice) => {
+    if (!transferModal) return;
+    setTransferBusy(true);
+    try {
+      if (choice === "buy") {
+        await api.post("/fantasy/transfers/buy");
+      }
+      if (choice === "card" || choice === "buy") {
+        for (let i = 0; i < transferModal.count; i += 1) {
+          await api.post("/fantasy/transfers/spend", { pay_with: "card" });
+        }
+      } else if (choice === "points") {
+        for (let i = 0; i < transferModal.count; i += 1) {
+          await api.post("/fantasy/transfers/spend", { pay_with: "points" });
+        }
+      }
+      // Refresh transfers state
+      try {
+        const { data } = await api.get("/fantasy/transfers");
+        setTransfersInfo(data);
+      } catch (_) {}
+      setTransferModal(null);
+      await persistSquad();
+    } catch (e) {
+      alert(`✗ ${e?.response?.data?.detail || e.message}`);
+    }
+    setTransferBusy(false);
   };
 
   return (
@@ -370,9 +439,9 @@ export default function BuildTeam() {
       )}
 
       {view === "pitch" ? (
-        <PitchView counts={counts} squad={squad} onPick={setPickerPos} onTap={onPlayerTap} posLimit={POS_LIMIT} captainId={captainId} viceId={viceId} armbandStep={armbandStep} benchIds={benchIds}/>
+        <PitchView counts={counts} squad={squad} onPick={setPickerPos} onTap={onPlayerTap} posLimit={POS_LIMIT} captainId={captainId} viceId={viceId} armbandStep={armbandStep} benchIds={benchIds} isFull={isFull} formation={formation} startersNeeded={startersNeeded}/>
       ) : (
-        <ListView squad={squad} counts={counts} onPick={setPickerPos} onRemove={removePlayer} posLimit={POS_LIMIT} captainId={captainId} viceId={viceId} onSetCaptain={(p) => setCaptainId(p.id === captainId ? null : p.id)} onSetVice={(p) => setViceId(p.id === viceId ? null : p.id)} benchIds={benchIds} onToggleBench={(p) => onPlayerTap(p)}/>
+        <ListView squad={squad} counts={counts} onPick={setPickerPos} onRemove={removePlayer} posLimit={POS_LIMIT} captainId={captainId} viceId={viceId} onSetCaptain={(p) => setCaptainId(p.id === captainId ? null : p.id)} onSetVice={(p) => setViceId(p.id === viceId ? null : p.id)} benchIds={benchIds} onToggleBench={(p) => onPlayerTap(p)} isFull={isFull}/>
       )}
 
       {/* Armband picker bar — shows when squad is full but captain/vice unset */}
@@ -420,6 +489,18 @@ export default function BuildTeam() {
           posLimit={POS_LIMIT}
         />
       )}
+
+      {/* Transfer payment modal — only when editing a saved squad */}
+      {transferModal && (
+        <TransferModal
+          count={transferModal.count}
+          transfersInfo={transfersInfo}
+          busy={transferBusy}
+          cur={cur}
+          onClose={() => !transferBusy && setTransferModal(null)}
+          onChoice={onTransferChoice}
+        />
+      )}
     </div>
   );
 }
@@ -434,62 +515,109 @@ function Stat({ label, value, tone }) {
   );
 }
 
-function PitchView({ counts, squad, onPick, onTap, posLimit, captainId, viceId, armbandStep, benchIds }) {
-  const slots = POSITIONS.flatMap(pos => {
-    const picks = squad.filter(p => p.position === pos);
-    const emptyN = posLimit[pos] - picks.length;
-    return [
-      ...picks.map(p => ({ pos, player: p })),
-      ...Array.from({ length: emptyN }, () => ({ pos, player: null })),
-    ];
-  });
-  const rowFor = (pos) => slots.filter(s => s.pos === pos);
+function PitchView({ counts, squad, onPick, onTap, posLimit, captainId, viceId, armbandStep, benchIds, isFull, formation, startersNeeded }) {
+  // When the squad is NOT full → keep the legacy "build slots" layout so users can see empty + tiles.
+  if (!isFull) {
+    const slots = POSITIONS.flatMap(pos => {
+      const picks = squad.filter(p => p.position === pos);
+      const emptyN = posLimit[pos] - picks.length;
+      return [
+        ...picks.map(p => ({ pos, player: p })),
+        ...Array.from({ length: emptyN }, () => ({ pos, player: null })),
+      ];
+    });
+    const rowFor = (pos) => slots.filter(s => s.pos === pos);
+    return (
+      <div className="relative w-full rounded-lg overflow-hidden" style={pitchStyle} data-testid="build-team-pitch">
+        <PitchLines/>
+        {armbandStep && <ArmbandBanner captainId={captainId}/>}
+        <div className="absolute inset-0 flex flex-col justify-around py-3">
+          {POSITIONS.map(pos => (
+            <div key={pos} className="flex items-start justify-around gap-1 px-1">
+              {rowFor(pos).map((s, i) => (
+                <PitchSlot key={`${pos}-${i}`} pos={pos} picked={s.player} onPick={onPick} onTap={onTap}
+                  isCaptain={s.player?.id === captainId} isVice={s.player?.id === viceId}
+                  isBench={s.player ? benchIds?.has(s.player.id) : false}/>
+              ))}
+            </div>
+          ))}
+        </div>
+      </div>
+    );
+  }
+
+  // FULL squad → formation-driven Starting XI + bench row.
+  const startersByPos = {
+    GK: squad.filter(p => p.position === "GK" && !benchIds.has(p.id)),
+    DEF: squad.filter(p => p.position === "DEF" && !benchIds.has(p.id)),
+    MID: squad.filter(p => p.position === "MID" && !benchIds.has(p.id)),
+    FWD: squad.filter(p => p.position === "FWD" && !benchIds.has(p.id)),
+  };
+  const benched = squad.filter(p => benchIds.has(p.id));
+
   return (
-    <div
-      className="relative w-full rounded-lg overflow-hidden"
-      style={{
-        aspectRatio: "10 / 14",
-        background: "repeating-linear-gradient(180deg, #0E6B3A 0 7%, #0A5A31 7% 14%)",
-        maxHeight: "70vh",
-      }}
-      data-testid="build-team-pitch"
-    >
+    <div className="space-y-2" data-testid="build-team-pitch-full">
+      <div className="relative w-full rounded-lg overflow-hidden" style={pitchStyle}>
+        <PitchLines/>
+        {armbandStep && <ArmbandBanner captainId={captainId}/>}
+        <div className="absolute inset-0 flex flex-col justify-around py-3" data-testid={`formation-row-${formation}`}>
+          {POSITIONS.map(pos => (
+            <div key={pos} className="flex items-start justify-around gap-1 px-1" data-testid={`pitch-row-${pos}`}>
+              {startersByPos[pos].map((p) => (
+                <PitchSlot key={p.id} pos={pos} picked={p} onPick={onPick} onTap={onTap}
+                  isCaptain={p.id === captainId} isVice={p.id === viceId} isBench={false}/>
+              ))}
+            </div>
+          ))}
+        </div>
+      </div>
+      {/* Bench row */}
+      <div className="cp-surface p-2" data-testid="bench-row">
+        <div className="flex items-center justify-between mb-1.5">
+          <span className="text-[10px] uppercase font-bold opacity-70">Bench ({benched.length})</span>
+          <span className="text-[10px]" style={{ color: "var(--cp-text-muted)" }}>Tap a bench player to promote · Tap pitch player to bench</span>
+        </div>
+        <div className="flex items-start gap-2 overflow-x-auto py-1" style={{ background: "rgba(255,255,255,0.04)", borderRadius: 8, padding: 8 }}>
+          {benched.length === 0 ? (
+            <div className="text-xs opacity-50 py-2 px-1">No bench players yet — pick a formation above.</div>
+          ) : benched.map(p => (
+            <PitchSlot key={p.id} pos={p.position} picked={p} onPick={onPick} onTap={onTap}
+              isCaptain={p.id === captainId} isVice={p.id === viceId} isBench={true}/>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+const pitchStyle = {
+  aspectRatio: "10 / 14",
+  background: "repeating-linear-gradient(180deg, #0E6B3A 0 7%, #0A5A31 7% 14%)",
+  maxHeight: "70vh",
+};
+
+function PitchLines() {
+  return (
+    <>
       <div className="absolute top-1/2 left-0 right-0 h-px bg-white/50"/>
       <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 w-16 h-16 border border-white/50 rounded-full"/>
       <div className="absolute top-0 left-1/2 -translate-x-1/2 w-[60%] h-[16%] border-x border-b border-white/50"/>
       <div className="absolute bottom-0 left-1/2 -translate-x-1/2 w-[60%] h-[16%] border-x border-t border-white/50"/>
       <div className="absolute top-0 left-1/2 -translate-x-1/2 w-[30%] h-[7%] border-x border-b border-white/50"/>
       <div className="absolute bottom-0 left-1/2 -translate-x-1/2 w-[30%] h-[7%] border-x border-t border-white/50"/>
+    </>
+  );
+}
 
-      {armbandStep && (
-        <div className="absolute top-2 left-2 right-2 z-10 cp-surface px-2 py-1.5 text-[10px] font-bold text-center" style={{ background: "rgba(0,0,0,0.7)", color: "#FBBF24" }}>
-          Tap a player to set as {captainId ? "VICE-CAPTAIN" : "CAPTAIN"}
-        </div>
-      )}
-
-      <div className="absolute inset-0 flex flex-col justify-around py-3">
-        {POSITIONS.map(pos => (
-          <div key={pos} className="flex items-start justify-around gap-1 px-1">
-            {rowFor(pos).map((s, i) => (
-              <PitchSlot
-                key={`${pos}-${i}`}
-                pos={pos}
-                picked={s.player}
-                onPick={onPick}
-                onTap={onTap}
-                isCaptain={s.player?.id === captainId}
-                isVice={s.player?.id === viceId}
-                isBench={s.player ? benchIds?.has(s.player.id) : false}
-              />
-            ))}
-          </div>
-        ))}
-      </div>
+function ArmbandBanner({ captainId }) {
+  return (
+    <div className="absolute top-2 left-2 right-2 z-10 cp-surface px-2 py-1.5 text-[10px] font-bold text-center" style={{ background: "rgba(0,0,0,0.7)", color: "#FBBF24" }}>
+      Tap a player to set as {captainId ? "VICE-CAPTAIN" : "CAPTAIN"}
     </div>
   );
 }
 
-function ListView({ squad, counts, onPick, onRemove, posLimit, captainId, viceId, onSetCaptain, onSetVice }) {
+function ListView({ squad, counts, onPick, onRemove, posLimit, captainId, viceId, onSetCaptain, onSetVice, benchIds, onToggleBench, isFull }) {
   return (
     <div className="space-y-3" data-testid="build-team-list">
       {POSITIONS.map(pos => {
@@ -519,14 +647,16 @@ function ListView({ squad, counts, onPick, onRemove, posLimit, captainId, viceId
                 {picks.map(p => {
                   const isC = p.id === captainId;
                   const isV = p.id === viceId;
+                  const isB = benchIds?.has(p.id);
                   return (
-                    <li key={p.id} className="flex items-center gap-3 p-2.5" data-testid={`list-player-${p.id}`}>
+                    <li key={p.id} className={`flex items-center gap-3 p-2.5 ${isB ? "opacity-70" : ""}`} data-testid={`list-player-${p.id}`}>
                       <Jersey color={POS_COLOR[pos]} size={36}/>
                       <div className="flex-1 min-w-0">
                         <div className="font-bold truncate flex items-center gap-1">
                           {p.name}
                           {isC && <span className="bg-cp-lime text-cp-forest text-[9px] font-extrabold px-1 rounded">C</span>}
                           {isV && <span className="bg-white text-cp-forest text-[9px] font-extrabold px-1 rounded">V</span>}
+                          {isB && <span className="bg-amber-400 text-cp-forest text-[9px] font-extrabold px-1 rounded">BENCH</span>}
                         </div>
                         <div className="text-[11px] opacity-60 truncate">{p.team_name}</div>
                       </div>
@@ -534,6 +664,9 @@ function ListView({ squad, counts, onPick, onRemove, posLimit, captainId, viceId
                       <div className="flex gap-1">
                         <button onClick={() => onSetCaptain(p)} title="Captain" className={`text-[10px] font-extrabold w-6 h-6 rounded ${isC ? "bg-cp-lime text-cp-forest" : "bg-white/10 hover:bg-white/20"}`} data-testid={`set-cap-${p.id}`}>C</button>
                         <button onClick={() => onSetVice(p)} title="Vice-captain" className={`text-[10px] font-extrabold w-6 h-6 rounded ${isV ? "bg-white text-cp-forest" : "bg-white/10 hover:bg-white/20"}`} data-testid={`set-vice-${p.id}`}>V</button>
+                        {isFull && (
+                          <button onClick={() => onToggleBench(p)} title={isB ? "Promote to starter" : "Send to bench"} className={`text-[10px] font-extrabold w-6 h-6 rounded ${isB ? "bg-amber-400 text-cp-forest" : "bg-white/10 hover:bg-white/20"}`} data-testid={`toggle-bench-${p.id}`}>B</button>
+                        )}
                         <button onClick={() => onRemove(p)} className="cp-btn-ghost !p-1.5" data-testid={`list-remove-${p.id}`} aria-label="Remove">
                           <X size={12}/>
                         </button>
@@ -546,6 +679,89 @@ function ListView({ squad, counts, onPick, onRemove, posLimit, captainId, viceId
           </div>
         );
       })}
+    </div>
+  );
+}
+
+/** Transfer payment modal — replaces window.prompt with a real UI */
+function TransferModal({ count, transfersInfo, busy, cur, onClose, onChoice }) {
+  const remaining = transfersInfo?.remaining || 0;
+  const cardPack = transfersInfo?.card_uses || 5;
+  const packCents = transfersInfo?.card_price_usd_cents || 200;
+  const penaltyPer = transfersInfo?.point_penalty_per_transfer || 4;
+  const totalPenalty = penaltyPer * count;
+  const canUseCards = remaining >= count;
+  const packPrice = cur?.formatCents ? cur.formatCents(packCents) : `$${(packCents / 100).toFixed(2)}`;
+  return (
+    <div className="fixed inset-0 z-[10001] flex items-end md:items-center justify-center p-0 md:p-4" data-testid="transfer-modal">
+      <div className="absolute inset-0" onClick={onClose} style={{ background: "rgba(0,0,0,0.7)" }}/>
+      <div className="relative w-full md:max-w-md rounded-t-2xl md:rounded-xl overflow-hidden animate-fade-in" style={{ background: "var(--cp-surface)", border: "1px solid var(--cp-border)" }}>
+        <div className="px-4 py-3 flex items-center gap-2" style={{ borderBottom: "1px solid var(--cp-border)" }}>
+          <AlertTriangle size={16} className="text-amber-400"/>
+          <h2 className="font-extrabold">Confirm transfers</h2>
+          <button onClick={onClose} disabled={busy} className="ml-auto cp-btn-ghost !p-2 disabled:opacity-40" data-testid="transfer-modal-close"><X size={14}/></button>
+        </div>
+        <div className="p-4 space-y-3">
+          <div className="text-sm">
+            You're transferring <b className="text-cp-lime">{count} player{count > 1 ? "s" : ""}</b>. Pick how to pay:
+          </div>
+
+          <button
+            onClick={() => onChoice("card")}
+            disabled={busy || !canUseCards}
+            className="w-full text-left rounded-lg p-3 flex items-center gap-3 disabled:opacity-40 hover:bg-white/5 transition"
+            style={{ border: "1px solid var(--cp-border)", background: canUseCards ? "rgba(163, 230, 53, 0.08)" : "var(--cp-surface-2)" }}
+            data-testid="transfer-pay-card"
+          >
+            <CreditCard size={18} className="text-cp-lime"/>
+            <div className="flex-1 min-w-0">
+              <div className="font-extrabold text-sm">Pay with transfer cards</div>
+              <div className="text-[11px]" style={{ color: "var(--cp-text-muted)" }}>
+                {canUseCards
+                  ? `Use ${count} of ${remaining} remaining · no points penalty`
+                  : `Not enough (${remaining} left, need ${count})`}
+              </div>
+            </div>
+            <div className="text-xs font-bold opacity-70">{remaining} left</div>
+          </button>
+
+          <button
+            onClick={() => onChoice("buy")}
+            disabled={busy}
+            className="w-full text-left rounded-lg p-3 flex items-center gap-3 disabled:opacity-40 hover:bg-white/5 transition"
+            style={{ border: "1px solid var(--cp-border)", background: "rgba(125, 211, 252, 0.08)" }}
+            data-testid="transfer-buy-pack"
+          >
+            <ShoppingCart size={18} className="text-sky-300"/>
+            <div className="flex-1 min-w-0">
+              <div className="font-extrabold text-sm">Buy transfer pack ({packPrice})</div>
+              <div className="text-[11px]" style={{ color: "var(--cp-text-muted)" }}>
+                +{cardPack} transfers — uses wallet balance. Spends {count} now.
+              </div>
+            </div>
+          </button>
+
+          <button
+            onClick={() => onChoice("points")}
+            disabled={busy}
+            className="w-full text-left rounded-lg p-3 flex items-center gap-3 disabled:opacity-40 hover:bg-white/5 transition"
+            style={{ border: "1px solid var(--cp-border)", background: "rgba(251, 113, 133, 0.08)" }}
+            data-testid="transfer-pay-points"
+          >
+            <MinusCircle size={18} className="text-rose-400"/>
+            <div className="flex-1 min-w-0">
+              <div className="font-extrabold text-sm">Take −{totalPenalty} points penalty</div>
+              <div className="text-[11px]" style={{ color: "var(--cp-text-muted)" }}>
+                −{penaltyPer} pt per transfer applied next gameweek settlement.
+              </div>
+            </div>
+          </button>
+
+          {busy && (
+            <div className="text-center text-xs opacity-70 pt-1" data-testid="transfer-busy">Processing transfers…</div>
+          )}
+        </div>
+      </div>
     </div>
   );
 }

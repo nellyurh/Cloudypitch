@@ -51,15 +51,23 @@ class FantasySquadPlayerIn(BaseModel):
     player_id: str
     position: Literal["GK", "DEF", "MID", "FWD"]
     is_starting: bool = True
+    is_captain: bool = False
+    is_vice: bool = False
+    on_bench: bool = False
     price_paid: float = 0
 
 
 class FantasySquadIn(BaseModel):
-    competition_id: str
+    competition_id: str = "fantasy-wc2026"
+    game_id: Optional[str] = None
     squad_name: str = Field(min_length=2, max_length=40)
+    mode: Literal["15", "20"] = "15"
     captain_id: Optional[str] = None
     vice_captain_id: Optional[str] = None
-    players: list[FantasySquadPlayerIn] = Field(min_length=1, max_length=15)
+    formation: Optional[str] = "4-3-3"
+    bench_ids: list[str] = Field(default_factory=list)
+    bench_boost: bool = False
+    players: list[FantasySquadPlayerIn] = Field(min_length=1, max_length=20)
     applied_card_ids: list[str] = Field(default_factory=list, max_length=5)
 
 
