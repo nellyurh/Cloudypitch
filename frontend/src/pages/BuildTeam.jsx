@@ -27,7 +27,7 @@ function Jersey({ color = "#A3E635", size = 44 }) {
 }
 
 /** A pitch slot — either populated or an empty "+ add" tile */
-function PitchSlot({ pos, picked, onPick, onRemove }) {
+function PitchSlot({ pos, picked, onPick, onTap, isCaptain, isVice }) {
   if (!picked) {
     return (
       <button
@@ -50,12 +50,18 @@ function PitchSlot({ pos, picked, onPick, onRemove }) {
   const lastName = (picked.name || "?").split(" ").slice(-1)[0];
   return (
     <div className="flex flex-col items-center min-w-0 max-w-[90px] w-full" data-testid={`pitch-slot-${picked.id}`}>
-      <button onClick={() => onRemove(picked)} className="relative hover:scale-105 transition" title="Remove">
+      <button onClick={() => onTap(picked)} className="relative hover:scale-105 transition" title={isCaptain ? "Captain" : isVice ? "Vice-captain" : "Tap to remove"}>
         <Jersey color={POS_COLOR[pos]} size={42}/>
         {picked.shirt_number && (
           <span className="absolute inset-0 flex items-center justify-center text-[11px] font-extrabold text-cp-forest pointer-events-none" style={{ paddingTop: 6 }}>
             {picked.shirt_number}
           </span>
+        )}
+        {isCaptain && (
+          <span className="absolute -top-1 -right-1 bg-cp-lime text-cp-forest text-[8px] font-extrabold w-4 h-4 rounded-full flex items-center justify-center ring-2 ring-black/40" data-testid={`captain-${picked.id}`}>C</span>
+        )}
+        {isVice && (
+          <span className="absolute -top-1 -right-1 bg-white text-cp-forest text-[8px] font-extrabold w-4 h-4 rounded-full flex items-center justify-center ring-2 ring-black/40" data-testid={`vice-${picked.id}`}>V</span>
         )}
       </button>
       <div className="mt-0.5 w-full max-w-[88px]">
@@ -86,6 +92,9 @@ export default function BuildTeam() {
   const [saving, setSaving] = useState(false);
   const [savedAt, setSavedAt] = useState(null);
   const [benchBoost, setBenchBoost] = useState(false);
+  const [captainId, setCaptainId] = useState(null);
+  const [viceId, setViceId] = useState(null);
+  const [armbandStep, setArmbandStep] = useState(false); // toggled when user clicks "Pick captain"
 
   useEffect(() => {
     (async () => {
@@ -108,6 +117,11 @@ export default function BuildTeam() {
             ...sp,
             id: sp.player_id,
           })).filter(p => p.position));
+          const cap = data.squad.players.find(p => p.is_captain);
+          const vc = data.squad.players.find(p => p.is_vice);
+          if (cap) setCaptainId(cap.player_id);
+          if (vc) setViceId(vc.player_id);
+          if (data.squad.bench_boost) setBenchBoost(true);
         }
       } catch (_) {}
     })();
@@ -131,13 +145,48 @@ export default function BuildTeam() {
     setSquad([...squad, p]);
     setPickerPos(null);
   };
-  const removePlayer = (p) => setSquad(squad.filter(x => x.id !== p.id));
+  const removePlayer = (p) => {
+    if (p.id === captainId) setCaptainId(null);
+    if (p.id === viceId) setViceId(null);
+    setSquad(squad.filter(x => x.id !== p.id));
+  };
+
+  // When armbandStep is on, tapping a player on the pitch sets C, then V.
+  const onPlayerTap = (p) => {
+    if (!armbandStep) {
+      removePlayer(p);
+      return;
+    }
+    if (!captainId) {
+      setCaptainId(p.id);
+    } else if (!viceId && p.id !== captainId) {
+      setViceId(p.id);
+      setArmbandStep(false); // both picked → exit step
+    } else if (p.id === captainId) {
+      setCaptainId(null);
+    } else if (p.id === viceId) {
+      setViceId(null);
+    }
+  };
 
   const saveSquad = async () => {
+    if (isFull && !captainId) {
+      alert("Pick a captain (2× points) before saving. Tap a player on the pitch.");
+      setArmbandStep(true);
+      return;
+    }
     setSaving(true);
     try {
       await api.post("/fantasy/squad", {
-        players: squad.map(p => ({ player_id: p.id, position: p.position, is_captain: false, is_vice: false })),
+        squad_name: "My Squad",
+        captain_id: captainId,
+        vice_captain_id: viceId,
+        players: squad.map(p => ({
+          player_id: p.id,
+          position: p.position,
+          is_captain: p.id === captainId,
+          is_vice: p.id === viceId,
+        })),
         mode,
         bench_boost: benchBoost,
       });
@@ -208,9 +257,30 @@ export default function BuildTeam() {
       </div>
 
       {view === "pitch" ? (
-        <PitchView counts={counts} squad={squad} onPick={setPickerPos} onRemove={removePlayer} posLimit={POS_LIMIT}/>
+        <PitchView counts={counts} squad={squad} onPick={setPickerPos} onTap={onPlayerTap} posLimit={POS_LIMIT} captainId={captainId} viceId={viceId} armbandStep={armbandStep}/>
       ) : (
-        <ListView squad={squad} counts={counts} onPick={setPickerPos} onRemove={removePlayer} posLimit={POS_LIMIT}/>
+        <ListView squad={squad} counts={counts} onPick={setPickerPos} onRemove={removePlayer} posLimit={POS_LIMIT} captainId={captainId} viceId={viceId} onSetCaptain={(p) => setCaptainId(p.id === captainId ? null : p.id)} onSetVice={(p) => setViceId(p.id === viceId ? null : p.id)}/>
+      )}
+
+      {/* Armband picker bar — shows when squad is full but captain/vice unset */}
+      {isFull && (!captainId || !viceId) && (
+        <div className="cp-surface p-3 mt-3 flex items-center gap-3 flex-wrap" data-testid="armband-bar">
+          <Trophy size={16} className="text-cp-lime"/>
+          <div className="flex-1 min-w-[160px]">
+            <div className="text-xs font-bold">Pick your captain & vice-captain</div>
+            <div className="text-[10px]" style={{ color: "var(--cp-text-muted)" }}>
+              Captain scores <b>2× points</b> · Vice auto-promotes if Captain doesn't play.
+            </div>
+          </div>
+          <button
+            onClick={() => setArmbandStep(!armbandStep)}
+            className={`px-3 py-1.5 rounded text-xs font-extrabold ${armbandStep ? "bg-cp-lime text-cp-forest" : ""}`}
+            style={!armbandStep ? { background: "var(--cp-surface-2)" } : {}}
+            data-testid="armband-toggle"
+          >
+            {armbandStep ? "Picking…" : (captainId ? `Pick vice (C: ${squad.find(p => p.id === captainId)?.name.split(" ").slice(-1)[0]})` : "Tap to pick captain")}
+          </button>
+        </div>
       )}
 
       {/* Mobile sticky save bar */}
@@ -251,7 +321,7 @@ function Stat({ label, value, tone }) {
   );
 }
 
-function PitchView({ counts, squad, onPick, onRemove, posLimit }) {
+function PitchView({ counts, squad, onPick, onTap, posLimit, captainId, viceId, armbandStep }) {
   const slots = POSITIONS.flatMap(pos => {
     const picks = squad.filter(p => p.position === pos);
     const emptyN = posLimit[pos] - picks.length;
@@ -278,11 +348,25 @@ function PitchView({ counts, squad, onPick, onRemove, posLimit }) {
       <div className="absolute top-0 left-1/2 -translate-x-1/2 w-[30%] h-[7%] border-x border-b border-white/50"/>
       <div className="absolute bottom-0 left-1/2 -translate-x-1/2 w-[30%] h-[7%] border-x border-t border-white/50"/>
 
+      {armbandStep && (
+        <div className="absolute top-2 left-2 right-2 z-10 cp-surface px-2 py-1.5 text-[10px] font-bold text-center" style={{ background: "rgba(0,0,0,0.7)", color: "#FBBF24" }}>
+          Tap a player to set as {captainId ? "VICE-CAPTAIN" : "CAPTAIN"}
+        </div>
+      )}
+
       <div className="absolute inset-0 flex flex-col justify-around py-3">
         {POSITIONS.map(pos => (
           <div key={pos} className="flex items-start justify-around gap-1 px-1">
             {rowFor(pos).map((s, i) => (
-              <PitchSlot key={`${pos}-${i}`} pos={pos} picked={s.player} onPick={onPick} onRemove={onRemove}/>
+              <PitchSlot
+                key={`${pos}-${i}`}
+                pos={pos}
+                picked={s.player}
+                onPick={onPick}
+                onTap={onTap}
+                isCaptain={s.player?.id === captainId}
+                isVice={s.player?.id === viceId}
+              />
             ))}
           </div>
         ))}
@@ -291,7 +375,7 @@ function PitchView({ counts, squad, onPick, onRemove, posLimit }) {
   );
 }
 
-function ListView({ squad, counts, onPick, onRemove, posLimit }) {
+function ListView({ squad, counts, onPick, onRemove, posLimit, captainId, viceId, onSetCaptain, onSetVice }) {
   return (
     <div className="space-y-3" data-testid="build-team-list">
       {POSITIONS.map(pos => {
@@ -318,19 +402,31 @@ function ListView({ squad, counts, onPick, onRemove, posLimit }) {
               <div className="p-3 text-xs opacity-60 text-center">No {pos} picked yet. Tap "+ Add" to choose.</div>
             ) : (
               <ul className="divide-y" style={{ borderColor: "var(--cp-border)" }}>
-                {picks.map(p => (
-                  <li key={p.id} className="flex items-center gap-3 p-2.5" data-testid={`list-player-${p.id}`}>
-                    <Jersey color={POS_COLOR[pos]} size={36}/>
-                    <div className="flex-1 min-w-0">
-                      <div className="font-bold truncate">{p.name}</div>
-                      <div className="text-[11px] opacity-60 truncate">{p.team_name}</div>
-                    </div>
-                    <div className="font-extrabold text-cp-lime tabular-nums">{fmt(p.price)}</div>
-                    <button onClick={() => onRemove(p)} className="cp-btn-ghost !p-2" data-testid={`list-remove-${p.id}`} aria-label="Remove">
-                      <X size={14}/>
-                    </button>
-                  </li>
-                ))}
+                {picks.map(p => {
+                  const isC = p.id === captainId;
+                  const isV = p.id === viceId;
+                  return (
+                    <li key={p.id} className="flex items-center gap-3 p-2.5" data-testid={`list-player-${p.id}`}>
+                      <Jersey color={POS_COLOR[pos]} size={36}/>
+                      <div className="flex-1 min-w-0">
+                        <div className="font-bold truncate flex items-center gap-1">
+                          {p.name}
+                          {isC && <span className="bg-cp-lime text-cp-forest text-[9px] font-extrabold px-1 rounded">C</span>}
+                          {isV && <span className="bg-white text-cp-forest text-[9px] font-extrabold px-1 rounded">V</span>}
+                        </div>
+                        <div className="text-[11px] opacity-60 truncate">{p.team_name}</div>
+                      </div>
+                      <div className="font-extrabold text-cp-lime tabular-nums">{fmt(p.price)}</div>
+                      <div className="flex gap-1">
+                        <button onClick={() => onSetCaptain(p)} title="Captain" className={`text-[10px] font-extrabold w-6 h-6 rounded ${isC ? "bg-cp-lime text-cp-forest" : "bg-white/10 hover:bg-white/20"}`} data-testid={`set-cap-${p.id}`}>C</button>
+                        <button onClick={() => onSetVice(p)} title="Vice-captain" className={`text-[10px] font-extrabold w-6 h-6 rounded ${isV ? "bg-white text-cp-forest" : "bg-white/10 hover:bg-white/20"}`} data-testid={`set-vice-${p.id}`}>V</button>
+                        <button onClick={() => onRemove(p)} className="cp-btn-ghost !p-1.5" data-testid={`list-remove-${p.id}`} aria-label="Remove">
+                          <X size={12}/>
+                        </button>
+                      </div>
+                    </li>
+                  );
+                })}
               </ul>
             )}
           </div>

@@ -673,3 +673,18 @@ See `/app/memory/test_credentials.md`. Admin: `admin@cloudypitch.com` / `CloudyA
 - ✅ **20-man / £120m squad mode** — `/fantasy?mode=20` (or `/build-team?mode=20`) renders 3 GK / 7 DEF / 6 MID / 4 FWD = 20 slots with £120m budget. Used for games with >2 teams selectable.
 - ✅ **Bench Boost toggle** — visible only in `mode=20` since it's exclusive to multi-team games (per user spec: "bench boost card available for every match with more than 2 teams"). Posted with squad save as `bench_boost: true|false`.
 - ✅ Save button reflects mode: "Save squad" (15) or "Save 20-man" (20).
+
+## Iteration 25 — WC games wired to mode + Captain/Vice picker (2026-06-02)
+- ✅ **WC2026 game cards now navigate to `/fantasy?mode=X&game_id=Y`** based on type:
+  - `match` (2 teams) → `mode=15` (15-man / £100m)
+  - `group` (4 teams) & `round` (all teams) → `mode=20` (20-man / £120m + Bench Boost)
+  - Card subtitle updated to show "15-man · £100m" or "20-man · £120m · Bench Boost" instead of cards count.
+- ✅ **Captain / Vice-captain picker** in BuildTeam:
+  - Pitch view: armband-step toggle → tap a player to set C, then tap another to set V. Toggle stops automatically.
+  - List view: dedicated **C** and **V** buttons next to each player; tap to set/unset.
+  - Both views show floating C/V badges on the jersey + inline tags in the list.
+  - Backend `/fantasy/squad` already accepts `captain_id` + `vice_captain_id`; squad save now sends both that AND per-player `is_captain` / `is_vice` for compatibility.
+  - Save blocks with friendly toast if captain missing when squad is full; auto-toggles to armband-step.
+  - Existing C/V load from saved squad on page mount.
+- ✅ **Bench Boost flag** also persisted with squad save (`bench_boost: true|false`).
+

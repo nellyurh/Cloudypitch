@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import api from "../lib/api";
 import { useAuth, formatApiErr } from "../lib/auth";
 import { Trophy, Clock, Users, Sparkles, Lock, Check, AlertTriangle } from "lucide-react";
@@ -22,12 +22,25 @@ function timeToOpenOrClose(g) {
   return { label: "Closed", at: g.closes_at };
 }
 
+// Map game type → squad mode for BuildTeam page.
+// `match` (2 teams) → 15-man / £100m. `group` & `round` (>2 teams) → 20-man / £120m + bench boost.
+const SQUAD_MODE_FOR_TYPE = { match: "15", group: "20", round: "20" };
+
 function GameCard({ g, onOpen }) {
+  const navigate = useNavigate();
   const t = timeToOpenOrClose(g);
   const entered = !!g.my_entry;
+  const handleClick = () => {
+    if (g.status === "open" && !entered) {
+      const mode = SQUAD_MODE_FOR_TYPE[g.game_type] || "15";
+      navigate(`/fantasy?mode=${mode}&game_id=${g.id}`);
+    } else {
+      onOpen(g);
+    }
+  };
   return (
     <button
-      onClick={() => onOpen(g)}
+      onClick={handleClick}
       className="cp-surface p-3 text-left w-full hover:bg-white/5 transition flex flex-col gap-2"
       data-testid={`wc-game-${g.id}`}
     >
@@ -48,7 +61,7 @@ function GameCard({ g, onOpen }) {
       </div>
       <div className="flex items-center justify-between">
         <span className="text-[10px]" style={{ color: "var(--cp-text-muted)" }}>
-          {(g.eligible_team_ids || []).length} teams · {g.card_limit_current ?? 2} cards · ×{g.points_multiplier || 1.0}
+          {(g.eligible_team_ids || []).length} teams · {SQUAD_MODE_FOR_TYPE[g.game_type] === "20" ? "20-man · £120m" : "15-man · £100m"}{SQUAD_MODE_FOR_TYPE[g.game_type] === "20" ? " · Bench Boost" : ""}
         </span>
         {entered ? (
           <span className="cp-pill text-[10px] font-bold inline-flex items-center gap-1" style={{ background: "rgba(163,230,53,0.15)", color: "#A3E635" }}>
