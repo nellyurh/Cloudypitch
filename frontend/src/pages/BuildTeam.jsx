@@ -92,7 +92,9 @@ export default function BuildTeam() {
   const { user } = useAuth();
   const [searchParams] = useSearchParams();
   // ?mode=15 (default, 15 players £100m) | ?mode=20 (20 players £120m for >2-team games)
-  const mode = searchParams.get("mode") === "20" ? "20" : "15";
+  const urlMode = searchParams.get("mode");
+  const [autoMode, setAutoMode] = useState(null); // adopted from saved squad if URL has no ?mode=
+  const mode = urlMode === "20" || urlMode === "15" ? urlMode : (autoMode || "15");
   const profile = SQUAD_PROFILES[mode];
   const POS_LIMIT = profile.slots;
   const BUDGET = profile.budget;
@@ -141,6 +143,10 @@ export default function BuildTeam() {
       try {
         const { data } = await api.get("/fantasy/squad");
         if (data?.squad?.players) {
+          // If URL has no ?mode= AND saved squad has a mode, adopt it.
+          if (!urlMode && data.squad.mode && (data.squad.mode === "15" || data.squad.mode === "20")) {
+            setAutoMode(data.squad.mode);
+          }
           const hydrated = data.squad.players.map(sp => ({
             ...players.find(p => p.id === sp.player_id),
             ...sp,

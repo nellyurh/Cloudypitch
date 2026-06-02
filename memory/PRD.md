@@ -27,6 +27,22 @@ Three integrated products:
 - **Ingestion**: Background asyncio tasks: Sportmonks fixture sync (today+7d) every 6h, Sportmonks live poller every 20s, StatPal tennis poller every 2min, stale-status sweep, initial sync of all sports on startup.
 - **Data**: All endpoints prefixed `/api`. Same-origin between frontend and backend on the preview URL (cookie auth works).
 
+## Iteration 19 — Team Management + Transfer Card UI (2026-02-06)
+- ✅ **P0a — Formation & Bench picker** in /build-team:
+  - When squad becomes full, Pitch view switches from "build slots" to a formation-driven layout: 1 GK + DEF/MID/FWD rows (from formation like 4-3-3) + a Bench row below with the remaining 4 (15-man) / 9 (20-man) players.
+  - Formation bar lets users pick 4-3-3, 4-4-2, 3-5-2, 3-4-3, 5-3-2, 5-4-1, 4-5-1. Auto-bench snaps to a valid XI when formation changes; cheapest extras go to the bench.
+  - Tapping a starter → benches them (auto-promotes a benched player of same position if needed to keep XI valid). Tapping a bench player → promotes to starting XI.
+  - Save validates formation produces exactly 11 starters (1-DEF-MID-FWD).
+  - On load, page now auto-adopts the saved squad's mode (15/20) when URL has no `?mode=`.
+- ✅ **P0b — Transfer Card consumption** wired into BuildTeam:
+  - `window.prompt` flow replaced with a proper React `<TransferModal>` (data-testid="transfer-modal") with 3 buttons: Pay with cards / Buy pack ($2 for 5) / Take −4pt per transfer.
+  - Modal opens automatically when editing a previously saved squad and ≥1 transfer was made. Tracks `originalIds` baseline; resets baseline after a successful save.
+  - Currency-aware: pack price uses `useCurrency().formatCents` (NGN/USD).
+- ✅ Backend: POST /api/fantasy/squad now accepts `formation`, `bench_ids[]`, `mode` (15/20), `bench_boost`, per-player `on_bench/is_captain/is_vice/price_paid`. Mode-aware budget (£100m vs £120m) and squad size (15 vs 20) enforced. `is_starting` derived from bench_ids. `total_points`/`gw_points` preserved across edits.
+- ✅ Backend: New GET /api/fantasy/squad alias for /api/fantasy/squad/me (fixes frontend mismatch).
+- ✅ Tests at /app/backend/tests/test_iteration19.py — 11/12 pass (1 skipped: no admin wallet-credit endpoint to test transfers/buy success path).
+
+
 ## Implemented v1 (2026-05-27)
 - ✅ 14 sports catalog, 100 legend cards (20 GOAT/30 Elite/50 Star), 12 WC2026 groups, WC2026 fantasy competition, 2 prize pools — all seeded on boot
 - ✅ Sportmonks ingestion live (pulling 16-25 fixtures/day across Copa Libertadores, Premier League, Ligue 1, etc.)
