@@ -98,6 +98,9 @@ export const Header = () => {
                 <Link to="/build-team" className="flex items-center gap-2 px-2 py-2 text-sm hover:bg-white/5 rounded" data-testid="menu-build-team">
                   <ShieldCheck size={14} className="text-cp-lime"/> Build a Team
                 </Link>
+                <Link to="/my-teams" className="flex items-center gap-2 px-2 py-2 text-sm hover:bg-white/5 rounded" data-testid="menu-my-teams">
+                  <ShieldCheck size={14} className="text-cp-lime"/> My Teams
+                </Link>
                 <Link to="/cards" className="flex items-center gap-2 px-2 py-2 text-sm hover:bg-white/5 rounded" data-testid="menu-cards">
                   <Crown size={14} className="text-cp-lime"/> Legend Cards
                 </Link>
@@ -185,6 +188,7 @@ export const Header = () => {
             <Link to="/predictions" onClick={() => setDrawer(false)} className="cp-btn-ghost justify-start" data-testid="drawer-predictions"><Target size={14}/> Predictions</Link>
             <Link to="/fantasy" onClick={() => setDrawer(false)} className="cp-btn-ghost justify-start" data-testid="drawer-fantasy"><ShieldCheck size={14}/> Fantasy & WC Games</Link>
             <Link to="/build-team" onClick={() => setDrawer(false)} className="cp-btn-ghost justify-start" data-testid="drawer-build-team"><ShieldCheck size={14}/> Build a Team</Link>
+            <Link to="/my-teams" onClick={() => setDrawer(false)} className="cp-btn-ghost justify-start" data-testid="drawer-my-teams"><ShieldCheck size={14}/> My Teams</Link>
             <Link to="/cards" onClick={() => setDrawer(false)} className="cp-btn-ghost justify-start" data-testid="drawer-cards"><Crown size={14}/> Legend Cards</Link>
             <Link to="/leaderboards" onClick={() => setDrawer(false)} className="cp-btn-ghost justify-start" data-testid="drawer-leaderboards"><Trophy size={14}/> Leaderboards</Link>
             <Link to="/prize-pools" onClick={() => setDrawer(false)} className="cp-btn-ghost justify-start" data-testid="drawer-pools"><Coins size={14}/> Prize Pools</Link>

@@ -688,3 +688,11 @@ See `/app/memory/test_credentials.md`. Admin: `admin@cloudypitch.com` / `CloudyA
   - Existing C/V load from saved squad on page mount.
 - ✅ **Bench Boost flag** also persisted with squad save (`bench_boost: true|false`).
 
+
+## Iteration 26 — Admin price edit + Transfer cards + My Teams (2026-06-02)
+- ✅ **Admin Player Prices tab** — search/filter by name+team+position, inline editable price input (£3.0–£15.0 in 0.5 steps), enter-to-save. Manual overrides set `price_override=true` and are SKIPPED by future auto-recompute. "Recompute auto-prices" button calls the existing endpoint. New endpoints: `GET /api/admin/players` (search), `PATCH /api/admin/players/:id/price`.
+- ✅ **Transfer cards** — new `/api/fantasy/transfers` endpoint returns remaining + price ($2 / 5 transfers / −4pt penalty). `POST /transfers/buy` deducts $2 from wallet, adds 5 to `user_transfers.remaining`. `POST /transfers/spend` either decrements remaining OR creates a deferred -4pt penalty in `transfer_penalties` collection.
+- ✅ **My Teams page** at `/my-teams` — lists every squad the user has built (across competitions / games), with player count, total cost, current points, captain/bench-boost indicators. Top of page has the **transfer balance widget** with "Buy +5 for $2" button. Empty state CTA links to `/fantasy` to build first squad.
+- ✅ Nav links added in desktop dropdown + mobile drawer.
+- ✅ Backend `/api/fantasy/my-teams` returns enriched squads (with game title resolution).
+

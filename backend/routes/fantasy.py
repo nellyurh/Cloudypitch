@@ -91,6 +91,109 @@ async def create_or_update_squad(payload: FantasySquadIn, user: dict = Depends(a
     return {"squad": doc}
 
 
+@router.get("/my-teams")
+async def my_teams(user: dict = Depends(a.get_current_user)):
+    """Return ALL squads owned by the current user (across competitions / games)."""
+    db = get_db()
+    rows = await db.fantasy_squads.find({"user_id": user["id"]}, {"_id": 0}).sort("updated_at", -1).to_list(length=200)
+    # Optionally enrich with game title
+    out = []
+    for r in rows:
+        game_title = None
+        if r.get("game_id"):
+            g = await db.wc_games.find_one({"id": r["game_id"]}, {"_id": 0, "game_type": 1, "stage": 1, "group_letter": 1, "matchday": 1})
+            if g:
+                bits = [str(g.get("game_type", "")).title(), str(g.get("stage", ""))]
+                if g.get("group_letter"):
+                    bits.append("Group " + str(g["group_letter"]))
+                if g.get("matchday"):
+                    bits.append("MD" + str(g["matchday"]))
+                game_title = " · ".join([b for b in bits if b])
+        out.append({
+            **r,
+            "game_title": game_title,
+            "player_count": len(r.get("players", [])),
+        })
+    return {"teams": out, "count": len(out)}
+
+
+# ---------- Transfer cards (5 transfers across all teams) ----------
+TRANSFER_CARD_PRICE_USD_CENTS = 200  # $2 per pack
+TRANSFER_CARD_USES = 5
+POINT_PENALTY_PER_TRANSFER = 4       # FPL-style penalty when paying with leaderboard points
+
+
+@router.get("/transfers")
+async def get_my_transfers(user: dict = Depends(a.get_current_user)):
+    """Return remaining transfers + price for refill."""
+    db = get_db()
+    doc = await db.user_transfers.find_one({"user_id": user["id"]}, {"_id": 0}) or {}
+    return {
+        "remaining": int(doc.get("remaining", 0)),
+        "total_used": int(doc.get("total_used", 0)),
+        "card_price_usd_cents": TRANSFER_CARD_PRICE_USD_CENTS,
+        "card_uses": TRANSFER_CARD_USES,
+        "point_penalty_per_transfer": POINT_PENALTY_PER_TRANSFER,
+    }
+
+
+@router.post("/transfers/buy")
+async def buy_transfer_card(user: dict = Depends(a.get_current_user)):
+    """Spend $2 wallet balance for a 5-transfer pack."""
+    db = get_db()
+    udoc = await db.users.find_one({"id": user["id"]}, {"_id": 0})
+    bal = int(udoc.get("wallet_balance_usd_cents") or 0)
+    if bal < TRANSFER_CARD_PRICE_USD_CENTS:
+        raise HTTPException(402, f"Insufficient wallet balance. Need ${TRANSFER_CARD_PRICE_USD_CENTS/100:.2f}, have ${bal/100:.2f}.")
+    await db.users.update_one({"id": user["id"]}, {"$inc": {"wallet_balance_usd_cents": -TRANSFER_CARD_PRICE_USD_CENTS}})
+    await db.user_transfers.update_one(
+        {"user_id": user["id"]},
+        {"$inc": {"remaining": TRANSFER_CARD_USES},
+         "$setOnInsert": {"id": new_id(), "user_id": user["id"], "total_used": 0, "created_at": utcnow_iso()}},
+        upsert=True,
+    )
+    await db.wallet_transactions.insert_one({
+        "id": new_id(), "user_id": user["id"], "kind": "transfer_card_purchase",
+        "amount_usd_cents": TRANSFER_CARD_PRICE_USD_CENTS, "created_at": utcnow_iso(),
+        "metadata": {"uses_added": TRANSFER_CARD_USES},
+    })
+    doc = await db.user_transfers.find_one({"user_id": user["id"]}, {"_id": 0})
+    return {"ok": True, "remaining": int(doc.get("remaining", 0))}
+
+
+@router.post("/transfers/spend")
+async def spend_transfer(payload: dict, user: dict = Depends(a.get_current_user)):
+    """Spend ONE transfer. If `pay_with=points`, applies -4pt penalty instead.
+
+    Body: {pay_with: "card" | "points"}
+    """
+    pay_with = (payload or {}).get("pay_with", "card")
+    db = get_db()
+    if pay_with == "card":
+        doc = await db.user_transfers.find_one({"user_id": user["id"]}, {"_id": 0})
+        if not doc or int(doc.get("remaining", 0)) <= 0:
+            raise HTTPException(402, "No transfers left. Buy a Transfer Pack ($2 for 5) or pay with points (−4pt).")
+        await db.user_transfers.update_one(
+            {"user_id": user["id"]},
+            {"$inc": {"remaining": -1, "total_used": 1}, "$set": {"updated_at": utcnow_iso()}},
+        )
+        await db.audit_log.insert_one({
+            "id": new_id(), "user_id": user["id"], "action": "transfer_spent_card",
+            "metadata": {}, "created_at": utcnow_iso(),
+        })
+        return {"ok": True, "pay_with": "card"}
+    elif pay_with == "points":
+        # Deduct from leaderboard points — applied at next gameweek-settle.
+        await db.transfer_penalties.insert_one({
+            "id": new_id(), "user_id": user["id"], "points": POINT_PENALTY_PER_TRANSFER,
+            "applied": False, "created_at": utcnow_iso(),
+        })
+        return {"ok": True, "pay_with": "points", "penalty": POINT_PENALTY_PER_TRANSFER}
+    else:
+        raise HTTPException(400, "pay_with must be 'card' or 'points'")
+
+
+
 @router.get("/leaderboard")
 async def fantasy_leaderboard(limit: int = 50):
     db = get_db()

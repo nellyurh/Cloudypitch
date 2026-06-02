@@ -74,7 +74,7 @@ export const AdminPanel = () => {
     <div data-testid="admin-panel">
       <h1 className="text-2xl font-extrabold mb-3">Admin Panel</h1>
       <div className="flex gap-1 cp-surface p-1 w-fit mb-3 flex-wrap">
-        {["dashboard", "matches", "users", "ingest", "audit", "pools", "wcconfig", "wcgames", "settings"].map(t => (
+        {["dashboard", "matches", "users", "ingest", "audit", "pools", "wcconfig", "wcgames", "players", "settings"].map(t => (
           <button key={t} onClick={() => setTab(t)} className={`px-3 py-1.5 text-sm rounded transition ${tab === t ? "bg-cp-lime text-cp-forest font-bold" : "hover:bg-white/5"}`} data-testid={`admin-tab-${t}`}>{t.toUpperCase()}</button>
         ))}
       </div>
@@ -368,9 +368,118 @@ export const AdminPanel = () => {
       {tab === "settings" && (
         <SettingsTab onMessage={setMsg}/>
       )}
+
+      {tab === "players" && (
+        <PlayerPricesTab onMessage={setMsg}/>
+      )}
     </div>
   );
 };
+
+function PlayerPricesTab({ onMessage }) {
+  const [rows, setRows] = useState([]);
+  const [search, setSearch] = useState("");
+  const [position, setPosition] = useState("");
+  const [team, setTeam] = useState("");
+  const [loading, setLoading] = useState(false);
+
+  const load = async () => {
+    setLoading(true);
+    try {
+      const params = new URLSearchParams();
+      if (search) params.append("q", search);
+      if (position) params.append("position", position);
+      if (team) params.append("team", team);
+      params.append("limit", "100");
+      const { data } = await api.get(`/admin/players?${params}`);
+      setRows(data.players || []);
+    } catch (e) {
+      onMessage(`✗ ${e?.response?.data?.detail || e.message}`);
+    }
+    setLoading(false);
+  };
+  useEffect(() => { load(); /* eslint-disable-next-line */ }, [position]);
+
+  const setPrice = async (id, value) => {
+    const price = parseFloat(value);
+    if (Number.isNaN(price)) return;
+    try {
+      await api.patch(`/admin/players/${id}/price`, { price });
+      onMessage(`✓ Price updated to £${price.toFixed(1)}`);
+      setRows(rs => rs.map(r => r.id === id ? { ...r, price, price_override: true } : r));
+    } catch (e) {
+      onMessage(`✗ ${e?.response?.data?.detail || e.message}`);
+    }
+  };
+
+  const recompute = async () => {
+    if (!confirm("Recompute auto-prices for ALL non-overridden players? Manually-edited players will be untouched.")) return;
+    try {
+      const { data } = await api.post("/admin/players/recompute-prices");
+      onMessage(`✓ ${data.updated}/${data.scanned} updated, ${data.star_hits || 0} star tiers applied`);
+      load();
+    } catch (e) {
+      onMessage(`✗ ${e?.response?.data?.detail || e.message}`);
+    }
+  };
+
+  return (
+    <div className="space-y-3" data-testid="admin-players">
+      <div className="cp-surface p-3 flex flex-wrap gap-2 items-center">
+        <input
+          value={search}
+          onChange={e => setSearch(e.target.value)}
+          onKeyDown={e => e.key === "Enter" && load()}
+          placeholder="Search player or team…"
+          className="cp-input flex-1 min-w-[160px]"
+          data-testid="players-search"
+        />
+        <select value={position} onChange={e => setPosition(e.target.value)} className="cp-input text-xs max-w-[120px]" data-testid="players-position">
+          <option value="">All positions</option>
+          <option value="GK">GK</option><option value="DEF">DEF</option>
+          <option value="MID">MID</option><option value="FWD">FWD</option>
+        </select>
+        <button onClick={load} className="cp-btn-primary" data-testid="players-search-btn">Search</button>
+        <button onClick={recompute} className="cp-btn-ghost" data-testid="players-recompute">Recompute auto-prices</button>
+      </div>
+      <div className="cp-surface overflow-hidden" data-testid="players-table">
+        {loading ? (
+          <div className="p-6 text-center text-sm opacity-60">Loading…</div>
+        ) : rows.length === 0 ? (
+          <div className="p-6 text-center text-sm opacity-60">No players match your filters.</div>
+        ) : (
+          <ul className="divide-y" style={{ borderColor: "var(--cp-border)" }}>
+            {rows.map(p => (
+              <li key={p.id} className="flex items-center gap-3 px-3 py-2" data-testid={`player-row-${p.id}`}>
+                <span className="text-[10px] font-bold uppercase px-1.5 py-0.5 rounded" style={{ background: "var(--cp-surface-2)" }}>
+                  {p.position}
+                </span>
+                <div className="flex-1 min-w-0">
+                  <div className="font-bold truncate">{p.name}</div>
+                  <div className="text-[10px] opacity-60 truncate">{p.team_name}{p.shirt_number ? ` · #${p.shirt_number}` : ""}</div>
+                </div>
+                <input
+                  type="number" step="0.5" min="3.0" max="15.0"
+                  defaultValue={p.price}
+                  onBlur={e => setPrice(p.id, e.target.value)}
+                  onKeyDown={e => e.key === "Enter" && e.currentTarget.blur()}
+                  className="cp-input w-20 text-right tabular-nums"
+                  data-testid={`player-price-${p.id}`}
+                />
+                <span className="text-[10px] opacity-60 w-8 text-right">
+                  {p.price_override ? "manual" : "auto"}
+                </span>
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
+      <div className="text-[10px] opacity-60">
+        Enter or blur to save. Manual prices are kept on the next auto-recompute (admin choice wins).
+      </div>
+    </div>
+  );
+}
 
 /* ──────────────────────────────────────────────────────────────────────── */
 

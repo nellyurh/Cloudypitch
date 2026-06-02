@@ -78,7 +78,7 @@ async def admin_recompute_prices(_: dict = Depends(a.require_admin)):
     Idempotent — safe to call multiple times.
     """
     db = get_db()
-    rows = await db.players.find({"is_wc_2026": True}, {"_id": 0}).to_list(length=5000)
+    rows = await db.players.find({"is_wc_2026": True, "$or": [{"price_override": {"$exists": False}}, {"price_override": False}]}, {"_id": 0}).to_list(length=5000)
     top_tier = {"brazil","argentina","france","england","spain","germany","portugal","netherlands","belgium","italy","croatia","uruguay","colombia","morocco"}
     mid_tier = {"japan","south korea","mexico","usa","switzerland","denmark","poland","ecuador","senegal","ghana","ivory coast","côte d'ivoire","saudi arabia","australia","austria","sweden"}
     updated = 0
@@ -229,3 +229,47 @@ async def create_admin_user(
     new_user.pop("_id", None)
     new_user.pop("password_hash", None)
     return {"ok": True, "created": True, "user": new_user}
+
+
+
+# ---------- Player price admin ----------
+@router.get("/players")
+async def admin_list_players(
+    q: str = "",
+    team: str = "",
+    position: str = "",
+    limit: int = 50,
+    _: dict = Depends(a.require_admin),
+):
+    """Admin search players (defaults to WC2026 pool)."""
+    db = get_db()
+    qry = {"is_wc_2026": True}
+    if q:
+        qry["$or"] = [
+            {"name": {"$regex": q, "$options": "i"}},
+            {"team_name": {"$regex": q, "$options": "i"}},
+        ]
+    if team:
+        qry["team_name"] = team
+    if position:
+        qry["position"] = position
+    rows = await db.players.find(qry, {"_id": 0}).sort([("price", -1), ("name", 1)]).limit(min(limit, 200)).to_list(length=limit)
+    return {"players": rows, "count": len(rows)}
+
+
+@router.patch("/players/{player_id}/price")
+async def admin_set_player_price(player_id: str, payload: dict, user: dict = Depends(a.require_admin)):
+    """Set a single player's fantasy price manually. Persists `price_override=True`
+    so the next recompute will SKIP this row (admin choice wins).
+    """
+    price = float(payload.get("price") or 0)
+    if not (3.0 <= price <= 15.0):
+        raise HTTPException(400, "price must be £3.0–£15.0")
+    db = get_db()
+    res = await db.players.update_one(
+        {"id": player_id},
+        {"$set": {"price": price, "price_override": True, "price_overridden_by": user["id"], "updated_at": utcnow_iso()}},
+    )
+    if not res.matched_count:
+        raise HTTPException(404, "Player not found")
+    return {"ok": True, "id": player_id, "price": price}
