@@ -94,13 +94,27 @@ export default function BuildTeam() {
   const [benchBoost, setBenchBoost] = useState(false);
   const [captainId, setCaptainId] = useState(null);
   const [viceId, setViceId] = useState(null);
-  const [armbandStep, setArmbandStep] = useState(false); // toggled when user clicks "Pick captain"
+  const [armbandStep, setArmbandStep] = useState(false);
+  const [formation, setFormation] = useState("4-3-3"); // starting XI shape
+  const [benchIds, setBenchIds] = useState(new Set()); // player IDs on the bench
+  const [originalIds, setOriginalIds] = useState(null); // snapshot of saved squad for transfer counting
+  const [transfersInfo, setTransfersInfo] = useState({ remaining: 0, point_penalty_per_transfer: 4 });
+
+  // FPL-style formations (excluding GK = 1). Min 3 DEF, 2 MID, 1 FWD.
+  const FORMATIONS = mode === "20"
+    ? ["4-4-2", "4-3-3", "3-5-2", "3-4-3", "5-3-2", "5-4-1", "4-5-1"] // 11 starters in 20-man too
+    : ["4-3-3", "4-4-2", "3-5-2", "3-4-3", "5-3-2", "5-4-1", "4-5-1"];
+  const benchTarget = profile.total - 11; // 4 for 15-man, 9 for 20-man
 
   useEffect(() => {
     (async () => {
       try {
         const { data } = await api.get("/fantasy/players?wc=true&limit=2000");
         setPlayers(data.players || []);
+      } catch (_) {}
+      try {
+        const { data } = await api.get("/fantasy/transfers");
+        setTransfersInfo(data);
       } catch (_) {}
     })();
   }, []);
@@ -112,21 +126,33 @@ export default function BuildTeam() {
       try {
         const { data } = await api.get("/fantasy/squad");
         if (data?.squad?.players) {
-          setSquad(data.squad.players.map(sp => ({
+          const hydrated = data.squad.players.map(sp => ({
             ...players.find(p => p.id === sp.player_id),
             ...sp,
             id: sp.player_id,
-          })).filter(p => p.position));
+          })).filter(p => p.position);
+          setSquad(hydrated);
+          setOriginalIds(new Set(hydrated.map(p => p.id)));
           const cap = data.squad.players.find(p => p.is_captain);
           const vc = data.squad.players.find(p => p.is_vice);
           if (cap) setCaptainId(cap.player_id);
           if (vc) setViceId(vc.player_id);
           if (data.squad.bench_boost) setBenchBoost(true);
+          if (data.squad.formation) setFormation(data.squad.formation);
+          if (Array.isArray(data.squad.bench_ids)) setBenchIds(new Set(data.squad.bench_ids));
         }
       } catch (_) {}
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user, players.length]);
+
+  // Number of transfers since the saved snapshot (0 if first build)
+  const transferCount = useMemo(() => {
+    if (!originalIds) return 0;
+    let n = 0;
+    squad.forEach(p => { if (!originalIds.has(p.id)) n += 1; });
+    return n;
+  }, [squad, originalIds]);
 
   const counts = useMemo(() => {
     const c = { GK: 0, DEF: 0, MID: 0, FWD: 0 };
@@ -152,21 +178,48 @@ export default function BuildTeam() {
   };
 
   // When armbandStep is on, tapping a player on the pitch sets C, then V.
+  // Otherwise when squad is full → tap toggles bench. Pre-full → remove player.
   const onPlayerTap = (p) => {
-    if (!armbandStep) {
-      removePlayer(p);
+    if (armbandStep) {
+      if (!captainId) {
+        setCaptainId(p.id);
+      } else if (!viceId && p.id !== captainId) {
+        setViceId(p.id);
+        setArmbandStep(false);
+      } else if (p.id === captainId) {
+        setCaptainId(null);
+      } else if (p.id === viceId) {
+        setViceId(null);
+      }
       return;
     }
-    if (!captainId) {
-      setCaptainId(p.id);
-    } else if (!viceId && p.id !== captainId) {
-      setViceId(p.id);
-      setArmbandStep(false); // both picked → exit step
-    } else if (p.id === captainId) {
-      setCaptainId(null);
-    } else if (p.id === viceId) {
-      setViceId(null);
+    if (isFull) {
+      // Toggle bench. Enforce max benchTarget AND keep at least 1 GK starting (formation needs 1 GK + 10 outfield).
+      setBenchIds(prev => {
+        const next = new Set(prev);
+        if (next.has(p.id)) {
+          next.delete(p.id);
+        } else {
+          if (next.size >= benchTarget) {
+            alert(`Bench is full (${benchTarget}). Remove someone first.`);
+            return prev;
+          }
+          // Ensure not benching both GKs in 15-man (need 1 starting GK)
+          if (p.position === "GK") {
+            const benchedGKs = squad.filter(x => x.position === "GK" && next.has(x.id)).length;
+            const totalGK = squad.filter(x => x.position === "GK").length;
+            if (benchedGKs + 1 >= totalGK) {
+              alert("You need at least 1 starting GK.");
+              return prev;
+            }
+          }
+          next.add(p.id);
+        }
+        return next;
+      });
+      return;
     }
+    removePlayer(p);
   };
 
   const saveSquad = async () => {
@@ -175,17 +228,56 @@ export default function BuildTeam() {
       setArmbandStep(true);
       return;
     }
+    // If editing a saved squad and we have transfers, ask how to pay
+    if (originalIds && transferCount > 0) {
+      const haveCard = (transfersInfo.remaining || 0) >= transferCount;
+      const card = transfersInfo.card_uses || 5;
+      const cardCost = `$${((transfersInfo.card_price_usd_cents || 200) / 100).toFixed(2)}`;
+      const penalty = (transfersInfo.point_penalty_per_transfer || 4) * transferCount;
+      const choice = window.prompt(
+        `You're transferring ${transferCount} player${transferCount > 1 ? "s" : ""}.\n\n` +
+        `Pay with TRANSFER CARDS (${transfersInfo.remaining || 0} left, need ${transferCount}): type "card"\n` +
+        `Buy a pack (${cardCost} for +${card}): type "buy"\n` +
+        `Take a points penalty (−${penalty}pt total): type "points"\n` +
+        `Cancel save: leave empty.`,
+        haveCard ? "card" : "points"
+      );
+      if (!choice) return;
+      try {
+        if (choice === "buy") {
+          await api.post("/fantasy/transfers/buy");
+        }
+        if (choice === "card" || choice === "buy") {
+          for (let i = 0; i < transferCount; i += 1) {
+            await api.post("/fantasy/transfers/spend", { pay_with: "card" });
+          }
+        } else if (choice === "points") {
+          for (let i = 0; i < transferCount; i += 1) {
+            await api.post("/fantasy/transfers/spend", { pay_with: "points" });
+          }
+        } else {
+          alert(`Unknown option "${choice}". Save cancelled.`);
+          return;
+        }
+      } catch (e) {
+        alert(`✗ ${e?.response?.data?.detail || e.message}`);
+        return;
+      }
+    }
     setSaving(true);
     try {
       await api.post("/fantasy/squad", {
         squad_name: "My Squad",
         captain_id: captainId,
         vice_captain_id: viceId,
+        formation,
+        bench_ids: Array.from(benchIds),
         players: squad.map(p => ({
           player_id: p.id,
           position: p.position,
           is_captain: p.id === captainId,
           is_vice: p.id === viceId,
+          on_bench: benchIds.has(p.id),
         })),
         mode,
         bench_boost: benchBoost,
@@ -256,10 +348,31 @@ export default function BuildTeam() {
         ))}
       </div>
 
+      {/* Formation + bench-boost row — only meaningful once squad is full */}
+      {isFull && (
+        <div className="cp-surface p-2.5 mb-3 flex items-center gap-2 flex-wrap" data-testid="formation-bar">
+          <span className="text-[10px] uppercase font-bold opacity-70 mr-1">Formation</span>
+          {FORMATIONS.map(f => (
+            <button
+              key={f}
+              onClick={() => setFormation(f)}
+              className={`px-2 py-1 rounded text-[11px] font-bold ${formation === f ? "bg-cp-lime text-cp-forest" : "hover:bg-white/5"}`}
+              style={formation !== f ? { background: "var(--cp-surface-2)" } : {}}
+              data-testid={`formation-${f}`}
+            >
+              {f}
+            </button>
+          ))}
+          <span className="ml-auto text-[10px]" style={{ color: "var(--cp-text-muted)" }}>
+            Bench: <b className="text-cp-lime">{benchIds.size}/{benchTarget}</b> · Tap a player to toggle bench
+          </span>
+        </div>
+      )}
+
       {view === "pitch" ? (
-        <PitchView counts={counts} squad={squad} onPick={setPickerPos} onTap={onPlayerTap} posLimit={POS_LIMIT} captainId={captainId} viceId={viceId} armbandStep={armbandStep}/>
+        <PitchView counts={counts} squad={squad} onPick={setPickerPos} onTap={onPlayerTap} posLimit={POS_LIMIT} captainId={captainId} viceId={viceId} armbandStep={armbandStep} benchIds={benchIds}/>
       ) : (
-        <ListView squad={squad} counts={counts} onPick={setPickerPos} onRemove={removePlayer} posLimit={POS_LIMIT} captainId={captainId} viceId={viceId} onSetCaptain={(p) => setCaptainId(p.id === captainId ? null : p.id)} onSetVice={(p) => setViceId(p.id === viceId ? null : p.id)}/>
+        <ListView squad={squad} counts={counts} onPick={setPickerPos} onRemove={removePlayer} posLimit={POS_LIMIT} captainId={captainId} viceId={viceId} onSetCaptain={(p) => setCaptainId(p.id === captainId ? null : p.id)} onSetVice={(p) => setViceId(p.id === viceId ? null : p.id)} benchIds={benchIds} onToggleBench={(p) => onPlayerTap(p)}/>
       )}
 
       {/* Armband picker bar — shows when squad is full but captain/vice unset */}
@@ -321,7 +434,7 @@ function Stat({ label, value, tone }) {
   );
 }
 
-function PitchView({ counts, squad, onPick, onTap, posLimit, captainId, viceId, armbandStep }) {
+function PitchView({ counts, squad, onPick, onTap, posLimit, captainId, viceId, armbandStep, benchIds }) {
   const slots = POSITIONS.flatMap(pos => {
     const picks = squad.filter(p => p.position === pos);
     const emptyN = posLimit[pos] - picks.length;
@@ -366,6 +479,7 @@ function PitchView({ counts, squad, onPick, onTap, posLimit, captainId, viceId, 
                 onTap={onTap}
                 isCaptain={s.player?.id === captainId}
                 isVice={s.player?.id === viceId}
+                isBench={s.player ? benchIds?.has(s.player.id) : false}
               />
             ))}
           </div>
