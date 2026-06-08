@@ -165,6 +165,86 @@ async def set_currency_rate(payload: dict, request: Request):
     return {"ok": True, "ngn_per_usd": rate}
 
 
+# ============ Site config: enabled sports + admin popup ============
+_DEFAULT_ENABLED_SPORTS = [
+    "football", "basketball", "tennis", "baseball", "hockey", "cricket",
+    "rugby", "nba", "volleyball", "handball", "mma", "f1", "afl", "golf",
+]
+
+
+@app.get("/api/site-config")
+async def site_config():
+    """Public site config — enabled sport tabs + active admin popup notice.
+
+    Frontend reads on boot. Disabled sports are hidden from the nav and
+    skipped by the ingestion worker (to save API quota).
+    """
+    from db import get_db
+    db = get_db()
+    doc = await db.app_settings.find_one({"id": "site"}, {"_id": 0}) or {}
+    enabled = doc.get("enabled_sports")
+    if not isinstance(enabled, list) or not enabled:
+        enabled = list(_DEFAULT_ENABLED_SPORTS)
+    popup = doc.get("popup_notice") or {}
+    # Strip empty/disabled
+    if not popup.get("enabled"):
+        popup = {"enabled": False}
+    return {
+        "enabled_sports": enabled,
+        "show_wc_tab": bool(doc.get("show_wc_tab", True)),
+        "popup_notice": popup,
+    }
+
+
+@app.post("/api/admin/site-config")
+async def update_site_config(payload: dict, request: Request):
+    """Admin: update enabled sports and popup notice.
+
+    Body: {enabled_sports?: list[str], show_wc_tab?: bool,
+           popup_notice?: {enabled, title, body, image_url, cta_text, cta_link, version}}
+    """
+    from db import get_db
+    import auth as a
+    user = await a.get_current_user(request)
+    if not user or user.get("role") != "admin":
+        from fastapi import HTTPException
+        raise HTTPException(status_code=403, detail="Admin required")
+    db = get_db()
+    update: dict = {"updated_by": user["id"], "updated_at": __import__("datetime").datetime.now(__import__("datetime").timezone.utc).isoformat()}
+    if "enabled_sports" in payload:
+        raw = payload.get("enabled_sports") or []
+        if not isinstance(raw, list):
+            from fastapi import HTTPException
+            raise HTTPException(status_code=400, detail="enabled_sports must be a list of slugs")
+        # Whitelist against known sports
+        update["enabled_sports"] = [s for s in raw if s in _DEFAULT_ENABLED_SPORTS]
+    if "show_wc_tab" in payload:
+        update["show_wc_tab"] = bool(payload.get("show_wc_tab"))
+    if "popup_notice" in payload:
+        p = payload.get("popup_notice") or {}
+        # Bump version on save so frontend re-shows once even to users who already dismissed.
+        existing = await db.app_settings.find_one({"id": "site"}, {"_id": 0}) or {}
+        old_ver = int((existing.get("popup_notice") or {}).get("version") or 0)
+        update["popup_notice"] = {
+            "enabled": bool(p.get("enabled")),
+            "title": (p.get("title") or "").strip()[:120],
+            "body": (p.get("body") or "").strip()[:600],
+            "image_url": (p.get("image_url") or "").strip()[:1024],
+            "cta_text": (p.get("cta_text") or "").strip()[:40],
+            "cta_link": (p.get("cta_link") or "").strip()[:500],
+            "version": old_ver + 1 if p.get("bump_version") else old_ver,
+        }
+        if not update["popup_notice"]["version"]:
+            update["popup_notice"]["version"] = 1
+    await db.app_settings.update_one(
+        {"id": "site"},
+        {"$set": update},
+        upsert=True,
+    )
+    doc = await db.app_settings.find_one({"id": "site"}, {"_id": 0}) or {}
+    return {"ok": True, "site": doc}
+
+
 # Mount routers
 for r in (auth_router, catalog_router, matches_router, worldcup_router,
           predictions_router, fantasy_router, cards_router, card_usage_router,

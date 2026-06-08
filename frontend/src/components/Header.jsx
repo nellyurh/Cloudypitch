@@ -1,13 +1,14 @@
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import { Link, useNavigate, NavLink } from "react-router-dom";
+import api from "../lib/api";
 import { Brand } from "./Brand";
 import { SportIcon } from "./SportIcon";
 import { useAuth } from "../lib/auth";
 import { useTheme } from "../lib/theme";
 import { Search, Moon, SunMedium, Trophy, ChevronDown, LogOut, User, ShieldCheck, Menu, X, Coins, Target, Crown } from "lucide-react";
 
-const SPORTS = [
+const ALL_SPORTS = [
   { slug: "football", name: "Football" },
   { slug: "basketball", name: "Basketball" },
   { slug: "tennis", name: "Tennis" },
@@ -30,7 +31,24 @@ export const Header = () => {
   const [q, setQ] = useState("");
   const [menu, setMenu] = useState(false);
   const [drawer, setDrawer] = useState(false);
+  const [siteCfg, setSiteCfg] = useState({ enabled_sports: ALL_SPORTS.map(s => s.slug), show_wc_tab: true });
   const nav = useNavigate();
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const { data } = await api.get("/site-config");
+        setSiteCfg({
+          enabled_sports: Array.isArray(data?.enabled_sports) && data.enabled_sports.length
+            ? data.enabled_sports
+            : ALL_SPORTS.map(s => s.slug),
+          show_wc_tab: data?.show_wc_tab !== false,
+        });
+      } catch (_e) { /* ignore — keep defaults */ }
+    })();
+  }, []);
+
+  const SPORTS = ALL_SPORTS.filter(s => siteCfg.enabled_sports.includes(s.slug));
 
   const submit = (e) => {
     e.preventDefault();
@@ -136,21 +154,42 @@ export const Header = () => {
         )}
       </div>
 
-      {/* Sports nav with icons */}
-      <div className="max-w-[1400px] mx-auto px-3 md:px-5">
-        <div className="flex items-center gap-1 overflow-x-auto no-scrollbar pb-1" data-testid="sports-nav">
-          {SPORTS.map(s => (
-            <NavLink
-              key={s.slug}
-              to={s.slug === "football" ? "/" : `/sport/${s.slug}`}
-              className={({ isActive }) => `cp-sport-tab flex items-center gap-1.5 ${isActive ? "active" : ""}`}
-              data-testid={`sport-tab-${s.slug}`}
-              end={s.slug === "football"}
-            >
-              <SportIcon slug={s.slug} className="text-[13px]" />
-              {s.name}
-            </NavLink>
-          ))}
+      {/* Sports nav with icons — sits on a brand-colored band (forest green) like Sofascore but in Cloudy Pitch tones */}
+      <div
+        className="cp-sports-band"
+        style={{
+          background: "linear-gradient(180deg, #0F6E56 0%, #064E3B 100%)",
+          borderTop: "1px solid #0a3b2c",
+          borderBottom: "1px solid #042e22",
+          boxShadow: "inset 0 1px 0 rgba(255,255,255,0.06)",
+        }}
+      >
+        <div className="max-w-[1400px] mx-auto px-3 md:px-5">
+          <div className="flex items-center gap-1 overflow-x-auto no-scrollbar pb-1 pt-1" data-testid="sports-nav">
+            {siteCfg.show_wc_tab && (
+              <NavLink
+                to="/worldcup"
+                className={({ isActive }) => `cp-sport-tab cp-sport-tab--on-band flex items-center gap-1.5 ${isActive ? "active" : ""}`}
+                data-testid="sport-tab-wc2026"
+                style={{ color: "#fff" }}
+              >
+                <Trophy size={14} className="text-cp-lime"/>
+                <span>WC 2026</span>
+              </NavLink>
+            )}
+            {SPORTS.map(s => (
+              <NavLink
+                key={s.slug}
+                to={s.slug === "football" ? "/" : `/sport/${s.slug}`}
+                className={({ isActive }) => `cp-sport-tab cp-sport-tab--on-band flex items-center gap-1.5 ${isActive ? "active" : ""}`}
+                data-testid={`sport-tab-${s.slug}`}
+                end={s.slug === "football"}
+              >
+                <SportIcon slug={s.slug} className="text-[13px]" />
+                {s.name}
+              </NavLink>
+            ))}
+          </div>
         </div>
       </div>
 

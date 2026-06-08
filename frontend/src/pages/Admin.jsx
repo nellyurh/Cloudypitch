@@ -5,6 +5,14 @@ import { useAuth } from "../lib/auth";
 import { Users, Database, Radio, Activity, RefreshCw, Trophy, Coins, Calendar, Settings2, Image as ImageIcon, UserPlus } from "lucide-react";
 import { refreshBrand } from "../components/Brand";
 
+const StatCard = ({ icon: Icon, label, value }) => (
+  <div className="cp-surface p-3">
+    <Icon size={16} className="text-cp-lime mb-1.5"/>
+    <div className="text-[10px] uppercase tracking-widest" style={{ color: "var(--cp-text-muted)" }}>{label}</div>
+    <div className="text-2xl font-extrabold tabular-nums">{value ?? 0}</div>
+  </div>
+);
+
 export const AdminPanel = () => {
   const { user, loading } = useAuth();
   const [tab, setTab] = useState("dashboard");
@@ -21,13 +29,13 @@ export const AdminPanel = () => {
   const [wcGames, setWcGames] = useState([]);
   const [wcGameFilter, setWcGameFilter] = useState({ game_type: "", status: "" });
 
-  const refreshPools = async () => { try { const { data } = await api.get("/prize-pools"); setPools(data.pools || []); } catch (_) {} };
-  const refreshWcConfig = async () => { try { const { data } = await api.get("/admin/wc/config"); setWcConfig(data.config || []); } catch (_) {} };
+  const refreshPools = async () => { try { const { data } = await api.get("/prize-pools"); setPools(data.pools || []); } catch (_e) { /* ignore */ } };
+  const refreshWcConfig = async () => { try { const { data } = await api.get("/admin/wc/config"); setWcConfig(data.config || []); } catch (_e) { /* ignore */ } };
   const refreshWcGames = async () => {
     const params = new URLSearchParams();
     if (wcGameFilter.game_type) params.set("game_type", wcGameFilter.game_type);
     if (wcGameFilter.status) params.set("status", wcGameFilter.status);
-    try { const { data } = await api.get(`/admin/wc/games?${params.toString()}`); setWcGames(data.games || []); } catch (_) {}
+    try { const { data } = await api.get(`/admin/wc/games?${params.toString()}`); setWcGames(data.games || []); } catch (_e) { /* ignore */ }
   };
 
   useEffect(() => {
@@ -41,7 +49,7 @@ export const AdminPanel = () => {
           api.get("/admin/audit?limit=50"),
         ]);
         setStats(a.data); setMatches(b.data.matches); setUsers(c.data.users); setAudit(d.data.audit);
-      } catch (_) {}
+      } catch (_e) { /* ignore */ }
     })();
   }, [user]);
 
@@ -50,7 +58,7 @@ export const AdminPanel = () => {
     if (tab === "pools") refreshPools();
     if (tab === "wcconfig") refreshWcConfig();
     if (tab === "wcgames") refreshWcGames();
-    /* eslint-disable-next-line */
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- depends on stable refresh fns
   }, [tab, wcGameFilter]);
 
   if (loading) return <div className="cp-surface p-6 text-sm">Checking permissions…</div>;
@@ -61,14 +69,6 @@ export const AdminPanel = () => {
     try { const { data } = await api.post(url); setMsg(JSON.stringify(data)); } catch (e) { setMsg("Failed: " + (e?.response?.data?.detail || e.message)); }
     setBusy(false);
   };
-
-  const Card = ({ icon: Icon, label, value }) => (
-    <div className="cp-surface p-3">
-      <Icon size={16} className="text-cp-lime mb-1.5"/>
-      <div className="text-[10px] uppercase tracking-widest" style={{ color: "var(--cp-text-muted)" }}>{label}</div>
-      <div className="text-2xl font-extrabold tabular-nums">{value ?? 0}</div>
-    </div>
-  );
 
   return (
     <div data-testid="admin-panel">
@@ -82,14 +82,14 @@ export const AdminPanel = () => {
       {tab === "dashboard" && stats && (
         <div className="space-y-3">
           <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-            <Card icon={Users} label="Users" value={stats.users}/>
-            <Card icon={Activity} label="Active Sessions" value={stats.active_sessions}/>
-            <Card icon={Database} label="Matches" value={stats.matches}/>
-            <Card icon={Radio} label="Live Now" value={stats.live_matches}/>
-            <Card icon={Database} label="Leagues" value={stats.leagues}/>
-            <Card icon={Database} label="Teams" value={stats.teams}/>
-            <Card icon={Trophy} label="Predictions" value={stats.predictions}/>
-            <Card icon={Trophy} label="Fantasy Squads" value={stats.fantasy_squads}/>
+            <StatCard icon={Users} label="Users" value={stats.users}/>
+            <StatCard icon={Activity} label="Active Sessions" value={stats.active_sessions}/>
+            <StatCard icon={Database} label="Matches" value={stats.matches}/>
+            <StatCard icon={Radio} label="Live Now" value={stats.live_matches}/>
+            <StatCard icon={Database} label="Leagues" value={stats.leagues}/>
+            <StatCard icon={Database} label="Teams" value={stats.teams}/>
+            <StatCard icon={Trophy} label="Predictions" value={stats.predictions}/>
+            <StatCard icon={Trophy} label="Fantasy Squads" value={stats.fantasy_squads}/>
           </div>
           <div className="cp-surface p-4" data-testid="admin-cleanup-card">
             <h3 className="text-sm font-extrabold mb-1">DB Cleanup</h3>
@@ -248,7 +248,7 @@ export const AdminPanel = () => {
                     </div>
                     <div className="md:col-span-2">
                       <label className="text-[10px] uppercase tracking-widest" style={{ color: "var(--cp-text-muted)" }}>Payout structure (JSON list)</label>
-                      <textarea className="cp-input w-full font-mono text-[11px]" rows={3} value={JSON.stringify(editingPool.payout_structure || [], null, 0)} onChange={(e) => { try { setEditingPool(s => ({ ...s, payout_structure: JSON.parse(e.target.value) })); } catch (_) {} }} data-testid={`pool-payout-${p.id}`}/>
+                      <textarea className="cp-input w-full font-mono text-[11px]" rows={3} value={JSON.stringify(editingPool.payout_structure || [], null, 0)} onChange={(e) => { try { setEditingPool(s => ({ ...s, payout_structure: JSON.parse(e.target.value) })); } catch (_e) { /* ignore */ } }} data-testid={`pool-payout-${p.id}`}/>
                     </div>
                     <div className="md:col-span-2 flex justify-end gap-2">
                       <button
@@ -364,7 +364,7 @@ export const AdminPanel = () => {
                     </td>
                   </tr>
                 ))}
-                {wcGames.length === 0 && <tr><td colSpan={9} className="p-4 text-center" style={{ color: "var(--cp-text-muted)" }}>No games yet — click "Generate / Tick" once WC fixtures are ingested.</td></tr>}
+                {wcGames.length === 0 && <tr><td colSpan={9} className="p-4 text-center" style={{ color: "var(--cp-text-muted)" }}>No games yet — click &ldquo;Generate / Tick&rdquo; once WC fixtures are ingested.</td></tr>}
               </tbody>
             </table>
           </div>
@@ -405,7 +405,7 @@ function PlayerPricesTab({ onMessage }) {
     }
     setLoading(false);
   };
-  useEffect(() => { load(); /* eslint-disable-next-line */ }, [position]);
+  useEffect(() => { load(); /* eslint-disable-next-line react-hooks/exhaustive-deps -- load is stable */ }, [position]);
 
   const setPrice = async (id, value) => {
     const price = parseFloat(value);
@@ -493,12 +493,197 @@ function PlayerPricesTab({ onMessage }) {
 function SettingsTab({ onMessage }) {
   return (
     <div className="space-y-4 max-w-2xl" data-testid="admin-settings">
+      <SiteConfigForm onMessage={onMessage}/>
       <CurrencyRateForm onMessage={onMessage}/>
       <BrandUploader onMessage={onMessage}/>
       <CreateAdminForm onMessage={onMessage}/>
     </div>
   );
 }
+
+/* ──────────────────────────────────────────────────────────────────────── */
+
+const ALL_SPORT_SLUGS = [
+  "football", "basketball", "tennis", "baseball", "hockey", "cricket",
+  "rugby", "nba", "volleyball", "handball", "mma", "f1", "afl", "golf",
+];
+
+function SiteConfigForm({ onMessage }) {
+  const [enabled, setEnabled] = useState(new Set(ALL_SPORT_SLUGS));
+  const [showWcTab, setShowWcTab] = useState(true);
+  const [popup, setPopup] = useState({ enabled: false, title: "", body: "", image_url: "", cta_text: "", cta_link: "" });
+  const [loaded, setLoaded] = useState(false);
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const { data } = await api.get("/site-config");
+        setEnabled(new Set(data?.enabled_sports || ALL_SPORT_SLUGS));
+        setShowWcTab(data?.show_wc_tab !== false);
+        const p = data?.popup_notice || {};
+        setPopup({
+          enabled: !!p.enabled,
+          title: p.title || "",
+          body: p.body || "",
+          image_url: p.image_url || "",
+          cta_text: p.cta_text || "",
+          cta_link: p.cta_link || "",
+        });
+      } catch (_e) { /* ignore — show defaults */ }
+      setLoaded(true);
+    })();
+  }, []);
+
+  const toggle = (slug) => {
+    setEnabled(prev => {
+      const next = new Set(prev);
+      if (next.has(slug)) next.delete(slug);
+      else next.add(slug);
+      return next;
+    });
+  };
+
+  const save = async (bumpVersion = false) => {
+    setBusy(true);
+    try {
+      await api.post("/admin/site-config", {
+        enabled_sports: Array.from(enabled),
+        show_wc_tab: showWcTab,
+        popup_notice: { ...popup, bump_version: bumpVersion },
+      });
+      onMessage(`✓ Site config saved${bumpVersion ? " · popup re-shown for everyone" : ""}`);
+    } catch (e) {
+      onMessage(`✗ ${e?.response?.data?.detail || e.message}`);
+    }
+    setBusy(false);
+  };
+
+  if (!loaded) return <div className="cp-surface p-4 text-xs opacity-60">Loading site config…</div>;
+  return (
+    <div className="cp-surface p-4 space-y-4" data-testid="site-config-form">
+      <div>
+        <div className="flex items-center gap-2 mb-1">
+          <Settings2 size={16} className="text-cp-lime"/>
+          <h2 className="font-extrabold">Sports navigation</h2>
+        </div>
+        <div className="text-[11px] opacity-60 mb-3">
+          Disabled sports disappear from the header AND get skipped by the live ingestion worker (saves API quota).
+        </div>
+        <label className="inline-flex items-center gap-2 text-xs font-bold mb-2 cursor-pointer" data-testid="show-wc-tab">
+          <input type="checkbox" checked={showWcTab} onChange={e => setShowWcTab(e.target.checked)}/>
+          Show &ldquo;WC 2026&rdquo; tab in sports nav
+        </label>
+        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2" data-testid="sport-toggles">
+          {ALL_SPORT_SLUGS.map(slug => {
+            const on = enabled.has(slug);
+            return (
+              <button
+                key={slug}
+                onClick={() => toggle(slug)}
+                className="text-xs font-bold px-2.5 py-2 rounded text-left flex items-center gap-2"
+                style={{
+                  background: on ? "rgba(163, 230, 53, 0.18)" : "var(--cp-surface-2)",
+                  border: `1px solid ${on ? "rgba(163, 230, 53, 0.4)" : "var(--cp-border)"}`,
+                  color: on ? "var(--cp-text)" : "var(--cp-text-muted)",
+                  textTransform: "capitalize",
+                }}
+                data-testid={`toggle-sport-${slug}`}
+              >
+                <span style={{
+                  width: 14, height: 14, borderRadius: 4,
+                  background: on ? "var(--cp-lime)" : "transparent",
+                  border: `1.5px solid ${on ? "var(--cp-lime)" : "var(--cp-text-muted)"}`,
+                  display: "inline-flex", alignItems: "center", justifyContent: "center",
+                  color: "var(--cp-forest)", fontSize: 10, fontWeight: 900,
+                }}>{on ? "✓" : ""}</span>
+                {slug}
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
+      <div style={{ borderTop: "1px solid var(--cp-border)" }} className="pt-4">
+        <div className="flex items-center gap-2 mb-1">
+          <Settings2 size={16} className="text-cp-lime"/>
+          <h2 className="font-extrabold">Popup notice (promo modal)</h2>
+        </div>
+        <div className="text-[11px] opacity-60 mb-3">
+          Shown to every visitor once per device. Hit <b>&ldquo;Save &amp; re-show to everyone&rdquo;</b> to bump the version and re-trigger for users who already dismissed it.
+        </div>
+        <label className="inline-flex items-center gap-2 text-xs font-bold mb-3 cursor-pointer" data-testid="popup-enabled">
+          <input type="checkbox" checked={popup.enabled} onChange={e => setPopup({ ...popup, enabled: e.target.checked })}/>
+          Popup enabled
+        </label>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+          <input
+            placeholder="Title (e.g. Cloudy Pitch Fantasy)"
+            value={popup.title}
+            onChange={e => setPopup({ ...popup, title: e.target.value })}
+            maxLength={120}
+            className="cp-input text-sm" data-testid="popup-title"
+          />
+          <input
+            placeholder="Image URL (16:9, optional)"
+            value={popup.image_url}
+            onChange={e => setPopup({ ...popup, image_url: e.target.value })}
+            maxLength={1024}
+            className="cp-input text-sm" data-testid="popup-image"
+          />
+        </div>
+        <textarea
+          placeholder="Body — short pitch text"
+          value={popup.body}
+          onChange={e => setPopup({ ...popup, body: e.target.value })}
+          maxLength={600}
+          rows={3}
+          className="cp-input text-sm w-full mt-2" data-testid="popup-body"
+        />
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-2 mt-2">
+          <input
+            placeholder="CTA text (e.g. Play now)"
+            value={popup.cta_text}
+            onChange={e => setPopup({ ...popup, cta_text: e.target.value })}
+            maxLength={40}
+            className="cp-input text-sm" data-testid="popup-cta-text"
+          />
+          <input
+            placeholder="CTA link (e.g. /build-team or https://…)"
+            value={popup.cta_link}
+            onChange={e => setPopup({ ...popup, cta_link: e.target.value })}
+            maxLength={500}
+            className="cp-input text-sm" data-testid="popup-cta-link"
+          />
+        </div>
+      </div>
+
+      <div className="flex flex-wrap items-center gap-2 pt-1">
+        <button
+          onClick={() => save(false)}
+          disabled={busy}
+          className="px-4 py-2 rounded text-sm font-extrabold disabled:opacity-50"
+          style={{ background: "var(--cp-lime)", color: "var(--cp-forest)" }}
+          data-testid="site-config-save"
+        >
+          {busy ? "Saving…" : "Save"}
+        </button>
+        <button
+          onClick={() => save(true)}
+          disabled={busy || !popup.enabled}
+          className="px-4 py-2 rounded text-sm font-extrabold disabled:opacity-50"
+          style={{ background: "var(--cp-surface-2)", border: "1px solid var(--cp-border)", color: "var(--cp-text)" }}
+          data-testid="site-config-save-bump"
+          title="Bumps popup_notice.version so users who dismissed see it again."
+        >
+          Save & re-show popup to everyone
+        </button>
+      </div>
+    </div>
+  );
+}
+
+/* ──────────────────────────────────────────────────────────────────────── */
 
 function CurrencyRateForm({ onMessage }) {
   const [rate, setRate] = useState(1400);
@@ -508,7 +693,7 @@ function CurrencyRateForm({ onMessage }) {
       try {
         const { data } = await api.get("/currency?force=NG");
         setRate(data.rate || 1400);
-      } catch (_) {}
+      } catch (_e) { /* ignore — show defaults */ }
       setLoaded(true);
     })();
   }, []);
@@ -550,7 +735,7 @@ function BrandUploader({ onMessage }) {
   ];
   const [current, setCurrent] = useState({});
   const load = async () => {
-    try { const { data } = await api.get("/brand"); setCurrent(data); } catch (_) {}
+    try { const { data } = await api.get("/brand"); setCurrent(data); } catch (_e) { /* ignore */ }
   };
   useEffect(() => { load(); }, []);
 

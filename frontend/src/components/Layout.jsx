@@ -1,6 +1,7 @@
 import React from "react";
 import { Header } from "./Header";
 import { BottomNav } from "./BottomNav";
+import { PopupNotice } from "./PopupNotice";
 
 export const Layout = ({ children }) => {
   return (
@@ -13,6 +14,7 @@ export const Layout = ({ children }) => {
         © 2026 Cloudy Pitch · Global Football, Predictions & Fantasy
       </footer>
       <BottomNav />
+      <PopupNotice />
     </div>
   );
 };

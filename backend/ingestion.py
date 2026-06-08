@@ -14,6 +14,31 @@ from adapters import sportmonks, apisports, statpal
 
 log = logging.getLogger("ingest")
 
+# ---------- enabled-sport gate (admin can toggle from /admin → settings) ----------
+_ENABLED_CACHE: dict = {"data": None, "ts": 0.0}
+_DEFAULT_ENABLED = {
+    "football", "basketball", "tennis", "baseball", "hockey", "cricket",
+    "rugby", "nba", "volleyball", "handball", "mma", "f1", "afl", "golf",
+}
+
+async def _enabled_sports() -> set[str]:
+    """Returns the set of currently-enabled sport slugs. Cached 30 s."""
+    import time
+    now = time.time()
+    cache = _ENABLED_CACHE
+    if cache["data"] is not None and now - cache["ts"] < 30:
+        return cache["data"]
+    try:
+        db = get_db()
+        doc = await db.app_settings.find_one({"id": "site"}, {"_id": 0}) or {}
+        raw = doc.get("enabled_sports")
+        result = set(raw) if isinstance(raw, list) and raw else set(_DEFAULT_ENABLED)
+    except Exception:
+        result = set(_DEFAULT_ENABLED)
+    cache["data"] = result
+    cache["ts"] = now
+    return result
+
 # ---------- league/team helpers ----------
 def _normalize_country(s):
     """Title-case country names but preserve uppercase abbreviations like USA, UAE, DR Congo.
@@ -838,8 +863,11 @@ async def sync_apisports_today(sport_slug: str, days_back: int = 1, days_ahead: 
 
 async def poll_apisports_live():
     """Poll live games for ALL API-Sports sports in one pass."""
+    enabled = await _enabled_sports()
     total = 0
     for sport in ("football", "basketball", "nba", "baseball", "hockey", "rugby", "handball", "volleyball", "mma", "afl"):
+        if sport not in enabled:
+            continue
         try:
             data = await apisports.fetch_games(sport, live=True)
             games = (data or {}).get("response", []) if isinstance(data, dict) else []
@@ -2136,15 +2164,18 @@ async def start_background_jobs():
             log.warning(f"scorers all: {e}")
         for sport in ("football", "basketball", "nba", "baseball", "hockey", "rugby", "handball", "volleyball", "mma", "afl"):
             try:
-                await sync_apisports_today(sport, days_back=1, days_ahead=3)
+                if sport in await _enabled_sports():
+                    await sync_apisports_today(sport, days_back=1, days_ahead=3)
             except Exception as e:
                 log.warning(f"initial as {sport}: {e}")
         try:
-            await sync_statpal_tennis()
+            if "tennis" in await _enabled_sports():
+                await sync_statpal_tennis()
         except Exception as e:
             log.warning(f"initial statpal tennis: {e}")
         try:
-            await sync_statpal_cricket()
+            if "cricket" in await _enabled_sports():
+                await sync_statpal_cricket()
         except Exception as e:
             log.warning(f"initial statpal cricket: {e}")
         # WC2026 fixture polling — pull league 732 schedules (qualifiers + finals)
@@ -2185,14 +2216,15 @@ async def start_background_jobs():
 
     async def live_poller():
         while True:
-            try:
-                await poll_sportmonks_live()
-            except Exception as e:
-                log.warning(f"live poll: {e}")
-            try:
-                await stale_status_sweep()
-            except Exception:
-                pass
+            if "football" in await _enabled_sports():
+                try:
+                    await poll_sportmonks_live()
+                except Exception as e:
+                    log.warning(f"live poll: {e}")
+                try:
+                    await stale_status_sweep()
+                except Exception:
+                    pass
             await asyncio.sleep(20)
 
     async def apisports_live_poller():
@@ -2221,24 +2253,29 @@ async def start_background_jobs():
                 pass
             for sport in ("football", "basketball", "nba", "baseball", "hockey", "rugby", "handball", "volleyball", "mma", "afl"):
                 try:
-                    await sync_apisports_today(sport, days_back=1, days_ahead=3)
+                    if sport in await _enabled_sports():
+                        await sync_apisports_today(sport, days_back=1, days_ahead=3)
                 except Exception:
                     pass
 
     async def statpal_poller():
         while True:
-            try:
-                await sync_statpal_tennis()
-            except Exception:
-                pass
-            try:
-                await sync_statpal_cricket()
-            except Exception:
-                pass
-            try:
-                await sync_statpal_football()
-            except Exception:
-                pass
+            enabled = await _enabled_sports()
+            if "tennis" in enabled:
+                try:
+                    await sync_statpal_tennis()
+                except Exception:
+                    pass
+            if "cricket" in enabled:
+                try:
+                    await sync_statpal_cricket()
+                except Exception:
+                    pass
+            if "football" in enabled:
+                try:
+                    await sync_statpal_football()
+                except Exception:
+                    pass
             await asyncio.sleep(120)
 
     asyncio.create_task(initial_sync())
