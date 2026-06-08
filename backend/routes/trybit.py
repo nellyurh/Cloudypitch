@@ -80,7 +80,7 @@ async def create_invoice(body: TrybitInvoiceIn, request: Request, user: dict = D
 
     Returns the `pay_url` for the frontend to redirect/open.
     """
-    if not (TRYBIT_API_KEY and TRYBIT_SHOP_ID):
+    if not (TRYBIT_API_KEY and TRYBIT_SHOP_ID and TRYBIT_SECRET_KEY):
         raise HTTPException(status_code=503, detail="Trybit not configured. Set TRYBIT_API_KEY + TRYBIT_SHOP_ID + TRYBIT_SECRET_KEY in backend env.")
 
     order_id = f"{user['id']}:{new_id()[:12]}"

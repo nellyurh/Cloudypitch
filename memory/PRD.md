@@ -27,6 +27,24 @@ Three integrated products:
 - **Ingestion**: Background asyncio tasks: Sportmonks fixture sync (today+7d) every 6h, Sportmonks live poller every 20s, StatPal tennis poller every 2min, stale-status sweep, initial sync of all sports on startup.
 - **Data**: All endpoints prefixed `/api`. Same-origin between frontend and backend on the preview URL (cookie auth works).
 
+## Iteration 21 — Payment Integrations: PocketFi (NGN VDA) + Trybit (Crypto) (2026-02-06)
+- ✅ **PocketFi NGN dynamic virtual accounts** wired end-to-end (`/app/backend/routes/pocketfi.py`):
+  - `GET /api/payments/pocketfi/config` (configured/banks list).
+  - `POST /api/payments/pocketfi/dynamic-account` → calls PocketFi `POST /api/v1/virtual-accounts/create` with `type=dynamic`, persists `ngn_deposits`, returns banks[] (bankName/accountNumber/accountName) for the user to transfer to.
+  - `GET /api/payments/pocketfi/deposit/{id}` → frontend polls while waiting for the customer's bank transfer.
+  - `POST /api/webhooks/pocketfi` → HMAC-SHA512 verification of raw body using `HTTP_POCKETFI_SIGNATURE` header, idempotency by `transaction.reference`, credits the user wallet (NGN). Description matcher uses `re.escape()` to prevent regex injection.
+- ✅ **Trybit (CryptoCloud) hosted-invoice checkout** wired (`/app/backend/routes/trybit.py`):
+  - `GET /api/payments/trybit/config` (configured + supported coin list: USDT_TRC20/ERC20/BSC/SOL, BTC, ETH, BNB, USDC variants…).
+  - `POST /api/payments/trybit/invoice` → calls Trybit `POST https://api.trybit.com/v2/invoice/create` with `Authorization: Token <API KEY>`, persists `crypto_invoices`, returns `pay_url` (pay.trybit.com hosted checkout).
+  - `GET /api/payments/trybit/invoice/{uuid}` → frontend polls until paid.
+  - `POST /api/webhooks/trybit` → decodes postback JWT (HS256, `TRYBIT_SECRET_KEY`), verifies `status=paid`, converts USD→NGN at admin rate, credits wallet, idempotent on invoice_uuid.
+- ✅ **Frontend `<DepositPanel/>`** (`/app/frontend/src/components/DepositPanel.jsx`): tabbed UI in /wallet → "Nigerian Bank Transfer" + "Crypto". Shows yellow "provider not configured" banner listing missing env vars until admin adds keys. Once keys are added the panel auto-detects via `/config` and shows the relevant form.
+- ✅ Tests: 21 pass (`/app/backend/tests/test_payments_integration.py` + `test_payments_webhooks.py`). All edge cases covered: not-configured 503s, validation 422s, PalmPay KYC gating, signature verification roundtrips, JWT expiry, tenancy isolation (one user can't read another's deposit/invoice).
+- ⏳ **Action required from user**: paste credentials into `/app/backend/.env`:
+  - PocketFi: `POCKETFI_SECRET_KEY`, `POCKETFI_BUSINESS_ID` (from PocketFi Dashboard → Settings → API Keys; webhook URL `/api/webhooks/pocketfi`).
+  - Trybit: `TRYBIT_API_KEY`, `TRYBIT_SHOP_ID`, `TRYBIT_SECRET_KEY` (from Trybit project settings; postback URL `/api/webhooks/trybit`).
+
+
 ## Iteration 20 — Admin Site Config + Brand Band + Emergent Strip (2026-02-06)
 - ✅ **Removed all Emergent references** from `/app/frontend/public/index.html`: dropped `<meta description="A product of emergent.sh">`, `https://assets.emergent.sh/scripts/emergent-main.js` loader (this is the small green "Made with Emergent" overlay), and the inline PostHog tracking script. Replaced with proper Cloudy Pitch meta description + OG tags.
 - ✅ **Brand-coloured sport-tab strip**: The 14-sport nav now sits on a forest-green gradient band (`#0F6E56 → #064E3B`) mirroring Sofascore's blue band but in Cloudy Pitch brand colors. Active tab gets a lime underline + subtle lime tint. White text legibility on band tuned via new `.cp-sport-tab--on-band` CSS class.

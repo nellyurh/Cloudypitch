@@ -63,8 +63,10 @@ const DepositPanel = ({ user, onReload, onErr, onMsg }) => {
         nin: nin || undefined, bvn: bvn || undefined,
       });
       setNgnDeposit(data);
-      // poll for completion every 6 s, up to 5 minutes
-      pollNgn(data.deposit_id, 50);
+      if (data?.deposit_id) {
+        // poll for completion every 6 s, up to 5 minutes
+        pollNgn(data.deposit_id, 50);
+      }
     } catch (e2) {
       onErr(e2?.response?.data?.detail || e2.message);
     }

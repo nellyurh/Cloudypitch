@@ -18,6 +18,7 @@ import hashlib
 import hmac
 import logging
 import os
+import re
 from datetime import datetime, timezone
 from typing import Optional
 
@@ -217,11 +218,13 @@ async def pocketfi_webhook(request: Request):
     # so we use the description and amount to disambiguate.
     deposit = None
     if description:
-        # Description often contains the account name or reference we created
+        # Description often contains the account name or reference we created.
+        # Use re.escape() to avoid regex-injection / ReDoS via attacker-controlled input.
+        safe = re.escape(description)
         deposit = await db.ngn_deposits.find_one(
             {"status": "pending", "$or": [
-                {"account_name": {"$regex": description, "$options": "i"}},
-                {"customer.first_name": {"$regex": description, "$options": "i"}},
+                {"account_name": {"$regex": safe, "$options": "i"}},
+                {"customer.first_name": {"$regex": safe, "$options": "i"}},
             ]},
             {"_id": 0},
         )
