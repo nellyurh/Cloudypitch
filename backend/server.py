@@ -36,6 +36,8 @@ from routes.wallet import router as wallet_router
 from routes.compliance import router as compliance_router
 from routes.ads import router as ads_router
 from routes.payments import router as payments_router
+from routes.pocketfi import router as pocketfi_router, webhook_router as pocketfi_webhook_router
+from routes.trybit import router as trybit_router, webhook_router as trybit_webhook_router
 from routes.wc_games import router as wc_games_router, admin_router as wc_admin_router
 from routes.admin_cleanup import router as admin_cleanup_router
 from routes.leaderboard import router as leaderboard_router
@@ -251,6 +253,8 @@ for r in (auth_router, catalog_router, matches_router, worldcup_router,
           leagues_router, pools_router,
           profile_router, search_router, admin_router,
           wallet_router, compliance_router, ads_router, payments_router,
+          pocketfi_router, pocketfi_webhook_router,
+          trybit_router, trybit_webhook_router,
           referrals_router, auth_extras_router,
           wc_games_router, wc_admin_router,
           admin_cleanup_router,

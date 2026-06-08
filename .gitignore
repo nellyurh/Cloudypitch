@@ -88,3 +88,4 @@ android-sdk/
 credentials.json
 *.key
 .credentials
+frontend/node_modules/.cache/default-development/42.pack

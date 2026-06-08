@@ -1,0 +1,43 @@
+{
+  "summary": "Tested PocketFi + Trybit payment integration plumbing in 'not configured' mode (provider API keys intentionally unset in /app/backend/.env). 21/21 pytest tests pass (18 new integration + 3 existing webhook signature roundtrips). Frontend /wallet renders new DepositPanel with both tabs and yellow not-configured banners listing the required env vars; no CRA overlay, no form rendering until keys are added.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "POST /api/payments/trybit/invoice", "issue": "The 503 detail message only lists TRYBIT_API_KEY + TRYBIT_SHOP_ID; TRYBIT_SECRET_KEY (needed for webhook JWT verification) is not mentioned even though the spec says it should be. Code only checks `if not (TRYBIT_API_KEY and TRYBIT_SHOP_ID)`. Webhook endpoint correctly 503s on missing SECRET_KEY, so the gap is purely cosmetic on the error message."},
+      {"endpoint": "POST /api/payments/pocketfi/dynamic-account", "issue": "Validation order: pydantic 422 runs BEFORE the keys-check 503. With keys missing, an invalid bank/palmpay-without-kyc payload still hits 503 because the route is short-circuited. Acceptable but worth noting — once keys are populated the 400 paths become reachable. Verified via test_invalid_bank_with_keys_unset_returns_503 and test_palmpay_without_kyc_with_keys_unset_returns_503."},
+      {"endpoint": "POST /api/webhooks/pocketfi", "issue": "Description-based deposit matching with `$regex: description` is vulnerable to ReDoS / regex-injection if PocketFi forwards an attacker-controlled description containing regex metacharacters. Consider re.escape() on the value or matching by reference/account_number only."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_payments_integration.py",
+    "/app/backend/tests/test_payments_webhooks.py",
+    "/app/test_reports/pytest/iteration21.xml"
+  ],
+  "action_items": [
+    "(Optional) Update Trybit /invoice 503 detail to also mention TRYBIT_SECRET_KEY so admins set up all three keys in one pass.",
+    "(Optional) Escape `description` before using as a Mongo $regex in /api/webhooks/pocketfi to prevent regex-injection / ReDoS.",
+    "(Out of scope this run) Once PocketFi/Trybit credentials are added to backend/.env, re-run tests — 503 assertions will need to flip to 400/200 paths."
+  ],
+  "critical_code_review_comments": [
+    "routes/pocketfi.py L222-227: `$regex: description, $options:i` uses raw webhook payload as a regex pattern → ReDoS / injection risk. Use re.escape() or change matcher to exact account-number lookup.",
+    "routes/trybit.py L83-84: The 503 message for /invoice should mention TRYBIT_SECRET_KEY too (currently only API_KEY + SHOP_ID), even though the webhook is what truly needs SECRET_KEY. Minor DX nit.",
+    "routes/pocketfi.py + trybit.py: USD→NGN rate fallback (1500.0) is hardcoded in two places — ok for now, but if more currencies are added centralize the rate-source helper.",
+    "DepositPanel.jsx L62-67: After successful PocketFi POST, polling starts even if the response shape doesn't include deposit_id. Add a guard `if (data?.deposit_id)` before pollNgn to avoid an infinite poll loop on malformed responses.",
+    "DepositPanel.jsx polling uses setTimeout chains (no cleanup on unmount) — if the user navigates away during a poll, the timeout still fires. Consider AbortController + useEffect cleanup."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_payments_integration.py (new — 18 tests)"
+  ],
+  "success_rate": {"backend": "100% (21/21)", "frontend": "100% (all DepositPanel assertions passed)"},
+  "test_credentials": "admin@cloudypitch.com / CloudyAdmin2026! works; signup endpoint also works for fresh emails.",
+  "seed_data_creation": "Created one throwaway user via /api/auth/signup (bt_<ts>@test.com) for tenancy-isolation tests. No persistent DB writes (all reads hit unknown ids returning 404).",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Once admin populates POCKETFI_* and TRYBIT_* env vars, the 'test_not_configured_returns_503' assertions in /app/backend/tests/test_payments_integration.py will start failing — that's expected and indicates correct wiring. Flip those assertions or skip with `pytest.skip` when env keys are present. The webhook unit tests (/app/backend/tests/test_payments_webhooks.py) are independent of env state and should always pass. Frontend DepositPanel uses /api/payments/{pocketfi,trybit}/config on mount — clear browser cache to re-fetch after admin updates keys.",
+  "rca of the issue": "No bugs identified — all assertions in the review request pass. The two backend minor items (Trybit 503 detail missing SECRET_KEY mention, regex-injection in PocketFi webhook description matcher) are non-blocking and were noted as code-review feedback."
+}

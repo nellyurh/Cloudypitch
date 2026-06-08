@@ -6,6 +6,7 @@ import { Link } from "react-router-dom";
 import AgeGateModal from "../components/AgeGateModal";
 import KycModal from "../components/KycModal";
 import RewardedVideoButton from "../components/RewardedVideoButton";
+import DepositPanel from "../components/DepositPanel";
 
 const tx_label = {
   deposit: { text: "Deposit", color: "text-cp-lime" },
@@ -49,7 +50,7 @@ export const WalletPage = () => {
     } catch (e) { setErr(formatApiErr(e)); }
   };
 
-  useEffect(() => { if (user) load(); }, [user]);
+  useEffect(() => { if (user) load(); /* eslint-disable-line react-hooks/exhaustive-deps */ }, [user]);
 
   if (!user) return (
     <div className="cp-surface p-10 text-center max-w-xl mx-auto mt-6" data-testid="wallet-signin-gate">
@@ -130,20 +131,7 @@ export const WalletPage = () => {
 
         <div className="cp-surface p-5 mt-3" data-testid="wallet-deposit">
           <h3 className="text-sm font-extrabold uppercase tracking-widest mb-3" style={{ color: "var(--cp-text-muted)" }}>Add Funds</h3>
-          <div className="flex flex-wrap items-center gap-2">
-            {[100, 500, 1000, 2000, 5000].map(v => (
-              <button key={v} onClick={() => setAmount(v)} className={`cp-pill ${amount === v ? "bg-cp-lime text-cp-forest" : ""}`} data-testid={`amt-${v}`}>{fmtUsd(v)}</button>
-            ))}
-            <input type="number" value={amount} onChange={(e) => setAmount(Number(e.target.value))} className="cp-input w-32 ml-auto" data-testid="amt-input"/>
-          </div>
-          <div className="flex gap-2 mt-3">
-            <button onClick={initPaystack} className="cp-btn-primary flex-1 inline-flex items-center justify-center gap-1" data-testid="deposit-paystack">
-              <ArrowDownToLine size={14}/> Deposit
-            </button>
-            {user?.role === "admin" && (
-              <button onClick={directDeposit} className="cp-btn-ghost" data-testid="deposit-test">Test-Credit</button>
-            )}
-          </div>
+          <DepositPanel user={user} onReload={load} onErr={setErr} onMsg={setMsg} />
           <div className="mt-3 pt-3 border-t" style={{ borderColor: "var(--cp-border)" }}>
             <RewardedVideoButton rewardType="card_uses"/>
           </div>
