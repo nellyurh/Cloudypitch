@@ -10,10 +10,22 @@ import uuid
 
 import pytest
 import requests
+from dotenv import load_dotenv
+
+# Load /app/backend/.env so env-aware skip markers see the same values the server does.
+load_dotenv(os.path.join(os.path.dirname(__file__), "..", ".env"))
 
 BASE_URL = os.environ.get("REACT_APP_BACKEND_URL", "https://fantasy-wc.preview.emergentagent.com").rstrip("/")
 ADMIN_EMAIL = "admin@cloudypitch.com"
 ADMIN_PASSWORD = "CloudyAdmin2026!"
+
+
+# When provider keys are populated in .env the "not_configured / 503" suite is
+# no longer applicable — skip those tests instead of failing.
+_PFI_LIVE = bool(os.environ.get("POCKETFI_PUBLIC_KEY") and os.environ.get("POCKETFI_SECRET_KEY") and os.environ.get("POCKETFI_BUSINESS_ID"))
+_TBT_LIVE = bool(os.environ.get("TRYBIT_API_KEY") and os.environ.get("TRYBIT_SHOP_ID") and os.environ.get("TRYBIT_SECRET_KEY"))
+skip_if_pfi_live = pytest.mark.skipif(_PFI_LIVE, reason="PocketFi keys configured — 503/not-configured suite no longer applicable")
+skip_if_tbt_live = pytest.mark.skipif(_TBT_LIVE, reason="Trybit keys configured — 503/not-configured suite no longer applicable")
 
 
 # ──────────────────────────── fixtures ────────────────────────────
@@ -49,7 +61,8 @@ class TestConfigEndpoints:
         r = requests.get(f"{BASE_URL}/api/payments/pocketfi/config", timeout=15)
         assert r.status_code == 200, r.text
         data = r.json()
-        assert data["configured"] is False
+        # `configured` flips based on env; assert the value matches local env state.
+        assert data["configured"] == _PFI_LIVE
         assert data["currency"] == "NGN"
         assert set(data["banks"]) == {"9psb", "kuda", "paga", "palmpay", "saveheaven"}
 
@@ -57,7 +70,7 @@ class TestConfigEndpoints:
         r = requests.get(f"{BASE_URL}/api/payments/trybit/config", timeout=15)
         assert r.status_code == 200, r.text
         data = r.json()
-        assert data["configured"] is False
+        assert data["configured"] == _TBT_LIVE
         assert data["currency"] == "USD"
         assert isinstance(data["currencies"], list)
         assert len(data["currencies"]) == 11
@@ -86,6 +99,7 @@ class TestPocketFiDynamicAccount:
         )
         assert r.status_code == 422, r.text
 
+    @skip_if_pfi_live
     def test_not_configured_returns_503(self, admin_session):
         r = admin_session.post(
             f"{BASE_URL}/api/payments/pocketfi/dynamic-account",
@@ -158,13 +172,14 @@ class TestTrybitInvoice:
         r = admin_session.post(f"{BASE_URL}/api/payments/trybit/invoice", json={"amount_usd": 0}, timeout=15)
         assert r.status_code == 422, r.text
 
+    @skip_if_tbt_live
     def test_not_configured_returns_503(self, admin_session):
         r = admin_session.post(f"{BASE_URL}/api/payments/trybit/invoice", json={"amount_usd": 25.0}, timeout=15)
         assert r.status_code == 503, r.text
         detail = r.json().get("detail", "")
-        # route only mentions API_KEY + SHOP_ID in its 503 message; SECRET_KEY is webhook-side
         assert "TRYBIT_API_KEY" in detail
         assert "TRYBIT_SHOP_ID" in detail
+        assert "TRYBIT_SECRET_KEY" in detail
 
 
 # ──────────────────────────── Trybit invoice GET ────────────────────────────
@@ -182,10 +197,12 @@ class TestTrybitInvoiceGet:
 # ──────────────────────────── Webhook 503 when no secret ────────────────────────────
 
 class TestWebhooks:
+    @skip_if_pfi_live
     def test_pocketfi_webhook_no_secret_returns_503(self):
         r = requests.post(f"{BASE_URL}/api/webhooks/pocketfi", json={"foo": "bar"}, timeout=15)
         assert r.status_code == 503, r.text
 
+    @skip_if_tbt_live
     def test_trybit_webhook_no_secret_returns_503(self):
         r = requests.post(f"{BASE_URL}/api/webhooks/trybit", json={"foo": "bar"}, timeout=15)
         assert r.status_code == 503, r.text

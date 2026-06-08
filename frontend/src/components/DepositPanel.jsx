@@ -243,12 +243,18 @@ const NgnInstructions = ({ deposit, onCancel }) => {
           <div className="col-span-1 flex items-center gap-1">
             <div className="flex-1">
               <div className="text-[10px] uppercase tracking-widest" style={{ color: "var(--cp-text-muted)" }}>Account name</div>
-              <div className="text-xs font-bold truncate">{b.accountName}</div>
+              <div className="text-xs font-bold truncate">{b.accountName || "—"}</div>
             </div>
             <button onClick={() => copy(b.accountNumber, i)} className="cp-btn-ghost !p-2" title="Copy account number" data-testid={`ngn-copy-${i}`}>
               {copied === i ? <CheckCircle2 size={14} className="text-cp-lime"/> : <Copy size={14}/>}
             </button>
           </div>
+          {b.reference && (
+            <div className="col-span-3 text-[10px] mt-1 pt-1.5 border-t flex items-center gap-2" style={{ borderColor: "var(--cp-border)", color: "var(--cp-text-muted)" }}>
+              <span className="uppercase tracking-widest">Reference (use as transfer narration):</span>
+              <code className="font-bold">{b.reference}</code>
+            </div>
+          )}
         </div>
       ))}
       <div className="text-[11px] flex items-center gap-1.5" style={{ color: "var(--cp-text-muted)" }}>

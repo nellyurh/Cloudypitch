@@ -33,7 +33,8 @@ from models import new_id
 router = APIRouter(prefix="/api/payments/pocketfi", tags=["payments:pocketfi"])
 webhook_router = APIRouter(prefix="/api/webhooks/pocketfi", tags=["webhooks:pocketfi"])
 
-POCKETFI_SECRET_KEY = os.environ.get("POCKETFI_SECRET_KEY", "")
+POCKETFI_SECRET_KEY = os.environ.get("POCKETFI_SECRET_KEY", "")  # used to verify inbound webhooks (HMAC-SHA512)
+POCKETFI_PUBLIC_KEY = os.environ.get("POCKETFI_PUBLIC_KEY", "")  # used as Authorization Bearer for outbound API calls
 POCKETFI_BUSINESS_ID = os.environ.get("POCKETFI_BUSINESS_ID", "")
 POCKETFI_BASE_URL = os.environ.get("POCKETFI_BASE_URL", "https://api.pocketfi.ng/api/v1")
 
@@ -57,7 +58,7 @@ class PocketFiAccountIn(BaseModel):
 async def pocketfi_config():
     """Frontend uses this to know whether PocketFi is wired up."""
     return {
-        "configured": bool(POCKETFI_SECRET_KEY and POCKETFI_BUSINESS_ID),
+        "configured": bool(POCKETFI_PUBLIC_KEY and POCKETFI_SECRET_KEY and POCKETFI_BUSINESS_ID),
         "currency": "NGN",
         "banks": sorted(ALLOWED_BANKS),
     }
@@ -69,8 +70,8 @@ async def create_dynamic_account(body: PocketFiAccountIn, user: dict = Depends(a
 
     Returns `banks[]` — the FE shows account number + bank name to the user for transfer.
     """
-    if not (POCKETFI_SECRET_KEY and POCKETFI_BUSINESS_ID):
-        raise HTTPException(status_code=503, detail="PocketFi not configured. Set POCKETFI_SECRET_KEY and POCKETFI_BUSINESS_ID in backend env.")
+    if not (POCKETFI_PUBLIC_KEY and POCKETFI_SECRET_KEY and POCKETFI_BUSINESS_ID):
+        raise HTTPException(status_code=503, detail="PocketFi not configured. Set POCKETFI_PUBLIC_KEY + POCKETFI_SECRET_KEY + POCKETFI_BUSINESS_ID in backend env.")
     bank = (body.bank or "kuda").lower()
     if bank not in ALLOWED_BANKS:
         raise HTTPException(status_code=400, detail=f"bank must be one of {sorted(ALLOWED_BANKS)}")
@@ -96,7 +97,7 @@ async def create_dynamic_account(body: PocketFiAccountIn, user: dict = Depends(a
         async with httpx.AsyncClient(
             base_url=POCKETFI_BASE_URL,
             headers={
-                "Authorization": POCKETFI_SECRET_KEY,
+                "Authorization": f"Bearer {POCKETFI_PUBLIC_KEY}",
                 "Content-Type": "application/json",
                 "Accept": "application/json",
             },
@@ -123,6 +124,10 @@ async def create_dynamic_account(body: PocketFiAccountIn, user: dict = Depends(a
     db = get_db()
     deposit_id = new_id()
     primary = banks[0]
+    # PocketFi includes a per-bank `reference` (e.g. "PFI|7001096034") that we save and use
+    # to match incoming webhooks reliably (replaces regex-on-description guessing).
+    payment_reference = primary.get("reference") or ""
+    full_name = f"{body.first_name} {body.last_name}".strip()
     doc = {
         "id": deposit_id,
         "user_id": user["id"],
@@ -131,12 +136,18 @@ async def create_dynamic_account(body: PocketFiAccountIn, user: dict = Depends(a
         "amount_ngn": body.amount_ngn,
         "bank": primary.get("bankName"),
         "account_number": primary.get("accountNumber"),
-        "account_name": primary.get("accountName"),
+        "account_name": primary.get("accountName") or full_name,
+        "payment_reference": payment_reference,
         "all_banks": banks,
         "customer": {"first_name": body.first_name, "last_name": body.last_name, "email": body.email, "phone": body.phone},
         "created_at": datetime.now(timezone.utc).isoformat(),
     }
     await db.ngn_deposits.insert_one(doc)
+
+    # Ensure the FE always has an `accountName` to display (PocketFi sometimes omits it).
+    for b in banks:
+        if not b.get("accountName"):
+            b["accountName"] = full_name
 
     return {
         "deposit_id": deposit_id,
@@ -211,15 +222,22 @@ async def pocketfi_webhook(request: Request):
         log.info(f"PocketFi webhook: duplicate reference {reference}")
         return {"status": "ok", "duplicate": True}
 
-    # Map back to a pending deposit. We try multiple keys:
-    #   1) account_number/account_name encoded inside description
-    #   2) exact amount + pending status (best-effort)
-    # PocketFi's payload doesn't always include the receiving account number,
-    # so we use the description and amount to disambiguate.
+    # Map back to a pending deposit. Priority:
+    #   1) Exact match on `payment_reference` (which PocketFi forwards in transaction.reference or order.description)
+    #   2) Account number lookup
+    #   3) Amount + pending status fallback
     deposit = None
-    if description:
-        # Description often contains the account name or reference we created.
-        # Use re.escape() to avoid regex-injection / ReDoS via attacker-controlled input.
+    if reference:
+        deposit = await db.ngn_deposits.find_one(
+            {"payment_reference": reference, "status": "pending"}, {"_id": 0}
+        )
+    if not deposit and description:
+        # Sometimes PocketFi forwards the reference inside description
+        deposit = await db.ngn_deposits.find_one(
+            {"payment_reference": description, "status": "pending"}, {"_id": 0}
+        )
+    if not deposit and description:
+        # Last-resort: account-name match. Escape the description to avoid regex injection.
         safe = re.escape(description)
         deposit = await db.ngn_deposits.find_one(
             {"status": "pending", "$or": [
