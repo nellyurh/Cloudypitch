@@ -50,7 +50,31 @@ export const WalletPage = () => {
     } catch (e) { setErr(formatApiErr(e)); }
   };
 
-  useEffect(() => { if (user) load(); /* eslint-disable-line react-hooks/exhaustive-deps */ }, [user]);
+  useEffect(() => {
+    if (!user) return;
+    queueMicrotask(() => { load(); });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user]);
+
+  // Handle Trybit success/failure return URLs (?deposit=success|failed)
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const d = params.get("deposit");
+    if (d !== "success" && d !== "failed") return;
+    // Clean the URL so the banner doesn't reappear on refresh
+    const u = new URL(window.location.href); u.searchParams.delete("deposit");
+    window.history.replaceState({}, "", u.toString());
+    // Defer state updates to next microtask to satisfy React Compiler strict rule
+    queueMicrotask(() => {
+      if (d === "success") {
+        setMsg("✓ Crypto payment received — your wallet will update once the blockchain confirms (usually 1–3 minutes).");
+        setTimeout(() => { if (user) load(); }, 4000);
+      } else {
+        setErr("Crypto payment was cancelled or failed. You can start a new deposit below.");
+      }
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user]);
 
   if (!user) return (
     <div className="cp-surface p-10 text-center max-w-xl mx-auto mt-6" data-testid="wallet-signin-gate">
