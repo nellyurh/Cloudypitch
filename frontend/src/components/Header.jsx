@@ -58,13 +58,17 @@ export const Header = () => {
   return (
     <header
       className="sticky top-0 z-30 backdrop-blur"
-      style={{ background: "color-mix(in oklab, var(--cp-bg) 88%, transparent)", borderBottom: "1px solid var(--cp-border)" }}
+      style={{
+        background: "linear-gradient(180deg, #0F6E56 0%, #075A45 60%, #064E3B 100%)",
+        borderBottom: "1px solid #042e22",
+        boxShadow: "0 2px 12px rgba(0,0,0,0.25)",
+      }}
       data-testid="site-header"
     >
       {/* Top row */}
       <div className="max-w-[1400px] mx-auto px-3 md:px-5 py-1 md:py-2.5 flex items-center gap-3 min-h-[56px]">
         {/* Mobile hamburger */}
-        <button onClick={() => setDrawer(true)} className="lg:hidden cp-btn-ghost !p-2" aria-label="Open menu" data-testid="mobile-menu-btn">
+        <button onClick={() => setDrawer(true)} className="lg:hidden cp-btn-ghost !p-2" style={{ color: "#fff" }} aria-label="Open menu" data-testid="mobile-menu-btn">
           <Menu size={18} />
         </button>
 
@@ -72,36 +76,32 @@ export const Header = () => {
           <Brand size={44} />
         </Link>
 
-        {/* Desktop nav links — minimal, content-first. Fantasy/Cards/WC-Games live in user menu. */}
-        <nav className="hidden lg:flex items-center gap-1 ml-4">
-          <NavLink to="/worldcup" className="cp-btn-ghost !py-1.5" data-testid="nav-worldcup">
-            <Trophy size={16} className="text-cp-lime" /> WC 2026
-          </NavLink>
-          <NavLink to="/predictions" className="cp-btn-ghost !py-1.5" data-testid="nav-predictions">Predictions</NavLink>
-          <NavLink to="/leaderboards" className="cp-btn-ghost !py-1.5" data-testid="nav-leaderboards">Leaderboards</NavLink>
-        </nav>
-
         {/* Desktop-only search */}
-        <form onSubmit={submit} className="ml-auto relative w-44 lg:w-64 hidden md:block" data-testid="search-form">
-          <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-cp-muted" />
+        <form onSubmit={submit} className="ml-auto relative w-44 lg:w-72 hidden md:block" data-testid="search-form">
+          <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2" style={{ color: "rgba(255,255,255,0.55)" }} />
           <input
             value={q}
             onChange={(e) => setQ(e.target.value)}
-            placeholder="Search teams, leagues…"
-            className="cp-input pl-8 text-sm"
+            placeholder="Search teams, leagues, players…"
+            className="pl-8 pr-3 py-2 text-sm w-full rounded"
+            style={{
+              background: "rgba(0,0,0,0.18)",
+              border: "1px solid rgba(255,255,255,0.18)",
+              color: "#fff",
+            }}
             data-testid="search-input"
           />
         </form>
 
         {/* Theme toggle — visible everywhere */}
-        <button onClick={toggle} className="cp-btn-ghost !p-2 ml-auto md:ml-0" aria-label="Toggle theme" data-testid="theme-toggle">
+        <button onClick={toggle} className="cp-btn-ghost !p-2 ml-auto md:ml-0" style={{ color: "#fff" }} aria-label="Toggle theme" data-testid="theme-toggle">
           {theme === "dark" ? <SunMedium size={16} /> : <Moon size={16} />}
         </button>
 
         {/* Desktop user actions */}
         {user ? (
           <div className="relative hidden md:block">
-            <button onClick={() => setMenu(m => !m)} className="cp-btn-ghost !py-1.5" data-testid="user-menu-btn">
+            <button onClick={() => setMenu(m => !m)} className="cp-btn-ghost !py-1.5" style={{ color: "#fff" }} data-testid="user-menu-btn">
               <span className="cp-logo-circle" style={{ width: 22, height: 22, fontSize: 11 }}>
                 {(user.display_name || user.email || "U").slice(0, 1).toUpperCase()}
               </span>
@@ -148,22 +148,28 @@ export const Header = () => {
           </div>
         ) : (
           <div className="hidden md:flex items-center gap-2">
-            <Link to="/signin" className="cp-btn-ghost !py-1.5 text-sm" data-testid="nav-signin">Sign in</Link>
-            <Link to="/signup" className="cp-btn-primary !py-1.5 text-sm" data-testid="nav-signup">Sign up</Link>
+            <Link
+              to="/signin"
+              className="!py-1.5 px-3 rounded text-sm font-bold transition"
+              style={{ color: "#fff", background: "rgba(0,0,0,0.18)" }}
+              data-testid="nav-signin"
+            >
+              Sign in
+            </Link>
+            <Link
+              to="/signup"
+              className="!py-1.5 px-3 rounded text-sm font-extrabold"
+              style={{ background: "var(--cp-lime)", color: "var(--cp-forest)" }}
+              data-testid="nav-signup"
+            >
+              Sign up
+            </Link>
           </div>
         )}
       </div>
 
-      {/* Sports nav with icons — sits on a brand-colored band (forest green) like Sofascore but in Cloudy Pitch tones */}
-      <div
-        className="cp-sports-band"
-        style={{
-          background: "linear-gradient(180deg, #0F6E56 0%, #064E3B 100%)",
-          borderTop: "1px solid #0a3b2c",
-          borderBottom: "1px solid #042e22",
-          boxShadow: "inset 0 1px 0 rgba(255,255,255,0.06)",
-        }}
-      >
+      {/* Sports nav with icons — sits on the same forest-green header band. WC 2026 is the first tab. */}
+      <div className="cp-sports-band" style={{ borderTop: "1px solid rgba(255,255,255,0.06)" }}>
         <div className="max-w-[1400px] mx-auto px-3 md:px-5">
           <div className="flex items-center gap-1 overflow-x-auto no-scrollbar pb-1 pt-1" data-testid="sports-nav">
             {siteCfg.show_wc_tab && (
