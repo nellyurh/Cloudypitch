@@ -27,6 +27,16 @@ Three integrated products:
 - **Ingestion**: Background asyncio tasks: Sportmonks fixture sync (today+7d) every 6h, Sportmonks live poller every 20s, StatPal tennis poller every 2min, stale-status sweep, initial sync of all sports on startup.
 - **Data**: All endpoints prefixed `/api`. Same-origin between frontend and backend on the preview URL (cookie auth works).
 
+## Iteration 20 — Admin Site Config + Brand Band + Emergent Strip (2026-02-06)
+- ✅ **Removed all Emergent references** from `/app/frontend/public/index.html`: dropped `<meta description="A product of emergent.sh">`, `https://assets.emergent.sh/scripts/emergent-main.js` loader (this is the small green "Made with Emergent" overlay), and the inline PostHog tracking script. Replaced with proper Cloudy Pitch meta description + OG tags.
+- ✅ **Brand-coloured sport-tab strip**: The 14-sport nav now sits on a forest-green gradient band (`#0F6E56 → #064E3B`) mirroring Sofascore's blue band but in Cloudy Pitch brand colors. Active tab gets a lime underline + subtle lime tint. White text legibility on band tuned via new `.cp-sport-tab--on-band` CSS class.
+- ✅ **WC 2026 sport tab**: Added a `Trophy` icon "WC 2026" tab as the FIRST item in the sports nav, linking to `/worldcup`. Visible by default; admin can hide via toggle.
+- ✅ **Admin sport on/off toggle** (saves API quota): New `GET /api/site-config` (public) + `POST /api/admin/site-config` (admin) endpoints store `enabled_sports[]` and `show_wc_tab` in `app_settings.id='site'`. The Header reads on boot and filters tabs. The ingestion worker reads via a 30-s-cached `_enabled_sports()` helper and SKIPS disabled sports in `poll_apisports_live`, `statpal_poller`, `fixture_daily`, `initial_sync`, and the sportmonks `live_poller`.
+- ✅ **Admin-controlled popup notice**: Same endpoint stores `popup_notice {enabled, title, body, image_url, cta_text, cta_link, version}`. New `<PopupNotice/>` component mounted in `Layout.jsx` renders into `document.body` via portal, shown once per device per version, dismissal saved to `localStorage.cp_popup_dismissed_v`. Admin can hit "Save & re-show to everyone" which bumps `version` so dismissed users see it again.
+- ✅ **Admin Settings tab** now contains a `SiteConfigForm` with 14 sport-toggle pills, `show_wc_tab` checkbox, popup editor (title/body/image/CTA), and two save buttons (regular save vs. save+bump-version).
+- ✅ Backend test suite at `/app/backend/tests/test_site_config.py`. All 6/6 pass, 1 skipped on signup-rate-limit (manually verified).
+
+
 ## Iteration 19 — Team Management + Transfer Card UI (2026-02-06)
 - ✅ **P0a — Formation & Bench picker** in /build-team:
   - When squad becomes full, Pitch view switches from "build slots" to a formation-driven layout: 1 GK + DEF/MID/FWD rows (from formation like 4-3-3) + a Bench row below with the remaining 4 (15-man) / 9 (20-man) players.
