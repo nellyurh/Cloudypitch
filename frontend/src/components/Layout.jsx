@@ -3,6 +3,8 @@ import { Header } from "./Header";
 import { BottomNav } from "./BottomNav";
 import { PopupNotice } from "./PopupNotice";
 import AdSlot from "./AdSlot";
+import DailyDropWatcher from "./DailyDropWatcher";
+import { Toaster as SonnerToaster } from "./ui/sonner";
 
 export const Layout = ({ children }) => {
   return (
@@ -24,6 +26,8 @@ export const Layout = ({ children }) => {
       </div>
       <BottomNav />
       <PopupNotice />
+      <DailyDropWatcher />
+      <SonnerToaster />
     </div>
   );
 };

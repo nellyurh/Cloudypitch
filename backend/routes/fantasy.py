@@ -117,6 +117,12 @@ async def create_or_update_squad(payload: FantasySquadIn, user: dict = Depends(a
         doc["rank"] = None
         await db.fantasy_squads.insert_one(doc)
     doc.pop("_id", None)
+    # Log a daily action for the matchday-drop reward system
+    try:
+        from routes.card_drops import log_user_action
+        await log_user_action(user["id"])
+    except Exception:
+        pass
     return {"squad": doc}
 
 

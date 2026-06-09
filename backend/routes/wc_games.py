@@ -221,6 +221,12 @@ async def enter_game(game_id: str, body: GameEntryIn, user: dict = Depends(a.get
                 await db.card_uses.delete_one({"id": used_row["id"]})
 
     doc.pop("_id", None)
+    # Log a daily action for the matchday-drop reward system
+    try:
+        from routes.card_drops import log_user_action
+        await log_user_action(user["id"])
+    except Exception:
+        pass
     return {"entry": doc}
 
 

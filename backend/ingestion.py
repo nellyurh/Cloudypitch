@@ -896,9 +896,9 @@ async def _upsert_apisports_team_stats(match_id: str, match_doc: dict, rows: lis
     # Canonical labels expected by frontend BasketballStatsView gauges/bars
     LABEL_ALIASES = {
         "Field Goals": ["field_goals", "fieldgoals", "fg", "field goals"],
-        "Free Throws": ["free_throws", "ft", "freethrows", "free throws"],
-        "2-Pointers":  ["two_points", "2_points", "2 pointers", "2-pointers", "twopointers", "two pointers"],
-        "3-Pointers":  ["three_points", "3_points", "3 pointers", "3-pointers", "threepointers", "three pointers"],
+        "Free Throws": ["free_throws", "ft", "freethrows", "free throws", "freethrows_goals", "freethrow_goals"],
+        "2-Pointers":  ["two_points", "2_points", "2 pointers", "2-pointers", "twopointers", "two pointers", "twopoint_goals"],
+        "3-Pointers":  ["three_points", "3_points", "3 pointers", "3-pointers", "threepointers", "three pointers", "threepoint_goals", "threepoints_goals"],
         "Rebounds":    ["rebounds", "total_rebounds", "totalrebounds"],
         "Defensive rebounds": ["defensive_rebounds", "def_rebounds", "defensiverebounds"],
         "Offensive rebounds": ["offensive_rebounds", "off_rebounds", "offensiverebounds"],
@@ -919,6 +919,15 @@ async def _upsert_apisports_team_stats(match_id: str, match_doc: dict, rows: lis
                 if key in normalised:
                     out[canonical] = normalised[key]
                     break
+        # Rebounds may arrive as a dict {total, offence, defense}; flatten to canonical labels
+        reb = out.get("Rebounds")
+        if isinstance(reb, dict):
+            total = reb.get("total") or reb.get("Total")
+            off = reb.get("offence") or reb.get("offensive") or reb.get("off")
+            dfn = reb.get("defense") or reb.get("defensive") or reb.get("def")
+            if total is not None: out["Rebounds"] = total
+            if off is not None and out.get("Offensive rebounds") is None: out["Offensive rebounds"] = off
+            if dfn is not None and out.get("Defensive rebounds") is None: out["Defensive rebounds"] = dfn
         # Convert shooting-stat dicts like {total, attempts, percentage} into "X/Y" string
         # so the frontend regex parser works uniformly.
         for shoot_label in ("Field Goals", "Free Throws", "2-Pointers", "3-Pointers"):

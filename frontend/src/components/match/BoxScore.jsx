@@ -25,6 +25,23 @@ const BoxScore = ({ match, lineups = [] }) => {
     }
   }
 
+  // Normalise shooting-stat dicts ({made, att, pct}) → "made/att" strings, and
+  // rebound dicts ({total, offence, defense}) → numeric totals, so all <td>s
+  // render primitives only.
+  const fmtShot = (v, alt) => {
+    if (v && typeof v === "object") {
+      const made = v.made ?? v.total ?? 0;
+      const att = v.att ?? v.attempts ?? 0;
+      if (made === 0 && att === 0) return alt ?? "—";
+      return `${made}/${att}`;
+    }
+    return v ?? alt ?? "—";
+  };
+  const fmtNum = (v) => {
+    if (v && typeof v === "object") return v.total ?? v.value ?? "—";
+    return v ?? "—";
+  };
+
   const homeRows = playerRows.filter(p => p.team_id === match.home_team_id || p.team_name === home);
   const awayRows = playerRows.filter(p => p.team_id === match.away_team_id || p.team_name === away);
 
@@ -78,12 +95,12 @@ const BoxScore = ({ match, lineups = [] }) => {
                     <td className="p-2 truncate">{p.name || p.player_name || "—"}</td>
                     <td className="text-center tabular-nums">{p.minutes ?? p.min ?? "—"}</td>
                     <td className="text-center tabular-nums font-bold">{p.points ?? p.pts ?? "—"}</td>
-                    <td className="text-center tabular-nums">{p.rebounds ?? p.reb ?? "—"}</td>
+                    <td className="text-center tabular-nums">{fmtNum(p.rebounds ?? p.reb)}</td>
                     <td className="text-center tabular-nums">{p.assists ?? p.ast ?? "—"}</td>
                     <td className="text-center tabular-nums">{p.steals ?? p.stl ?? "—"}</td>
                     <td className="text-center tabular-nums">{p.blocks ?? p.blk ?? "—"}</td>
-                    <td className="text-center tabular-nums">{p.fg ?? `${p.fgm ?? 0}/${p.fga ?? 0}`}</td>
-                    <td className="text-center tabular-nums">{p.three ?? p.three_pt ?? `${p.tpm ?? 0}/${p.tpa ?? 0}`}</td>
+                    <td className="text-center tabular-nums">{fmtShot(p.fg, p.fgm != null ? `${p.fgm ?? 0}/${p.fga ?? 0}` : "—")}</td>
+                    <td className="text-center tabular-nums">{fmtShot(p.three ?? p.three_pt, p.tpm != null ? `${p.tpm ?? 0}/${p.tpa ?? 0}` : "—")}</td>
                   </tr>
                 ))}
               </tbody>

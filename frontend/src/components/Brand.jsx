@@ -2,9 +2,28 @@ import React, { useEffect, useState } from "react";
 import api from "../lib/api";
 
 // Global brand asset cache — loaded once on app boot, mutated by Admin.
-let _brand = { mark: "/cp-mark.png", markUploaded: false, logo: null, logoDark: null, wordmark: null };
+let _brand = { mark: "/cp-mark.png", markUploaded: false, logo: null, logoDark: null, wordmark: null, favicon: null };
 const _subs = new Set();
-function _emit() { _subs.forEach(fn => fn(_brand)); }
+function _emit() { _subs.forEach(fn => fn(_brand)); _applyFavicon(); }
+
+/** Replace all `<link rel="icon">` / `<link rel="apple-touch-icon">` tags in <head>
+ *  with the admin-uploaded favicon. Falls back to the brand mark if no
+ *  dedicated favicon was uploaded. */
+function _applyFavicon() {
+  if (typeof document === "undefined") return;
+  const url = _brand.favicon || (_brand.markUploaded ? _brand.mark : null);
+  if (!url) return;
+  const head = document.head;
+  head.querySelectorAll('link[rel="icon"], link[rel="apple-touch-icon"], link[rel="shortcut icon"]').forEach(l => l.remove());
+  const link = document.createElement("link");
+  link.rel = "icon";
+  link.href = url;
+  head.appendChild(link);
+  const apple = document.createElement("link");
+  apple.rel = "apple-touch-icon";
+  apple.href = url;
+  head.appendChild(apple);
+}
 
 export async function refreshBrand() {
   try {
@@ -15,6 +34,7 @@ export async function refreshBrand() {
       logo: data.brand_logo_url || null,
       logoDark: data.brand_logo_dark_url || null,
       wordmark: data.brand_wordmark_url || null,
+      favicon: data.brand_favicon_url || null,
     };
     _emit();
   } catch (_) {}

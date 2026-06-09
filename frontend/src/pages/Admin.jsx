@@ -543,22 +543,28 @@ function SiteConfigForm({ onMessage }) {
   const [popup, setPopup] = useState({ enabled: false, title: "", body: "", image_url: "", cta_text: "", cta_link: "" });
   const [loaded, setLoaded] = useState(false);
   const [busy, setBusy] = useState(false);
+  // Snapshot of the last-saved state — diff against current to compute "dirty"
+  const [pristine, setPristine] = useState({ enabled: new Set(), showWcTab: true, popup: {} });
 
   useEffect(() => {
     (async () => {
       try {
         const { data } = await api.get("/site-config");
-        setEnabled(new Set(data?.enabled_sports || ALL_SPORT_SLUGS));
-        setShowWcTab(data?.show_wc_tab !== false);
+        const en = new Set(data?.enabled_sports || ALL_SPORT_SLUGS);
+        const swc = data?.show_wc_tab !== false;
         const p = data?.popup_notice || {};
-        setPopup({
+        const popupShape = {
           enabled: !!p.enabled,
           title: p.title || "",
           body: p.body || "",
           image_url: p.image_url || "",
           cta_text: p.cta_text || "",
           cta_link: p.cta_link || "",
-        });
+        };
+        setEnabled(en);
+        setShowWcTab(swc);
+        setPopup(popupShape);
+        setPristine({ enabled: new Set(en), showWcTab: swc, popup: { ...popupShape } });
       } catch (_e) { /* ignore — show defaults */ }
       setLoaded(true);
     })();
@@ -573,6 +579,16 @@ function SiteConfigForm({ onMessage }) {
     });
   };
 
+  // Compute dirty (unsaved) status — compare current to pristine.
+  const isDirty = (() => {
+    if (!loaded) return false;
+    if (showWcTab !== pristine.showWcTab) return true;
+    if (enabled.size !== pristine.enabled.size) return true;
+    for (const s of enabled) if (!pristine.enabled.has(s)) return true;
+    for (const k of Object.keys(popup)) if (popup[k] !== (pristine.popup || {})[k]) return true;
+    return false;
+  })();
+
   const save = async (bumpVersion = false) => {
     setBusy(true);
     try {
@@ -582,6 +598,7 @@ function SiteConfigForm({ onMessage }) {
         popup_notice: { ...popup, bump_version: bumpVersion },
       });
       onMessage(`✓ Site config saved${bumpVersion ? " · popup re-shown for everyone" : ""}`);
+      setPristine({ enabled: new Set(enabled), showWcTab, popup: { ...popup } });
     } catch (e) {
       onMessage(`✗ ${e?.response?.data?.detail || e.message}`);
     }
@@ -687,15 +704,31 @@ function SiteConfigForm({ onMessage }) {
         </div>
       </div>
 
-      <div className="flex flex-wrap items-center gap-2 pt-1">
+      <div
+        className="flex flex-wrap items-center gap-2 pt-3 sticky bottom-0 z-10 -mx-4 px-4 pb-2"
+        style={{
+          background: "linear-gradient(180deg, transparent 0%, var(--cp-surface) 30%)",
+          borderTop: isDirty ? "2px solid #FFB400" : "1px solid var(--cp-border)",
+        }}
+        data-testid="site-config-actions"
+      >
+        {isDirty && (
+          <span
+            className="cp-pill !text-[10px] !font-extrabold mr-1 animate-pulse"
+            style={{ background: "rgba(255, 180, 0, 0.15)", color: "#FFB400" }}
+            data-testid="site-config-dirty"
+          >
+            ● Unsaved changes
+          </span>
+        )}
         <button
           onClick={() => save(false)}
-          disabled={busy}
-          className="px-4 py-2 rounded text-sm font-extrabold disabled:opacity-50"
+          disabled={busy || !isDirty}
+          className="px-4 py-2 rounded text-sm font-extrabold disabled:opacity-40"
           style={{ background: "var(--cp-lime)", color: "var(--cp-forest)" }}
           data-testid="site-config-save"
         >
-          {busy ? "Saving…" : "Save"}
+          {busy ? "Saving…" : isDirty ? "Save changes" : "Saved"}
         </button>
         <button
           onClick={() => save(true)}
@@ -759,8 +792,9 @@ function BrandUploader({ onMessage }) {
   const slots = [
     { key: "logo",      label: "Light-theme logo (header default)." },
     { key: "logo_dark", label: "Dark-theme logo (auto-used when site is in dark mode)." },
-    { key: "mark",      label: "Mark only (no text) — favicon, loader animation." },
+    { key: "mark",      label: "Mark only (no text) — used in loader animation." },
     { key: "wordmark",  label: "Wordmark only (text part)." },
+    { key: "favicon",   label: "Browser tab favicon (PNG/ICO 32×32 or 64×64). Replaces the static /cp-mark.png everywhere." },
   ];
   const [current, setCurrent] = useState({});
   const load = async () => {

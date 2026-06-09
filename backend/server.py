@@ -116,6 +116,7 @@ async def get_brand():
         "brand_logo_dark_url": doc.get("brand_logo_dark_url"),
         "brand_mark_url": doc.get("brand_mark_url"),
         "brand_wordmark_url": doc.get("brand_wordmark_url"),
+        "brand_favicon_url": doc.get("brand_favicon_url"),
     }
 
 

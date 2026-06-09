@@ -108,6 +108,12 @@ async def submit_prediction(payload: PredictionWithCardsIn, user: dict = Depends
         doc["id"] = new_id()
         await db.predictions.insert_one(doc)
     doc.pop("_id", None)
+    # Log a daily action for the matchday-drop reward system
+    try:
+        from routes.card_drops import log_user_action
+        await log_user_action(user["id"])
+    except Exception:
+        pass
     return {"prediction": doc}
 
 
