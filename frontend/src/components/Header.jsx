@@ -75,7 +75,7 @@ export const Header = () => {
       {/* Logo band — slim 52px container; logo image overflows above/below up to ~140px */}
       <div className="max-w-[1400px] mx-auto px-3 md:px-5 flex items-center gap-3" style={{ minHeight: 52, height: 52 }}>
         <Link to="/" data-testid="brand-home-link" className="shrink-0 relative" style={{ width: 110, height: 52 }}>
-          <span className="absolute left-0 top-1/2 -translate-y-1/2" style={{ display: "inline-flex" }}>
+          <span className="absolute left-0 top-1/2 -translate-y-1/2 pointer-events-none" style={{ display: "inline-flex" }}>
             <Brand size={56} />
           </span>
         </Link>

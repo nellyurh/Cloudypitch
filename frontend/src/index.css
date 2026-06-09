@@ -299,6 +299,10 @@
   object-fit: contain;
   display: inline-block;
   max-height: 96px;          /* mobile: let large logos breathe */
+  /* The logo image overflows ABOVE and BELOW its 52px container by design;
+     without this the overflowing pixels sit on top of the sports-nav band
+     and swallow clicks meant for the WC26 / Football / Basketball tabs. */
+  pointer-events: none;
 }
 @media (min-width: 768px) {
   .cp-brand-img { max-height: 140px; }  /* desktop: big logo, header bar overflows above/below */
