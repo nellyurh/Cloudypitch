@@ -268,25 +268,40 @@ function OverviewMatchCard({ m }) {
 }
 
 function StandingsTable({ groups, matches, compact = false }) {
-  // Compute live standings from finished matches.
-  const teamStats = useMemo(() => {
-    const stats = {};
-    groups.forEach(g => (g.teams || []).forEach(t => {
-      stats[t] = { team: t, group: g.group, P: 0, W: 0, D: 0, L: 0, GF: 0, GA: 0, PTS: 0 };
-    }));
-    matches.forEach(m => {
-      if (m.home_score == null || m.away_score == null) return;
-      const h = stats[m.home_team_name]; const a = stats[m.away_team_name];
-      if (!h || !a) return;
-      h.P += 1; a.P += 1;
-      h.GF += m.home_score; h.GA += m.away_score;
-      a.GF += m.away_score; a.GA += m.home_score;
-      if (m.home_score > m.away_score) { h.W += 1; a.L += 1; h.PTS += 3; }
-      else if (m.home_score < m.away_score) { a.W += 1; h.L += 1; a.PTS += 3; }
-      else { h.D += 1; a.D += 1; h.PTS += 1; a.PTS += 1; }
-    });
-    return stats;
-  }, [groups, matches]);
+  // Tournament starts 11 Jun 2026. Until then, force all standings to 0 to
+  // avoid polluting the table with stale friendly/test fixture scores from
+  // Sportmonks. Once the tournament kicks off, flip TOURNAMENT_STARTED to true.
+  const TOURNAMENT_STARTED = false;
+
+  // Pure standings computation using reduce only.
+  const eligibleMatches = TOURNAMENT_STARTED
+    ? matches.filter(m =>
+        m.scheduled_at && m.scheduled_at >= "2026-06-11" && m.scheduled_at <= "2026-07-19" &&
+        m.home_score != null && m.away_score != null,
+      )
+    : [];
+  const teamList = groups.flatMap(g => (g.teams || []).map(t => ({ team: t, group: g.group })));
+  const teamStats = Object.fromEntries(teamList.map(({ team, group }) => [
+    team,
+    eligibleMatches
+      .filter(m => m.home_team_name === team || m.away_team_name === team)
+      .reduce((acc, m) => {
+        const isHome = m.home_team_name === team;
+        const me = isHome ? m.home_score : m.away_score;
+        const them = isHome ? m.away_score : m.home_score;
+        const win = me > them, draw = me === them;
+        return {
+          team, group,
+          P: acc.P + 1,
+          W: acc.W + (win ? 1 : 0),
+          D: acc.D + (draw ? 1 : 0),
+          L: acc.L + (!win && !draw ? 1 : 0),
+          GF: acc.GF + me,
+          GA: acc.GA + them,
+          PTS: acc.PTS + (win ? 3 : draw ? 1 : 0),
+        };
+      }, { team, group, P: 0, W: 0, D: 0, L: 0, GF: 0, GA: 0, PTS: 0 }),
+  ]));
 
   const [pick, setPick] = useState(groups[0]?.group || "A");
   const groupTeams = (groups.find(g => g.group === pick)?.teams || []);
@@ -299,6 +314,11 @@ function StandingsTable({ groups, matches, compact = false }) {
         <span className="text-sm font-extrabold">Standings</span>
         {!compact && <Link to="/leaderboards" className="text-[11px] font-bold text-cp-lime hover:underline">Full view →</Link>}
       </div>
+      {!TOURNAMENT_STARTED && (
+        <div className="mb-2 rounded p-2 text-[11px] font-bold flex items-center gap-2" style={{ background: "rgba(163,230,53,0.08)", border: "1px solid rgba(163,230,53,0.2)", color: "var(--cp-text-muted)" }} data-testid="wc-standings-locked">
+          <Trophy size={12} className="text-cp-lime"/> Standings unlock when the first match kicks off on <b>11 June 2026</b>.
+        </div>
+      )}
       <div className="flex items-center gap-1 mb-2 overflow-x-auto no-scrollbar">
         {groups.map(g => (
           <button key={g.group} onClick={() => setPick(g.group)} className="text-[11px] font-extrabold px-3 py-1.5 rounded-full whitespace-nowrap"

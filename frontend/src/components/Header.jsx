@@ -6,6 +6,7 @@ import { Brand } from "./Brand";
 import { SportIcon } from "./SportIcon";
 import { useAuth } from "../lib/auth";
 import { useTheme } from "../lib/theme";
+import { flagUrl } from "../lib/flags";
 import { Search, Moon, SunMedium, Trophy, ChevronDown, LogOut, User, ShieldCheck, Menu, X, Coins, Target, Crown } from "lucide-react";
 
 const ALL_SPORTS = [
@@ -65,15 +66,12 @@ export const Header = () => {
       }}
       data-testid="site-header"
     >
-      {/* Top row */}
-      <div className="max-w-[1400px] mx-auto px-3 md:px-5 py-1 md:py-2.5 flex items-center gap-3 min-h-[56px]">
-        {/* Mobile hamburger */}
-        <button onClick={() => setDrawer(true)} className="lg:hidden cp-btn-ghost !p-2" style={{ color: "#fff" }} aria-label="Open menu" data-testid="mobile-menu-btn">
-          <Menu size={18} />
-        </button>
-
-        <Link to="/" data-testid="brand-home-link" className="shrink-0">
-          <Brand size={44} />
+      {/* Top row — slim bar (44px). Logo overflows above/below to look ~64px without growing bar. */}
+      <div className="max-w-[1400px] mx-auto px-3 md:px-5 flex items-center gap-3" style={{ minHeight: 44, height: 44 }}>
+        <Link to="/" data-testid="brand-home-link" className="shrink-0 relative" style={{ width: 64, height: 44 }}>
+          <span className="absolute left-0 top-1/2 -translate-y-1/2" style={{ display: "inline-flex" }}>
+            <Brand size={64} />
+          </span>
         </Link>
 
         {/* Desktop-only search */}
@@ -83,7 +81,7 @@ export const Header = () => {
             value={q}
             onChange={(e) => setQ(e.target.value)}
             placeholder="Search teams, leagues, players…"
-            className="pl-8 pr-3 py-2 text-sm w-full rounded"
+            className="pl-8 pr-3 py-1.5 text-sm w-full rounded"
             style={{
               background: "rgba(0,0,0,0.18)",
               border: "1px solid rgba(255,255,255,0.18)",
@@ -94,8 +92,8 @@ export const Header = () => {
         </form>
 
         {/* Theme toggle — visible everywhere */}
-        <button onClick={toggle} className="cp-btn-ghost !p-2 ml-auto md:ml-0" style={{ color: "#fff" }} aria-label="Toggle theme" data-testid="theme-toggle">
-          {theme === "dark" ? <SunMedium size={16} /> : <Moon size={16} />}
+        <button onClick={toggle} className="cp-btn-ghost !p-1.5 ml-auto md:ml-0" style={{ color: "#fff" }} aria-label="Toggle theme" data-testid="theme-toggle">
+          {theme === "dark" ? <SunMedium size={14} /> : <Moon size={14} />}
         </button>
 
         {/* Desktop user actions */}
@@ -199,6 +197,9 @@ export const Header = () => {
         </div>
       </div>
 
+      {/* Always-visible WC 2026 group ticker — auto-scrolls horizontally on every page */}
+      <GroupTicker/>
+
       {/* Mobile drawer — rendered via portal directly under <body> so no
           parent's `transform`, `filter`, or `contain` can break the fixed
           positioning. */}
@@ -261,3 +262,58 @@ export const Header = () => {
 };
 
 export default Header;
+
+// ─────────────────────────── Group Ticker ───────────────────────────
+
+/**
+ * Always-visible scrolling strip of the 12 World Cup groups with country flags.
+ * Sits below the sports nav on every page. Auto-scrolls via CSS animation.
+ */
+const GroupTicker = () => {
+  const [groups, setGroups] = useState([]);
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const { data } = await api.get("/worldcup");
+        if (!cancelled) setGroups(data?.groups || []);
+      } catch (_e) { /* ignore */ }
+    })();
+    return () => { cancelled = true; };
+  }, []);
+  if (!groups.length) return null;
+  // Duplicate the list so the CSS marquee loops seamlessly.
+  const items = [...groups, ...groups];
+  return (
+    <div className="overflow-hidden" style={{
+      background: "linear-gradient(90deg, #5b1d3a 0%, #6b2a47 35%, #5a3a1b 70%, #3a4b1b 100%)",
+      borderTop: "1px solid rgba(255,255,255,0.05)",
+      borderBottom: "1px solid rgba(0,0,0,0.25)",
+    }} data-testid="header-group-ticker">
+      <div className="max-w-[1400px] mx-auto relative">
+        <div className="cp-group-marquee flex items-center gap-3 py-1.5 px-3 whitespace-nowrap">
+          {items.map((g, idx) => (
+            <NavLink
+              key={`${g.group}-${idx}`}
+              to="/worldcup"
+              className="inline-flex items-center gap-1.5 shrink-0 hover:opacity-80 transition"
+              data-testid={`header-group-${g.group}-${idx < groups.length ? "a" : "b"}`}
+            >
+              <span className="text-[10px] uppercase tracking-widest font-extrabold" style={{ color: "#fff" }}>
+                Group {g.group}
+              </span>
+              <span className="flex items-center gap-0.5">
+                {(g.teams || []).slice(0, 4).map(t => (
+                  flagUrl(t, 40) ? (
+                    <img key={`${t}-${idx}`} src={flagUrl(t, 40)} alt={t} title={t} className="w-4 h-3 rounded-sm object-cover ring-1 ring-black/30"/>
+                  ) : <span key={`${t}-${idx}`} className="w-4 h-3 rounded-sm" style={{ background: "rgba(0,0,0,0.3)" }}/>
+                ))}
+              </span>
+              <span className="text-white/40">|</span>
+            </NavLink>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+};

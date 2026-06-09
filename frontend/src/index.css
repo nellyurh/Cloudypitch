@@ -286,3 +286,18 @@
 @media (min-width: 768px) {
   .cp-brand-img { max-height: 80px; }  /* desktop: let the var win */
 }
+
+
+/* Group ticker marquee — scrolls left at a calm pace. */
+@keyframes cp-marquee {
+  0%   { transform: translateX(0); }
+  100% { transform: translateX(-50%); }
+}
+.cp-group-marquee {
+  animation: cp-marquee 60s linear infinite;
+  will-change: transform;
+}
+.cp-group-marquee:hover { animation-play-state: paused; }
+@media (prefers-reduced-motion: reduce) {
+  .cp-group-marquee { animation: none; }
+}
