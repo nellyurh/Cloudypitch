@@ -65,7 +65,9 @@ export const Brand = ({ size = 30, variant = "logo", className = "" }) => {
   // shipped design exactly as the admin uploaded it — no text appended).
   // Auto-switches between light and dark variants when both are uploaded.
   if (variant === "logo" && b.activeLogo) {
-    const desktopH = size * 1.8;
+    // Render at the requested size; CSS clamps to a sensible max so we never
+    // grow the header chrome. The image itself scales — not just its padding.
+    const desktopH = Math.max(size * 2.2, 80);
     return (
       <img
         src={b.activeLogo}

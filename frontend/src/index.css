@@ -277,14 +277,14 @@
 
 /* Brand logo — uses CSS var so we can tune mobile vs desktop without prop changes */
 .cp-brand-img {
-  height: var(--cp-logo-h, 56px);
+  height: var(--cp-logo-h, 80px);
   width: auto;
   object-fit: contain;
   display: inline-block;
-  max-height: 44px;          /* mobile cap so the header stays tight */
+  max-height: 96px;          /* mobile: let large logos breathe */
 }
 @media (min-width: 768px) {
-  .cp-brand-img { max-height: 80px; }  /* desktop: let the var win */
+  .cp-brand-img { max-height: 140px; }  /* desktop: big logo, header bar overflows above/below */
 }
 
 

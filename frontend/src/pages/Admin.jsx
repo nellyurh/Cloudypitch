@@ -6,6 +6,20 @@ import { Users, Database, Radio, Activity, RefreshCw, Trophy, Coins, Calendar, S
 import { refreshBrand } from "../components/Brand";
 import { AdsTab } from "../components/AdsTab";
 
+const TAB_HINTS = {
+  dashboard: "Live platform health — users, matches, predictions, fantasy squads. Use DB Cleanup to remove cross-provider duplicates.",
+  matches: "Browse and edit raw match rows pulled from Sportmonks/API-Sports. Useful for fixing kickoff times or hiding bad fixtures.",
+  users: "User directory. Promote to admin, flip premium, or ban abusive accounts.",
+  ingest: "Trigger ingestion jobs by hand (full pull / today / past 3 days). Check provider health before running.",
+  audit: "Latest 50 admin actions for compliance. Every settings change is logged here.",
+  pools: "Prize pools shown on the home leaderboards. Set total payout in DOLLARS — backend stores cents.",
+  wcconfig: "World Cup game configuration: when each WC mini-game opens/closes for predictions and fantasy edits.",
+  wcgames: "All 148 WC games. Generate fixtures, tick state forward, or rebuild the schedule.",
+  players: "Curated player price overrides. Use this when Sportmonks' auto-pricing makes a star too cheap or a bench player too expensive.",
+  ads: "AdSense status + sponsor ads. Disable Google Ads for premium subs is automatic. Add direct sponsor banners for any of 13 placements.",
+  settings: "Currency rates (USD↔NGN), brand uploads, site config (which sports show, popup notice), and admin user creation. Every section has its own Save button.",
+};
+
 const StatCard = ({ icon: Icon, label, value }) => (
   <div className="cp-surface p-3">
     <Icon size={16} className="text-cp-lime mb-1.5"/>
@@ -59,8 +73,7 @@ export const AdminPanel = () => {
     if (tab === "pools") refreshPools();
     if (tab === "wcconfig") refreshWcConfig();
     if (tab === "wcgames") refreshWcGames();
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- depends on stable refresh fns
-  }, [tab, wcGameFilter]);
+  }, [tab, wcGameFilter]); // eslint-disable-line react-hooks/exhaustive-deps
 
   if (loading) return <div className="cp-surface p-6 text-sm">Checking permissions…</div>;
   if (!user || user.role !== "admin") return <Navigate to="/signin" replace />;
@@ -78,6 +91,12 @@ export const AdminPanel = () => {
         {["dashboard", "matches", "users", "ingest", "audit", "pools", "wcconfig", "wcgames", "players", "ads", "settings"].map(t => (
           <button key={t} onClick={() => setTab(t)} className={`px-3 py-1.5 text-sm rounded transition ${tab === t ? "bg-cp-lime text-cp-forest font-bold" : "hover:bg-white/5"}`} data-testid={`admin-tab-${t}`}>{t.toUpperCase()}</button>
         ))}
+      </div>
+
+      {/* Tab hint banner */}
+      <div className="cp-surface p-3 mb-3 text-xs flex items-start gap-2" style={{ background: "rgba(163,230,53,0.06)", border: "1px solid rgba(163,230,53,0.18)" }} data-testid="admin-tab-hint">
+        <span className="text-cp-lime mt-0.5">›</span>
+        <span style={{ color: "var(--cp-text)" }}>{TAB_HINTS[tab] || "Configure platform settings."}</span>
       </div>
 
       {tab === "dashboard" && stats && (
@@ -410,7 +429,7 @@ function PlayerPricesTab({ onMessage }) {
     }
     setLoading(false);
   };
-  useEffect(() => { load(); /* eslint-disable-next-line react-hooks/exhaustive-deps -- load is stable */ }, [position]);
+  useEffect(() => { load(); }, [position]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const setPrice = async (id, value) => {
     const price = parseFloat(value);

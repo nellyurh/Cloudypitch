@@ -414,7 +414,6 @@ export const WorldCupHub = () => {
 
   return (
     <div data-testid="worldcup-hub" className="space-y-3">
-      <WcGroupStrip startsAt={startsAt} groups={groups}/>
       <AdSlot placement="wc_hub_top" minHeight={0} className="mb-3"/>
       <WcHero startsAt={startsAt}/>
       <div className="grid grid-cols-1 lg:grid-cols-[280px_1fr_320px] gap-3 mt-4">

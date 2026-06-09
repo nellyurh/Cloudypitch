@@ -66,11 +66,17 @@ export const Header = () => {
       }}
       data-testid="site-header"
     >
-      {/* Top row — slim bar (44px). Logo overflows above/below to look ~64px without growing bar. */}
-      <div className="max-w-[1400px] mx-auto px-3 md:px-5 flex items-center gap-3" style={{ minHeight: 44, height: 44 }}>
-        <Link to="/" data-testid="brand-home-link" className="shrink-0 relative" style={{ width: 64, height: 44 }}>
+      {/* Sofascore order:
+            (1) WC group ticker — full-width strip on top
+            (2) Logo + search + theme + signin band
+            (3) Sports nav with WC2026 first */}
+      <GroupTicker/>
+
+      {/* Logo band — slim 52px container; logo image overflows above/below up to ~140px */}
+      <div className="max-w-[1400px] mx-auto px-3 md:px-5 flex items-center gap-3" style={{ minHeight: 52, height: 52 }}>
+        <Link to="/" data-testid="brand-home-link" className="shrink-0 relative" style={{ width: 110, height: 52 }}>
           <span className="absolute left-0 top-1/2 -translate-y-1/2" style={{ display: "inline-flex" }}>
-            <Brand size={64} />
+            <Brand size={56} />
           </span>
         </Link>
 
@@ -91,7 +97,7 @@ export const Header = () => {
           />
         </form>
 
-        {/* Theme toggle — visible everywhere */}
+        {/* Theme toggle */}
         <button onClick={toggle} className="cp-btn-ghost !p-1.5 ml-auto md:ml-0" style={{ color: "#fff" }} aria-label="Toggle theme" data-testid="theme-toggle">
           {theme === "dark" ? <SunMedium size={14} /> : <Moon size={14} />}
         </button>
@@ -196,9 +202,6 @@ export const Header = () => {
           </div>
         </div>
       </div>
-
-      {/* Always-visible WC 2026 group ticker — auto-scrolls horizontally on every page */}
-      <GroupTicker/>
 
       {/* Mobile drawer — rendered via portal directly under <body> so no
           parent's `transform`, `filter`, or `contain` can break the fixed
