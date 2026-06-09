@@ -49,6 +49,16 @@ services:
       PAYSTACK_SECRET_KEY: ${PAYSTACK_SECRET_KEY:-}
       RESEND_API_KEY: ${RESEND_API_KEY:-}
       EMERGENT_LLM_KEY: ${EMERGENT_LLM_KEY:-}
+      # PocketFi (NGN VDA)
+      POCKETFI_PUBLIC_KEY: ${POCKETFI_PUBLIC_KEY:-}
+      POCKETFI_SECRET_KEY: ${POCKETFI_SECRET_KEY:-}
+      POCKETFI_BUSINESS_ID: ${POCKETFI_BUSINESS_ID:-}
+      POCKETFI_BASE_URL: ${POCKETFI_BASE_URL:-https://api.pocketfi.ng/api/v1}
+      # Trybit / CryptoCloud (crypto)
+      TRYBIT_API_KEY: ${TRYBIT_API_KEY:-}
+      TRYBIT_SHOP_ID: ${TRYBIT_SHOP_ID:-}
+      TRYBIT_SECRET_KEY: ${TRYBIT_SECRET_KEY:-}
+      TRYBIT_BASE_URL: ${TRYBIT_BASE_URL:-https://api.trybit.com/v2}
     networks: [cpnet]
     healthcheck:
       test: ["CMD", "curl", "-fs", "http://localhost:8001/api/health"]
