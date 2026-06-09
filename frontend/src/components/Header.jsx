@@ -179,24 +179,24 @@ export const Header = () => {
             {siteCfg.show_wc_tab && (
               <NavLink
                 to="/worldcup"
-                className={({ isActive }) => `cp-sport-tab cp-sport-tab--on-band flex items-center gap-1.5 ${isActive ? "active" : ""}`}
+                className={({ isActive }) => `cp-sport-tab cp-sport-tab--on-band cp-sport-tab--stack ${isActive ? "active" : ""}`}
                 data-testid="sport-tab-wc2026"
                 style={{ color: "#fff" }}
               >
-                <img src="https://customer-assets.emergentagent.com/job_fantasy-wc/artifacts/gbyjrmxz_world-cup-2026-logo.webp" alt="" className="w-4 h-4 object-contain"/>
-                <span>WC 2026</span>
+                <img src="https://customer-assets.emergentagent.com/job_fantasy-wc/artifacts/gbyjrmxz_world-cup-2026-logo.webp" alt="" className="w-5 h-5 object-contain mx-auto"/>
+                <span className="text-[10px] font-extrabold mt-0.5">WC26</span>
               </NavLink>
             )}
             {SPORTS.map(s => (
               <NavLink
                 key={s.slug}
                 to={s.slug === "football" ? "/" : `/sport/${s.slug}`}
-                className={({ isActive }) => `cp-sport-tab cp-sport-tab--on-band flex items-center gap-1.5 ${isActive ? "active" : ""}`}
+                className={({ isActive }) => `cp-sport-tab cp-sport-tab--on-band cp-sport-tab--stack ${isActive ? "active" : ""}`}
                 data-testid={`sport-tab-${s.slug}`}
                 end={s.slug === "football"}
               >
-                <SportIcon slug={s.slug} className="text-[13px]" />
-                {s.name}
+                <SportIcon slug={s.slug} className="text-[15px] block mx-auto" />
+                <span className="text-[10px] font-extrabold mt-0.5">{s.name}</span>
               </NavLink>
             ))}
           </div>
