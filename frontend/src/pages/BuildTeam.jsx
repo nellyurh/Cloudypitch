@@ -4,7 +4,8 @@ import api from "../lib/api";
 import { useAuth } from "../lib/auth";
 import { useCurrency } from "../lib/currency";
 import { flagUrl } from "../lib/flags";
-import { CheckCircle2, X, Search, ChevronLeft, Trophy, Save, Zap, AlertTriangle, CreditCard, MinusCircle, ShoppingCart } from "lucide-react";
+import PlayerDetailSheet from "../components/PlayerDetailSheet";
+import { CheckCircle2, X, Search, ChevronLeft, Trophy, Save, Zap, AlertTriangle, CreditCard, MinusCircle, ShoppingCart, Info, Repeat } from "lucide-react";
 
 const POSITIONS = ["GK", "DEF", "MID", "FWD"];
 const SQUAD_PROFILES = {
@@ -14,7 +15,7 @@ const SQUAD_PROFILES = {
 const POS_LABEL = { GK: "Goalkeepers", DEF: "Defenders", MID: "Midfielders", FWD: "Forwards" };
 const POS_COLOR = { GK: "#FFC857", DEF: "#A3E635", MID: "#7DD3FC", FWD: "#FB7185" };
 
-const fmt = (n) => `£${(n || 0).toFixed(1)}`;
+const fmt = (n) => `€${(n || 0).toFixed(1)}M`;
 
 /** 3-letter uppercase code for a country, used for opponent labels. */
 const COUNTRY_SHORT = {
@@ -166,6 +167,7 @@ export default function BuildTeam() {
   const [captainId, setCaptainId] = useState(null);
   const [viceId, setViceId] = useState(null);
   const [armbandStep, setArmbandStep] = useState(false);
+  const [subStep, setSubStep] = useState(false); // substitutions mode — tap toggles bench
   const [formation, setFormation] = useState("4-3-3"); // starting XI shape
   const [benchIds, setBenchIds] = useState(new Set()); // player IDs on the bench
   const [originalIds, setOriginalIds] = useState(null); // snapshot of saved squad for transfer counting
@@ -182,6 +184,8 @@ export default function BuildTeam() {
   const [transferBusy, setTransferBusy] = useState(false);
   // Map of country_name → opponent short code (R1). Pre-built once from /worldcup.
   const [opponentByCountry, setOpponentByCountry] = useState({});
+  // Player detail bottom sheet — Sofascore-style. null = closed.
+  const [detailPlayer, setDetailPlayer] = useState(null);
 
   useEffect(() => {
     (async () => {
@@ -300,7 +304,9 @@ export default function BuildTeam() {
   };
 
   // When armbandStep is on, tapping a player on the pitch sets C, then V.
-  // Otherwise when squad is full → tap toggles bench. Pre-full → remove player.
+  // When subStep is on, tapping toggles bench (enforcing formation min counts).
+  // Otherwise tapping opens the Sofascore-style player detail sheet, which
+  // has its own Remove + Replace buttons.
   const onPlayerTap = (p) => {
     if (armbandStep) {
       if (!captainId) {
@@ -315,23 +321,20 @@ export default function BuildTeam() {
       }
       return;
     }
-    if (isFull) {
-      // Toggle bench. Enforce formation: starters must match `startersNeeded`.
+    if (subStep && isFull) {
+      // Toggle bench, preserving formation. Same logic as legacy behaviour.
       setBenchIds(prev => {
         const next = new Set(prev);
         const startersByPos = { GK: 0, DEF: 0, MID: 0, FWD: 0 };
         squad.forEach(x => { if (!next.has(x.id)) startersByPos[x.position] += 1; });
         if (next.has(p.id)) {
-          // Moving p from bench → starter. Need quota room in p.position.
           if (startersByPos[p.position] >= startersNeeded[p.position]) {
             alert(`${formation} formation already has ${startersNeeded[p.position]} starting ${p.position}. Bench another ${p.position} first.`);
             return prev;
           }
           next.delete(p.id);
         } else {
-          // Moving p from starter → bench. Don't drop below formation minimum (else broken XI).
           if (startersByPos[p.position] <= startersNeeded[p.position] && (startersByPos[p.position] - 1) < startersNeeded[p.position]) {
-            // benching would break formation — only allow if we have a benched player of same position to promote
             const benchedSamePos = squad.find(x => x.position === p.position && next.has(x.id));
             if (!benchedSamePos) {
               alert(`Cannot bench: formation ${formation} needs ${startersNeeded[p.position]} starting ${p.position}.`);
@@ -351,7 +354,16 @@ export default function BuildTeam() {
       });
       return;
     }
+    // Default: open the Sofascore-style detail sheet.
+    const full = players.find(x => x.id === p.id) || p;
+    setDetailPlayer({ ...full, ...p });
+  };
+
+  // Replace flow — open the picker for the same position so the user can pick a new one.
+  // The picker already runs the budget/limit checks.
+  const onSheetReplace = (p) => {
     removePlayer(p);
+    setPickerPos(p.position);
   };
 
   const saveSquad = async () => {
@@ -443,7 +455,7 @@ export default function BuildTeam() {
         <div className="flex items-center gap-2">
           <h1 className="text-xl md:text-2xl font-extrabold">Build a Team</h1>
           <span className="text-[10px] font-bold px-2 py-0.5 rounded uppercase tracking-wider" style={{ background: "var(--cp-surface-2)", color: "var(--cp-text-muted)" }}>
-            {profile.total}-man · £{profile.budget}m
+            {profile.total}-man · €{profile.budget}M
           </span>
         </div>
         <div className="flex items-center gap-2">
@@ -523,6 +535,31 @@ export default function BuildTeam() {
         <ListView squad={squad} counts={counts} onPick={setPickerPos} onRemove={removePlayer} posLimit={POS_LIMIT} captainId={captainId} viceId={viceId} onSetCaptain={(p) => setCaptainId(p.id === captainId ? null : p.id)} onSetVice={(p) => setViceId(p.id === viceId ? null : p.id)} benchIds={benchIds} onToggleBench={(p) => onPlayerTap(p)} isFull={isFull}/>
       )}
 
+      {/* Substitutions + Transfers — Sofascore-style bottom actions row.
+          Always visible on every team page. */}
+      <div className="cp-surface p-2 mt-3 grid grid-cols-2 gap-2" data-testid="team-actions-row">
+        <button
+          onClick={() => { setSubStep(!subStep); setArmbandStep(false); }}
+          disabled={!isFull}
+          className={`py-2.5 rounded font-extrabold text-sm flex items-center justify-center gap-2 disabled:opacity-40 ${subStep ? "bg-cp-lime text-cp-forest" : ""}`}
+          style={!subStep ? { background: "var(--cp-surface-2)", color: "var(--cp-text)" } : {}}
+          data-testid="substitutions-btn"
+          title="Tap players to swap them between starting XI and bench"
+        >
+          <Repeat size={14}/> {subStep ? "Tap a player to bench/start" : "Substitutions"}
+        </button>
+        <button
+          onClick={() => setTransferModal({ count: transferCount })}
+          disabled={!originalIds || transferCount === 0}
+          className="py-2.5 rounded font-extrabold text-sm flex items-center justify-center gap-2 disabled:opacity-40"
+          style={{ background: "var(--cp-surface-2)", color: "var(--cp-text)" }}
+          data-testid="transfers-btn"
+          title={transferCount > 0 ? `Review ${transferCount} transfer${transferCount === 1 ? "" : "s"}` : "No pending transfers"}
+        >
+          <ShoppingCart size={14}/> Transfers {transferCount > 0 && <span className="cp-pill !text-[10px] bg-cp-lime text-cp-forest font-extrabold">{transferCount}</span>}
+        </button>
+      </div>
+
       {/* Armband picker bar — shows when squad is full but captain/vice unset */}
       {isFull && (!captainId || !viceId) && (
         <div className="cp-surface p-3 mt-3 flex items-center gap-3 flex-wrap" data-testid="armband-bar">
@@ -578,6 +615,17 @@ export default function BuildTeam() {
           cur={cur}
           onClose={() => !transferBusy && setTransferModal(null)}
           onChoice={onTransferChoice}
+        />
+      )}
+
+      {/* Player detail bottom sheet — Sofascore-style */}
+      {detailPlayer && (
+        <PlayerDetailSheet
+          player={detailPlayer}
+          onClose={() => setDetailPlayer(null)}
+          onRemove={removePlayer}
+          onReplace={onSheetReplace}
+          inSquad={true}
         />
       )}
     </div>
