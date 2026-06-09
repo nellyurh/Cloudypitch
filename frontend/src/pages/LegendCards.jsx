@@ -40,7 +40,7 @@ function CatalogTab() {
               <LegendCardArt tier={tierArt} title={c.name?.toUpperCase()} size={220} data-testid={`card-art-${c.id}`}/>
               <div className="mt-2 px-1 text-center">
                 <div className="text-[11px] font-bold truncate">{c.player_name}</div>
-                <div className="text-[11px] tabular-nums text-cp-lime mt-0.5">${priceUsd} · +{c.uses_granted || 5} uses</div>
+                <div className="text-[11px] tabular-nums text-cp-lime mt-0.5">${priceUsd}</div>
               </div>
             </div>
           );

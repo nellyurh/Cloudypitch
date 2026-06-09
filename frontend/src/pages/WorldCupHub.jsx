@@ -165,31 +165,39 @@ function MatchPaneRow({ m }) {
   const date = dt ? `${String(dt.getDate()).padStart(2, "0")}/${String(dt.getMonth() + 1).padStart(2, "0")}/${String(dt.getFullYear()).slice(-2)}` : "—";
   const time = dt ? `${String(dt.getHours()).padStart(2, "0")}:${String(dt.getMinutes()).padStart(2, "0")}` : "";
   return (
-    <li className="grid grid-cols-[55px_1fr_auto] gap-2 px-3 py-2 items-center text-xs hover:bg-white/[0.02]" data-testid={`wc-match-${m.id}`}>
-      <div className="text-[10px] text-center" style={{ color: "var(--cp-text-muted)" }}>
-        <div>{date}</div>
-        <div className="font-bold">{time}</div>
-      </div>
-      <div className="min-w-0 space-y-1">
-        <TeamRow team={m.home_team_name} short={m.home_short}/>
-        <TeamRow team={m.away_team_name} short={m.away_short}/>
-      </div>
-      <div className="text-[10px] text-right tabular-nums" style={{ color: "var(--cp-text-muted)" }}>
-        {m.home_score != null ? <div>{m.home_score}</div> : <div>-</div>}
-        {m.away_score != null ? <div>{m.away_score}</div> : <div>-</div>}
-      </div>
+    <li>
+      <Link to={`/match/${m.id}`} className="grid grid-cols-[55px_1fr_auto] gap-2 px-3 py-2 items-center text-xs hover:bg-white/[0.05] block" data-testid={`wc-match-${m.id}`}>
+        <div className="text-[10px] text-center" style={{ color: "var(--cp-text-muted)" }}>
+          <div>{date}</div>
+          <div className="font-bold">{time}</div>
+        </div>
+        <div className="min-w-0 space-y-1">
+          <TeamRow team={m.home_team_name} short={m.home_short}/>
+          <TeamRow team={m.away_team_name} short={m.away_short}/>
+        </div>
+        <div className="text-[10px] text-right tabular-nums" style={{ color: "var(--cp-text-muted)" }}>
+          {m.home_score != null ? <div>{m.home_score}</div> : <div>-</div>}
+          {m.away_score != null ? <div>{m.away_score}</div> : <div>-</div>}
+        </div>
+      </Link>
     </li>
   );
 }
 
 function TeamRow({ team, short }) {
+  if (!team) return <span className="text-xs opacity-50">{short || "—"}</span>;
   return (
-    <div className="flex items-center gap-1.5 min-w-0">
+    <Link
+      to={`/team/${encodeURIComponent(team)}`}
+      onClick={e => e.stopPropagation()}
+      className="flex items-center gap-1.5 min-w-0 hover:text-cp-lime"
+      data-testid={`team-link-${team}`}
+    >
       {flagUrl(team, 40) ? (
         <img src={flagUrl(team, 40)} className="w-4 h-3 object-cover rounded-sm ring-1 ring-black/30 shrink-0" alt=""/>
       ) : <span className="w-4 h-3 rounded-sm shrink-0" style={{ background: "var(--cp-surface-2)" }}/>}
-      <span className="truncate">{team || short || "—"}</span>
-    </div>
+      <span className="truncate">{team}</span>
+    </Link>
   );
 }
 
@@ -244,7 +252,7 @@ function OverviewMatchCard({ m }) {
   const date = dt ? `${String(dt.getDate()).padStart(2, "0")}/${String(dt.getMonth() + 1).padStart(2, "0")}/${String(dt.getFullYear()).slice(-2)}` : "—";
   const time = dt ? `${String(dt.getHours()).padStart(2, "0")}:${String(dt.getMinutes()).padStart(2, "0")}` : "";
   return (
-    <div className="rounded-lg p-3" style={{ background: "var(--cp-surface-2)" }} data-testid={`overview-card-${m.id}`}>
+    <Link to={`/match/${m.id}`} className="rounded-lg p-3 block hover:scale-[1.01] transition-transform" style={{ background: "var(--cp-surface-2)" }} data-testid={`overview-card-${m.id}`}>
       <div className="flex items-center justify-between text-[10px] uppercase tracking-widest mb-2" style={{ color: "var(--cp-text-muted)" }}>
         <span>{m.group ? `Group ${m.group}` : m.round || "Group"}, Round {m.matchday || "1"}</span>
         <span className="inline-flex items-center gap-1"><MapPin size={10}/>{m.venue_city || m.venue_name || "TBC"}</span>
@@ -263,7 +271,7 @@ function OverviewMatchCard({ m }) {
           <span className="text-xs font-bold text-center">{m.away_team_name}</span>
         </div>
       </div>
-    </div>
+    </Link>
   );
 }
 
@@ -344,7 +352,7 @@ function StandingsTable({ groups, matches, compact = false }) {
         </thead>
         <tbody>
           {rows.map((r, idx) => (
-            <tr key={r.team} className="border-t" style={{ borderColor: "var(--cp-border)" }}>
+            <tr key={r.team} className="border-t hover:bg-white/[0.03] cursor-pointer" style={{ borderColor: "var(--cp-border)" }} onClick={() => window.location.href = `/team/${encodeURIComponent(r.team)}`} data-testid={`standings-row-${r.team}`}>
               <td className="py-1.5 font-bold tabular-nums">{idx + 1}</td>
               <td className="py-1.5 flex items-center gap-1.5">
                 {flagUrl(r.team, 40) ? <img src={flagUrl(r.team, 40)} className="w-4 h-3 object-cover rounded-sm ring-1 ring-black/30" alt=""/> : null}

@@ -183,7 +183,7 @@ export const Header = () => {
                 data-testid="sport-tab-wc2026"
                 style={{ color: "#fff" }}
               >
-                <Trophy size={14} className="text-cp-lime"/>
+                <img src="https://customer-assets.emergentagent.com/job_fantasy-wc/artifacts/gbyjrmxz_world-cup-2026-logo.webp" alt="" className="w-4 h-4 object-contain"/>
                 <span>WC 2026</span>
               </NavLink>
             )}
@@ -301,8 +301,11 @@ const GroupTicker = () => {
       borderTop: "1px solid rgba(255,255,255,0.05)",
       borderBottom: "1px solid rgba(0,0,0,0.25)",
     }} data-testid="header-group-ticker">
-      {/* Fixed countdown on the LEFT — never scrolls */}
-      <div className="shrink-0 px-3 py-1.5 flex items-center gap-1 border-r" style={{ borderColor: "rgba(255,255,255,0.12)" }} data-testid="header-countdown">
+      {/* Fixed countdown on the LEFT — never scrolls. WC logo + timer. Sits above the marquee via z-index. */}
+      <div className="shrink-0 px-3 py-1.5 flex items-center gap-2 border-r relative z-10" style={{ borderColor: "rgba(255,255,255,0.12)", background: "linear-gradient(90deg, #5b1d3a, #6b2a47)" }} data-testid="header-countdown">
+        <img
+          src="https://customer-assets.emergentagent.com/job_fantasy-wc/artifacts/gbyjrmxz_world-cup-2026-logo.webp"
+          alt="WC 2026" className="w-5 h-5 object-contain shrink-0" data-testid="header-wc-logo-timer"/>
         <span className="text-[11px] font-extrabold tabular-nums" style={{ color: "#A3E635" }}>{d}<span className="text-white/70 font-bold">D</span></span>
         <span className="text-white/40">:</span>
         <span className="text-[11px] font-extrabold tabular-nums text-white">{String(h).padStart(2, "0")}<span className="text-white/70 font-bold">H</span></span>
