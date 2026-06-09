@@ -3,6 +3,7 @@ import { useSearchParams } from "react-router-dom";
 import api from "../lib/api";
 import { useAuth } from "../lib/auth";
 import { useCurrency } from "../lib/currency";
+import { flagUrl } from "../lib/flags";
 import { CheckCircle2, X, Search, ChevronLeft, Trophy, Save, Zap, AlertTriangle, CreditCard, MinusCircle, ShoppingCart } from "lucide-react";
 
 const POSITIONS = ["GK", "DEF", "MID", "FWD"];
@@ -15,6 +16,23 @@ const POS_COLOR = { GK: "#FFC857", DEF: "#A3E635", MID: "#7DD3FC", FWD: "#FB7185
 
 const fmt = (n) => `£${(n || 0).toFixed(1)}`;
 
+/** 3-letter uppercase code for a country, used for opponent labels. */
+const COUNTRY_SHORT = {
+  "South Korea": "KOR", "South Africa": "RSA", "United States": "USA", "USA": "USA",
+  "Czech Republic": "CZE", "Cape Verde": "CPV", "Côte d'Ivoire": "CIV", "Cote d'Ivoire": "CIV",
+  "Saudi Arabia": "KSA", "United Arab Emirates": "UAE", "New Zealand": "NZL",
+  "Bosnia and Herzegovina": "BIH", "Central African Republic": "CAR",
+  "Korea Republic": "KOR", "Korea DPR": "PRK", "Trinidad and Tobago": "TRI",
+  "Northern Ireland": "NIR", "Republic of Ireland": "IRL", "Ivory Coast": "CIV",
+  "Türkiye": "TUR", "Turkey": "TUR", "Equatorial Guinea": "EQG",
+};
+const shortCode = (name) => {
+  if (!name) return "";
+  if (COUNTRY_SHORT[name]) return COUNTRY_SHORT[name];
+  // Default: first 3 letters uppercased, skipping spaces/apostrophes.
+  return name.replace(/[^A-Za-zÀ-ÿ]/g, "").slice(0, 3).toUpperCase();
+};
+
 /** Parse "4-3-3" → { GK:1, DEF:4, MID:3, FWD:3 } */
 function parseFormation(f) {
   const parts = (f || "4-3-3").split("-").map(n => parseInt(n, 10) || 0);
@@ -22,30 +40,71 @@ function parseFormation(f) {
   return { GK: 1, DEF, MID, FWD };
 }
 
-function Jersey({ color = "#A3E635", size = 44 }) {
+/**
+ * Circular player avatar — Sofascore fantasy style.
+ * Sportmonks photo on top, country flag chip overlapping the bottom-left.
+ * Falls back to a coloured jersey-position avatar when no photo URL.
+ */
+function PlayerPic({ player, size = 56, posColor = "#A3E635" }) {
+  const initials = (player?.name || "?").split(" ").slice(-1)[0].slice(0, 1).toUpperCase();
+  const photo = player?.photo_url;
+  const flag = flagUrl(player?.country, 80);
   return (
-    <svg viewBox="0 0 64 64" width={size} height={size} aria-hidden>
-      <path
-        d="M14 8 L24 4 C28 8 36 8 40 4 L50 8 L58 18 L50 24 L48 22 L48 56 C48 58 46 60 44 60 L20 60 C18 60 16 58 16 56 L16 22 L14 24 L6 18 Z"
-        fill={color} stroke="rgba(0,0,0,0.35)" strokeWidth="1.6"
-      />
-      <path d="M16 30 L48 30" stroke="rgba(255,255,255,0.6)" strokeWidth="2"/>
-    </svg>
+    <span
+      className="relative inline-block"
+      style={{ width: size, height: size }}
+    >
+      <span
+        className="absolute inset-0 rounded-full overflow-hidden flex items-center justify-center"
+        style={{
+          background: photo ? "#fff" : posColor,
+          boxShadow: "0 2px 6px rgba(0,0,0,0.25), inset 0 0 0 2px rgba(255,255,255,0.9)",
+        }}
+      >
+        {photo ? (
+          <img
+            src={photo}
+            alt={player?.name || ""}
+            loading="lazy"
+            style={{ width: "100%", height: "100%", objectFit: "cover", objectPosition: "top center" }}
+            onError={(e) => { e.currentTarget.style.display = "none"; }}
+          />
+        ) : (
+          <span className="text-cp-forest font-extrabold" style={{ fontSize: size * 0.45 }}>{initials}</span>
+        )}
+      </span>
+      {flag && (
+        <img
+          src={flag}
+          alt={player?.country || ""}
+          className="absolute"
+          style={{
+            left: -2, bottom: -2,
+            width: Math.max(16, size * 0.36),
+            height: Math.max(11, size * 0.26),
+            objectFit: "cover",
+            borderRadius: 3,
+            border: "1.5px solid #fff",
+            boxShadow: "0 1px 3px rgba(0,0,0,0.4)",
+          }}
+        />
+      )}
+    </span>
   );
 }
 
 /** A pitch slot — either populated or an empty "+ add" tile */
-function PitchSlot({ pos, picked, onPick, onTap, isCaptain, isVice, isBench }) {
+function PitchSlot({ pos, picked, onPick, onTap, isCaptain, isVice, isBench, opponentCode }) {
   if (!picked) {
     return (
       <button
         onClick={() => onPick(pos)}
-        className="flex flex-col items-center min-w-0 w-full max-w-[88px] gap-1 hover:scale-105 transition"
+        className="flex flex-col items-center min-w-0 w-full max-w-[92px] gap-1 hover:scale-105 transition"
         data-testid={`pitch-slot-empty-${pos}`}
       >
         <span
-          className="rounded-md flex items-center justify-center text-cp-forest font-extrabold text-lg shadow"
-          style={{ width: 42, height: 50, background: "rgba(255,255,255,0.85)", border: "2px dashed rgba(255,255,255,0.7)" }}
+          className="rounded-full flex items-center justify-center text-cp-forest font-extrabold text-xl shadow"
+          style={{ width: 56, height: 56, background: "rgba(255,255,255,0.85)", border: "2px dashed rgba(255,255,255,0.7)" }}
         >
           +
         </span>
@@ -57,30 +116,29 @@ function PitchSlot({ pos, picked, onPick, onTap, isCaptain, isVice, isBench }) {
   }
   const lastName = (picked.name || "?").split(" ").slice(-1)[0];
   return (
-    <div className={`flex flex-col items-center min-w-0 max-w-[90px] w-full ${isBench ? "opacity-70" : ""}`} data-testid={`pitch-slot-${picked.id}`}>
-      <button onClick={() => onTap(picked)} className="relative hover:scale-105 transition" title={isCaptain ? "Captain" : isVice ? "Vice-captain" : (isBench ? "On bench — tap to start" : "Tap to bench / remove")}>
-        <Jersey color={POS_COLOR[pos]} size={42}/>
-        {picked.shirt_number && (
-          <span className="absolute inset-0 flex items-center justify-center text-[11px] font-extrabold text-cp-forest pointer-events-none" style={{ paddingTop: 6 }}>
-            {picked.shirt_number}
-          </span>
-        )}
+    <div className={`flex flex-col items-center min-w-0 max-w-[92px] w-full ${isBench ? "opacity-70" : ""}`} data-testid={`pitch-slot-${picked.id}`}>
+      <button
+        onClick={() => onTap(picked)}
+        className="relative hover:scale-105 transition"
+        title={isCaptain ? "Captain" : isVice ? "Vice-captain" : (isBench ? "On bench — tap to start" : "Tap to bench / remove")}
+      >
+        <PlayerPic player={picked} size={56} posColor={POS_COLOR[pos]} />
         {isCaptain && (
-          <span className="absolute -top-1 -right-1 bg-cp-lime text-cp-forest text-[8px] font-extrabold w-4 h-4 rounded-full flex items-center justify-center ring-2 ring-black/40" data-testid={`captain-${picked.id}`}>C</span>
+          <span className="absolute -top-1 -right-1 bg-cp-lime text-cp-forest text-[9px] font-extrabold w-5 h-5 rounded-full flex items-center justify-center ring-2 ring-black/40 z-10" data-testid={`captain-${picked.id}`}>C</span>
         )}
         {isVice && (
-          <span className="absolute -top-1 -right-1 bg-white text-cp-forest text-[8px] font-extrabold w-4 h-4 rounded-full flex items-center justify-center ring-2 ring-black/40" data-testid={`vice-${picked.id}`}>V</span>
+          <span className="absolute -top-1 -right-1 bg-white text-cp-forest text-[9px] font-extrabold w-5 h-5 rounded-full flex items-center justify-center ring-2 ring-black/40 z-10" data-testid={`vice-${picked.id}`}>V</span>
         )}
         {isBench && (
-          <span className="absolute -bottom-1 -left-1 bg-amber-400 text-cp-forest text-[7px] font-extrabold px-1 rounded ring-1 ring-black/40" data-testid={`bench-${picked.id}`}>B</span>
+          <span className="absolute -bottom-1 right-0 bg-amber-400 text-cp-forest text-[8px] font-extrabold px-1 rounded ring-1 ring-black/40 z-10" data-testid={`bench-${picked.id}`}>B</span>
         )}
       </button>
-      <div className="mt-0.5 w-full max-w-[88px]">
-        <div className="text-[9px] font-extrabold leading-tight px-1 py-0.5 rounded-t truncate text-center" style={{ background: "#FFFFFF", color: "#1A1F26" }}>
+      <div className="mt-1 w-full max-w-[88px]">
+        <div className="text-[10px] font-extrabold leading-tight px-1 py-0.5 rounded-t truncate text-center" style={{ background: "#3B5BDB", color: "#fff" }}>
           {lastName}
         </div>
-        <div className="text-[8px] font-medium leading-tight px-1 py-0.5 rounded-b truncate text-center" style={{ background: "#F1F4EF", color: "#475569" }}>
-          {fmt(picked.price)}
+        <div className="text-[9px] font-bold leading-tight px-1 py-0.5 rounded-b truncate text-center" style={{ background: "#FFFFFF", color: "#1A1F26" }}>
+          {opponentCode || fmt(picked.price)}
         </div>
       </div>
     </div>
@@ -122,6 +180,8 @@ export default function BuildTeam() {
   const cur = useCurrency();
   const [transferModal, setTransferModal] = useState(null); // { count, transfersInfo }
   const [transferBusy, setTransferBusy] = useState(false);
+  // Map of country_name → opponent short code (R1). Pre-built once from /worldcup.
+  const [opponentByCountry, setOpponentByCountry] = useState({});
 
   useEffect(() => {
     (async () => {
@@ -132,6 +192,19 @@ export default function BuildTeam() {
       try {
         const { data } = await api.get("/fantasy/transfers");
         setTransfersInfo(data);
+      } catch (_) {}
+      // Build R1 opponent lookup so pitch slots can show e.g. "MOR", "CRO".
+      try {
+        const { data } = await api.get("/worldcup");
+        const map = {};
+        const r1 = (data?.matches || []).filter(m => /matchday\s*1/i.test(m?.round || ""));
+        for (const m of r1) {
+          if (m.home_team_name && m.away_team_name) {
+            map[m.home_team_name] = shortCode(m.away_team_name);
+            map[m.away_team_name] = shortCode(m.home_team_name);
+          }
+        }
+        setOpponentByCountry(map);
       } catch (_) {}
     })();
   }, []);
@@ -445,7 +518,7 @@ export default function BuildTeam() {
       )}
 
       {view === "pitch" ? (
-        <PitchView counts={counts} squad={squad} onPick={setPickerPos} onTap={onPlayerTap} posLimit={POS_LIMIT} captainId={captainId} viceId={viceId} armbandStep={armbandStep} benchIds={benchIds} isFull={isFull} formation={formation} startersNeeded={startersNeeded}/>
+        <PitchView counts={counts} squad={squad} onPick={setPickerPos} onTap={onPlayerTap} posLimit={POS_LIMIT} captainId={captainId} viceId={viceId} armbandStep={armbandStep} benchIds={benchIds} isFull={isFull} formation={formation} startersNeeded={startersNeeded} opponentByCountry={opponentByCountry}/>
       ) : (
         <ListView squad={squad} counts={counts} onPick={setPickerPos} onRemove={removePlayer} posLimit={POS_LIMIT} captainId={captainId} viceId={viceId} onSetCaptain={(p) => setCaptainId(p.id === captainId ? null : p.id)} onSetVice={(p) => setViceId(p.id === viceId ? null : p.id)} benchIds={benchIds} onToggleBench={(p) => onPlayerTap(p)} isFull={isFull}/>
       )}
@@ -521,7 +594,7 @@ function Stat({ label, value, tone }) {
   );
 }
 
-function PitchView({ counts, squad, onPick, onTap, posLimit, captainId, viceId, armbandStep, benchIds, isFull, formation, startersNeeded }) {
+function PitchView({ counts, squad, onPick, onTap, posLimit, captainId, viceId, armbandStep, benchIds, isFull, formation, startersNeeded, opponentByCountry = {} }) {
   // When the squad is NOT full → keep the legacy "build slots" layout so users can see empty + tiles.
   if (!isFull) {
     const slots = POSITIONS.flatMap(pos => {
@@ -543,7 +616,8 @@ function PitchView({ counts, squad, onPick, onTap, posLimit, captainId, viceId, 
               {rowFor(pos).map((s, i) => (
                 <PitchSlot key={`${pos}-${i}`} pos={pos} picked={s.player} onPick={onPick} onTap={onTap}
                   isCaptain={s.player?.id === captainId} isVice={s.player?.id === viceId}
-                  isBench={s.player ? benchIds?.has(s.player.id) : false}/>
+                  isBench={s.player ? benchIds?.has(s.player.id) : false}
+                  opponentCode={s.player ? opponentByCountry[s.player.country] : undefined}/>
               ))}
             </div>
           ))}
@@ -571,7 +645,8 @@ function PitchView({ counts, squad, onPick, onTap, posLimit, captainId, viceId, 
             <div key={pos} className="flex items-start justify-around gap-1 px-1" data-testid={`pitch-row-${pos}`}>
               {startersByPos[pos].map((p) => (
                 <PitchSlot key={p.id} pos={pos} picked={p} onPick={onPick} onTap={onTap}
-                  isCaptain={p.id === captainId} isVice={p.id === viceId} isBench={false}/>
+                  isCaptain={p.id === captainId} isVice={p.id === viceId} isBench={false}
+                  opponentCode={opponentByCountry[p.country]}/>
               ))}
             </div>
           ))}
@@ -588,7 +663,8 @@ function PitchView({ counts, squad, onPick, onTap, posLimit, captainId, viceId, 
             <div className="text-xs opacity-50 py-2 px-1">No bench players yet — pick a formation above.</div>
           ) : benched.map(p => (
             <PitchSlot key={p.id} pos={p.position} picked={p} onPick={onPick} onTap={onTap}
-              isCaptain={p.id === captainId} isVice={p.id === viceId} isBench={true}/>
+              isCaptain={p.id === captainId} isVice={p.id === viceId} isBench={true}
+              opponentCode={opponentByCountry[p.country]}/>
           ))}
         </div>
       </div>
@@ -656,7 +732,7 @@ function ListView({ squad, counts, onPick, onRemove, posLimit, captainId, viceId
                   const isB = benchIds?.has(p.id);
                   return (
                     <li key={p.id} className={`flex items-center gap-3 p-2.5 ${isB ? "opacity-70" : ""}`} data-testid={`list-player-${p.id}`}>
-                      <Jersey color={POS_COLOR[pos]} size={36}/>
+                      <PlayerPic player={p} size={36} posColor={POS_COLOR[pos]}/>
                       <div className="flex-1 min-w-0">
                         <div className="font-bold truncate flex items-center gap-1">
                           {p.name}
@@ -846,7 +922,7 @@ function PlayerPicker({ position, allPlayers, alreadyPickedIds, counts, remainin
                     className={`flex items-center gap-3 p-2.5 transition ${disabled ? "opacity-40" : "hover:bg-white/3"}`}
                     data-testid={`picker-row-${p.id}`}
                   >
-                    <Jersey color={POS_COLOR[position]} size={32}/>
+                    <PlayerPic player={p} size={36} posColor={POS_COLOR[position]}/>
                     <div className="flex-1 min-w-0">
                       <div className="font-bold truncate">{p.name}</div>
                       <div className="text-[11px] opacity-60 truncate">{p.team_name}{p.shirt_number ? ` · #${p.shirt_number}` : ""}</div>
