@@ -7,6 +7,7 @@ import { Layout } from "./components/Layout";
 import { Dashboard } from "./pages/Dashboard";
 import { SportPage } from "./pages/SportPage";
 import { MatchDetail } from "./pages/MatchDetail";
+import TeamView from "./pages/TeamView";
 import { LeaguePage } from "./pages/LeaguePage";
 import { WorldCupHub } from "./pages/WorldCupHub";
 import { PredictionsHub } from "./pages/Predictions";
@@ -38,6 +39,7 @@ function App() {
               <Route path="/" element={<Dashboard sport="football" />} />
               <Route path="/sport/:sport" element={<SportPage />} />
               <Route path="/match/:id" element={<MatchDetail />} />
+              <Route path="/team/:teamId" element={<TeamView />} />
               <Route path="/league/:id" element={<LeaguePage />} />
               <Route path="/worldcup" element={<WorldCupHub />} />
               <Route path="/predictions" element={<PredictionsHub />} />

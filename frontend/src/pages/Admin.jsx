@@ -492,11 +492,16 @@ function PlayerPricesTab({ onMessage }) {
                 <input
                   type="number" step="0.5" min="3.0" max="15.0"
                   defaultValue={p.price}
-                  onBlur={e => setPrice(p.id, e.target.value)}
-                  onKeyDown={e => e.key === "Enter" && e.currentTarget.blur()}
+                  onKeyDown={e => e.key === "Enter" && setPrice(p.id, e.currentTarget.value)}
                   className="cp-input w-20 text-right tabular-nums"
                   data-testid={`player-price-${p.id}`}
+                  id={`player-price-input-${p.id}`}
                 />
+                <button
+                  onClick={() => setPrice(p.id, document.getElementById(`player-price-input-${p.id}`).value)}
+                  className="cp-btn-primary !py-1 !px-2 text-[10px] font-extrabold"
+                  data-testid={`player-save-${p.id}`}
+                >Save</button>
                 <span className="text-[10px] opacity-60 w-8 text-right">
                   {p.price_override ? "manual" : "auto"}
                 </span>
@@ -506,7 +511,7 @@ function PlayerPricesTab({ onMessage }) {
         )}
       </div>
       <div className="text-[10px] opacity-60">
-        Enter or blur to save. Manual prices are kept on the next auto-recompute (admin choice wins).
+        Click <b>Save</b> (or press Enter) to commit a price. Manual prices survive auto-recompute.
       </div>
     </div>
   );
