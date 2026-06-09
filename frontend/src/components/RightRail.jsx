@@ -3,6 +3,7 @@ import { Link } from "react-router-dom";
 import { Trophy, Flame, ChevronRight, Coins } from "lucide-react";
 import api from "../lib/api";
 import { FavoritesTicker } from "./FavoritesTicker";
+import AdSlot from "./AdSlot";
 
 const CountdownBox = ({ v, label }) => (
   <div className="text-center px-2">
@@ -54,6 +55,9 @@ export const RightRail = () => {
 
   return (
     <aside className="space-y-3" data-testid="right-rail">
+      {/* Ad slot above the leaderboard — sponsor first, AdSense fallback. */}
+      <AdSlot placement="leaderboard_above" minHeight={0}/>
+
       {/* WC 2026 points leaderboard — sits on top, above Pinned */}
       <div className="cp-surface overflow-hidden" data-testid="rail-wc-leaderboard">
         <div className="cp-card-header normal-case">

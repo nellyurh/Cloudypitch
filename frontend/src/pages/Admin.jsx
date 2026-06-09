@@ -4,6 +4,7 @@ import api from "../lib/api";
 import { useAuth } from "../lib/auth";
 import { Users, Database, Radio, Activity, RefreshCw, Trophy, Coins, Calendar, Settings2, Image as ImageIcon, UserPlus } from "lucide-react";
 import { refreshBrand } from "../components/Brand";
+import { AdsTab } from "../components/AdsTab";
 
 const StatCard = ({ icon: Icon, label, value }) => (
   <div className="cp-surface p-3">
@@ -74,7 +75,7 @@ export const AdminPanel = () => {
     <div data-testid="admin-panel">
       <h1 className="text-2xl font-extrabold mb-3">Admin Panel</h1>
       <div className="flex gap-1 cp-surface p-1 w-fit mb-3 flex-wrap">
-        {["dashboard", "matches", "users", "ingest", "audit", "pools", "wcconfig", "wcgames", "players", "settings"].map(t => (
+        {["dashboard", "matches", "users", "ingest", "audit", "pools", "wcconfig", "wcgames", "players", "ads", "settings"].map(t => (
           <button key={t} onClick={() => setTab(t)} className={`px-3 py-1.5 text-sm rounded transition ${tab === t ? "bg-cp-lime text-cp-forest font-bold" : "hover:bg-white/5"}`} data-testid={`admin-tab-${t}`}>{t.toUpperCase()}</button>
         ))}
       </div>
@@ -370,6 +371,10 @@ export const AdminPanel = () => {
           </div>
           {msg && <div className="cp-surface p-2 text-xs font-mono">{msg}</div>}
         </div>
+      )}
+
+      {tab === "ads" && (
+        <AdsTab onMessage={setMsg}/>
       )}
 
       {tab === "settings" && (

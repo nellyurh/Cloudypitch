@@ -2,9 +2,13 @@
 Free-tier users see ads; premium subs (is_premium=True) get an empty list.
 Networks: admob | adsense | meta | direct (in-house sponsorship)
 Placement keys: home_bottom_banner | match_list_inline | wc_hub_sponsor |
-  pool_sponsor | interstitial_nav | rewarded_video
+  pool_sponsor | interstitial_nav | rewarded_video |
+  header_banner | sidebar_right | leaderboard_above | mobile_bottom |
+  wc_hub_top | predictions_inline | fantasy_sidebar
 """
 from datetime import datetime, timezone
+import os
+import random
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
@@ -18,13 +22,21 @@ router = APIRouter(prefix="/api/ads", tags=["ads"])
 
 VALID_NETWORKS = {"admob", "adsense", "meta", "direct"}
 VALID_PLACEMENTS = {
-    "home_bottom_banner",
-    "match_list_inline",
-    "wc_hub_sponsor",
-    "pool_sponsor",
-    "interstitial_nav",
-    "rewarded_video",
+    # Legacy
+    "home_bottom_banner", "match_list_inline", "wc_hub_sponsor",
+    "pool_sponsor", "interstitial_nav", "rewarded_video",
+    # Sofascore-style placements added 2026-02
+    "header_banner",      # full-width banner just under sports nav
+    "sidebar_right",      # right rail sticky slot (300x250 / 300x600)
+    "leaderboard_above",  # above the WC leaderboard widget
+    "mobile_bottom",      # sticky bottom bar on mobile
+    "wc_hub_top",         # banner inside /worldcup above the trophy hero
+    "predictions_inline", # between prediction rows
+    "fantasy_sidebar",    # /fantasy + /build-team sidebar
 }
+
+ADSENSE_PUBLISHER_ID = os.environ.get("ADSENSE_PUBLISHER_ID", "")
+ADSENSE_ENABLED = bool(ADSENSE_PUBLISHER_ID)
 
 
 class PlacementIn(BaseModel):
@@ -37,6 +49,106 @@ class PlacementIn(BaseModel):
     starts_at: str | None = None
     ends_at: str | None = None
     weight: int = 1  # rotation weight for direct sponsorships
+
+
+@router.get("/config")
+async def ads_config(user: dict = Depends(a.get_optional_user)):
+    """Public ad config — FE injects the AdSense script using this.
+    Premium users always get `{enabled: false}` so no ad code is ever loaded.
+    """
+    is_premium = bool(user and user.get("is_premium"))
+    return {
+        "adsense_enabled": ADSENSE_ENABLED and not is_premium,
+        "adsense_publisher_id": ADSENSE_PUBLISHER_ID if (ADSENSE_ENABLED and not is_premium) else "",
+        "premium": is_premium,
+        "valid_placements": sorted(VALID_PLACEMENTS),
+    }
+
+
+@router.get("/serve/{placement_key}")
+async def serve_ad(placement_key: str, user: dict = Depends(a.get_optional_user)):
+    """Return the best active ad for this placement.
+
+    Priority:
+      1) Premium → empty (no ad anywhere)
+      2) An eligible `direct` sponsor (weighted random pick) → returned with `network: 'direct'`
+      3) Else → tell FE to fall back to AdSense (`network: 'adsense'`, with the ad_slot)
+    """
+    if placement_key not in VALID_PLACEMENTS:
+        raise HTTPException(status_code=400, detail=f"Unknown placement_key. Use one of: {sorted(VALID_PLACEMENTS)}")
+    if user and user.get("is_premium"):
+        return {"ad": None, "premium": True}
+
+    db = get_db()
+    now_iso = datetime.now(timezone.utc).isoformat()
+    cursor = db.ad_placements.find(
+        {"placement_key": placement_key, "is_active": True, "network": "direct"},
+        {"_id": 0},
+    )
+    eligible: list[dict] = []
+    async for p in cursor:
+        if p.get("starts_at") and p["starts_at"] > now_iso:
+            continue
+        if p.get("ends_at") and p["ends_at"] < now_iso:
+            continue
+        eligible.append(p)
+
+    if eligible:
+        # Weighted random pick — weight defaults to 1.
+        weights = [max(1, int(p.get("weight", 1))) for p in eligible]
+        pick = random.choices(eligible, weights=weights, k=1)[0]
+        # Fire-and-forget impression bump
+        await db.ad_placements.update_one({"id": pick["id"]}, {"$inc": {"impressions": 1}})
+        return {"ad": pick, "premium": False, "source": "direct"}
+
+    if ADSENSE_ENABLED:
+        # Look up an admin-configured AdSense slot id for this placement (optional).
+        slot = await db.adsense_slots.find_one({"placement_key": placement_key}, {"_id": 0})
+        ad_slot = (slot or {}).get("ad_slot") or ""
+        return {
+            "ad": {
+                "network": "adsense",
+                "placement_key": placement_key,
+                "ad_slot": ad_slot,
+                "publisher_id": ADSENSE_PUBLISHER_ID,
+            },
+            "premium": False,
+            "source": "adsense",
+        }
+    return {"ad": None, "premium": False, "source": "none"}
+
+
+class AdSenseSlotIn(BaseModel):
+    placement_key: str
+    ad_slot: str = Field(min_length=4, max_length=32)
+
+
+@router.post("/adsense-slots")
+async def upsert_adsense_slot(body: AdSenseSlotIn, user: dict = Depends(a.require_admin)):
+    if body.placement_key not in VALID_PLACEMENTS:
+        raise HTTPException(status_code=400, detail=f"Unknown placement_key. Use one of: {sorted(VALID_PLACEMENTS)}")
+    db = get_db()
+    await db.adsense_slots.update_one(
+        {"placement_key": body.placement_key},
+        {"$set": {"ad_slot": body.ad_slot, "updated_at": datetime.now(timezone.utc).isoformat(),
+                   "updated_by": user["id"]}},
+        upsert=True,
+    )
+    return {"ok": True, "placement_key": body.placement_key, "ad_slot": body.ad_slot}
+
+
+@router.get("/adsense-slots")
+async def list_adsense_slots(user: dict = Depends(a.require_admin)):
+    db = get_db()
+    slots = await db.adsense_slots.find({}, {"_id": 0}).to_list(length=50)
+    return {"slots": slots, "publisher_id": ADSENSE_PUBLISHER_ID}
+
+
+@router.delete("/adsense-slots/{placement_key}")
+async def delete_adsense_slot(placement_key: str, user: dict = Depends(a.require_admin)):
+    db = get_db()
+    res = await db.adsense_slots.delete_one({"placement_key": placement_key})
+    return {"deleted": res.deleted_count}
 
 
 @router.get("/placements")
