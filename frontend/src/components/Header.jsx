@@ -274,6 +274,7 @@ export default Header;
  */
 const GroupTicker = () => {
   const [groups, setGroups] = useState([]);
+  const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
     let cancelled = false;
     (async () => {
@@ -282,18 +283,35 @@ const GroupTicker = () => {
         if (!cancelled) setGroups(data?.groups || []);
       } catch (_e) { /* ignore */ }
     })();
-    return () => { cancelled = true; };
+    const t = setInterval(() => setNow(Date.now()), 1000);
+    return () => { cancelled = true; clearInterval(t); };
   }, []);
   if (!groups.length) return null;
+  const KICKOFF = new Date("2026-06-11T16:00:00Z").getTime();
+  const ms = Math.max(0, KICKOFF - now);
+  const d = Math.floor(ms / 86400000);
+  const h = Math.floor((ms % 86400000) / 3600000);
+  const min = Math.floor((ms % 3600000) / 60000);
+  const sec = Math.floor((ms % 60000) / 1000);
   // Duplicate the list so the CSS marquee loops seamlessly.
   const items = [...groups, ...groups];
   return (
-    <div className="overflow-hidden" style={{
+    <div className="overflow-hidden flex items-stretch" style={{
       background: "linear-gradient(90deg, #5b1d3a 0%, #6b2a47 35%, #5a3a1b 70%, #3a4b1b 100%)",
       borderTop: "1px solid rgba(255,255,255,0.05)",
       borderBottom: "1px solid rgba(0,0,0,0.25)",
     }} data-testid="header-group-ticker">
-      <div className="max-w-[1400px] mx-auto relative">
+      {/* Fixed countdown on the LEFT — never scrolls */}
+      <div className="shrink-0 px-3 py-1.5 flex items-center gap-1 border-r" style={{ borderColor: "rgba(255,255,255,0.12)" }} data-testid="header-countdown">
+        <span className="text-[11px] font-extrabold tabular-nums" style={{ color: "#A3E635" }}>{d}<span className="text-white/70 font-bold">D</span></span>
+        <span className="text-white/40">:</span>
+        <span className="text-[11px] font-extrabold tabular-nums text-white">{String(h).padStart(2, "0")}<span className="text-white/70 font-bold">H</span></span>
+        <span className="text-white/40">:</span>
+        <span className="text-[11px] font-extrabold tabular-nums text-white">{String(min).padStart(2, "0")}<span className="text-white/70 font-bold">M</span></span>
+        <span className="text-white/40">:</span>
+        <span className="text-[11px] font-extrabold tabular-nums text-white">{String(sec).padStart(2, "0")}<span className="text-white/70 font-bold">S</span></span>
+      </div>
+      <div className="flex-1 min-w-0 max-w-[1400px] mx-auto relative">
         <div className="cp-group-marquee flex items-center gap-3 py-1.5 px-3 whitespace-nowrap">
           {items.map((g, idx) => (
             <NavLink

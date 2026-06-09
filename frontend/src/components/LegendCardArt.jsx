@@ -49,6 +49,9 @@ export const LegendCardArt = ({
   const s = TIER_STYLES[tier] || TIER_STYLES.epic;
   const labels = { epic: "EPIC CARD", elite: "ELITE CARD", gold: "GOLD CARD" };
   const label = title || labels[tier] || "CARD";
+  // Fall back to the user-supplied WC2026 logo when no per-card hero image is set.
+  const DEFAULT_HERO = "https://customer-assets.emergentagent.com/job_fantasy-wc/artifacts/gbyjrmxz_world-cup-2026-logo.webp";
+  const hero = heroImageUrl || DEFAULT_HERO;
 
   return (
     <div
@@ -73,11 +76,7 @@ export const LegendCardArt = ({
         </div>
         {/* Hero artwork */}
         <div className="mx-4 my-4 rounded-md overflow-hidden flex items-center justify-center" style={{ background: s.centerBg, aspectRatio: "1 / 1" }}>
-          {heroImageUrl ? (
-            <img src={heroImageUrl} alt="" className="w-full h-full object-cover" loading="lazy"/>
-          ) : (
-            <StylizedTwentySix tier={tier}/>
-          )}
+          <img src={hero} alt="" className="w-3/4 h-3/4 object-contain" loading="lazy"/>
         </div>
       </div>
 

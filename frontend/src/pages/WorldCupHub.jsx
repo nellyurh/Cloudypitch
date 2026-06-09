@@ -55,17 +55,17 @@ function WcGroupStrip({ startsAt, groups }) {
   );
 }
 
-/** Hero card (Sofascore-style): trophy + title + previous-edition selector + stage progress. */
+/** Hero card (Sofascore-style): real WC trophy + title + previous-edition selector + stage progress. */
 function WcHero({ startsAt }) {
   const editions = [2026, 2022, 2018, 2014, 2010, 2006, 2002, 1998, 1994, 1990, 1986, 1982, 1978, 1974, 1970, 1966];
+  // User-supplied WC 2026 logo asset.
+  const wcLogo = "https://customer-assets.emergentagent.com/job_fantasy-wc/artifacts/gbyjrmxz_world-cup-2026-logo.webp";
   return (
     <div className="cp-surface overflow-hidden p-4 md:p-6 relative" data-testid="wc-hero" style={{
       background: "radial-gradient(circle at 90% 30%, rgba(163,230,53,0.05), transparent 60%), var(--cp-surface)",
     }}>
       <div className="flex items-start gap-4">
-        <div className="shrink-0 flex items-center justify-center w-16 h-20 md:w-20 md:h-24 rounded-md" style={{ background: "linear-gradient(180deg, #FCD34D 0%, #B45309 100%)" }}>
-          <Trophy size={36} className="text-amber-900"/>
-        </div>
+        <img src={wcLogo} alt="FIFA World Cup 2026" className="shrink-0 w-20 h-24 md:w-24 md:h-28 object-contain" data-testid="wc-hero-logo"/>
         <div className="flex-1 min-w-0">
           <h1 className="text-xl md:text-2xl font-extrabold leading-tight">FIFA World Cup 2026</h1>
           <div className="text-xs mt-0.5" style={{ color: "var(--cp-text-muted)" }}>
