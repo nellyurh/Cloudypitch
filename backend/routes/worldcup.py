@@ -32,9 +32,27 @@ async def worldcup_hub():
     groups = await db.wc2026_groups.find({}, {"_id": 0}).sort("group", 1).to_list(length=12)
     # Build a team→group lookup so the FE can group fixtures by Group A/B/C…
     team_to_group: dict[str, str] = {}
+    # Common aliases between fixture provider names and our group seed names
+    ALIASES = {
+        "korea republic": ["south korea", "republic of korea"],
+        "south korea": ["korea republic", "republic of korea"],
+        "ir iran": ["iran"],
+        "iran": ["ir iran"],
+        "usa": ["united states"],
+        "united states": ["usa", "us"],
+        "cote d'ivoire": ["ivory coast", "côte d'ivoire"],
+        "ivory coast": ["cote d'ivoire", "côte d'ivoire"],
+        "czech republic": ["czechia"],
+        "czechia": ["czech republic"],
+        "türkiye": ["turkey"],
+        "turkey": ["türkiye"],
+    }
     for g in groups:
         for t in (g.get("teams") or []):
-            team_to_group[t.strip().lower()] = g["group"]
+            key = t.strip().lower()
+            team_to_group[key] = g["group"]
+            for alias in ALIASES.get(key, []):
+                team_to_group[alias] = g["group"]
 
     # WC2026 fixtures ONLY (no past WCs)
     matches = await db.matches.find(

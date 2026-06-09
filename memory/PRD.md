@@ -27,6 +27,39 @@ Three integrated products:
 - **Ingestion**: Background asyncio tasks: Sportmonks fixture sync (today+7d) every 6h, Sportmonks live poller every 20s, StatPal tennis poller every 2min, stale-status sweep, initial sync of all sports on startup.
 - **Data**: All endpoints prefixed `/api`. Same-origin between frontend and backend on the preview URL (cookie auth works).
 
+## Iteration 22 — Google AdSense + Sponsor Ad System + Sofascore-style WC Hub (2026-02-06)
+
+### Google AdSense (publisher `ca-pub-7276060210938369`)
+- ✅ AdSense script tag added to `/app/frontend/public/index.html` `<head>`. Loads `pagead2.googlesyndication.com/pagead/js/adsbygoogle.js`.
+- ✅ Site-verification: `/app/frontend/public/ads.txt` returns `google.com, pub-7276060210938369, DIRECT, f08c47fec0942fa0`.
+- ✅ Backend env var `ADSENSE_PUBLISHER_ID` + container env wiring (`deploy/docker-compose.yml`, `deploy/.env.example`).
+- ✅ Auto-Ads handle every slot by default; admin can pin specific manual Ad Slot IDs per placement via `/api/ads/adsense-slots`.
+
+### Sponsor ads (admin-controlled)
+- ✅ Expanded `VALID_PLACEMENTS` to 13 keys: legacy 6 + `header_banner`, `sidebar_right`, `leaderboard_above`, `mobile_bottom`, `wc_hub_top`, `predictions_inline`, `fantasy_sidebar`.
+- ✅ New `/api/ads/config`, `/api/ads/serve/{placement_key}` (premium → null; direct sponsor weighted-random pick → falls back to AdSense), `/api/ads/adsense-slots` CRUD.
+- ✅ Admin → new "Ads" tab (`/app/frontend/src/components/AdsTab.jsx`): AdSense status panel + sponsor CRUD form + sortable table with weight/impressions/clicks/active/edit/delete.
+- ✅ Frontend `<AdSlot/>` rewritten: renders direct sponsor banner OR AdSense slot OR Auto-Ads marker; auto-tracks impressions; click handler pings `/api/ads/click/{id}`; premium returns null (no DOM).
+- ✅ Mounted in `Layout.jsx` (header banner + sticky mobile bottom), `RightRail.jsx` (leaderboard_above), and `WorldCupHub.jsx` (wc_hub_top).
+
+### Premium suppression
+- ✅ `/api/ads/serve/{placement}` and `/api/ads/config` both honour `user.is_premium` → response returns `ad:null, premium:true`. `<AdSlot/>` renders nothing for those responses → premium subscribers see ZERO ads anywhere.
+
+### WC 2026 Hub — Sofascore-style redesign
+- ✅ Top group strip (`<WcGroupStrip/>`) — countdown ribbon `D:H:M:S` + horizontally-scrolling group cards (A–L) with 4 country flag chips each.
+- ✅ Trophy hero (`<WcHero/>`) — gradient trophy badge, FIFA World Cup 2026 title, countdown, previous-edition selector (2026 active → 1966 disabled), and a 7-stage progress bar (Group → R32 → R16 → QF → SF → 3rd → Final).
+- ✅ 3-column body:
+  - **Left** `<MatchesPane/>` — sticky tabs "By date / By round / By group" toggle the bucket logic; each match row shows date, kick-off, both teams with flags, scores.
+  - **Middle** `<MiddlePane/>` — tabs Overview / Standings / Knockout / Media. Overview = 4 round-1 cards + mini standings. Standings = full table P/W/D/L/GF/GA/PTS with Group A→L switcher (computed live from finished matches).
+  - **Right** `<NewsPane/>` — admin-curated WC news cards via `/api/worldcup/news` (image + title + summary + source).
+- ✅ Backend `/api/worldcup` now enriches each match with `.group` (A–L from team→group lookup with alias table for "Korea Republic" / "South Korea" / "Czechia" / "USA" / etc.), `.round`, `.matchday`. 68/82 fixtures resolve to a group; the rest are intentional knockout placeholders or non-qualified teams.
+- ✅ Backend new `/api/worldcup/news` (GET public, POST/PATCH/DELETE admin) — Mongo collection `wc_news`.
+
+### Tests
+- ✅ Backend `/app/backend/tests/test_iteration22.py` — **19/19 pass** (ads config/serve/CRUD/counters, adsense-slots CRUD, WC enrichment, WC news CRUD, ads.txt).
+- ✅ Frontend testing agent verified all data-testids and Sofascore-style layout end-to-end.
+
+
 ## Iteration 21 — Payment Integrations: PocketFi (NGN VDA) + Trybit (Crypto) (2026-02-06)
 - ✅ **PocketFi NGN dynamic virtual accounts** wired end-to-end (`/app/backend/routes/pocketfi.py`):
   - `GET /api/payments/pocketfi/config` (configured/banks list).
