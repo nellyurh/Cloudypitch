@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from "react";
-import { useSearchParams } from "react-router-dom";
+import { useSearchParams, Link } from "react-router-dom";
 import api from "../lib/api";
 import { useAuth } from "../lib/auth";
 import { useCurrency } from "../lib/currency";
@@ -152,11 +152,19 @@ export default function BuildTeam() {
   const [searchParams] = useSearchParams();
   // ?mode=15 (default, 15 players £100m) | ?mode=20 (20 players £120m for >2-team games)
   const urlMode = searchParams.get("mode");
+  const gameId = searchParams.get("game_id");                  // mini-game scope
   const [autoMode, setAutoMode] = useState(null); // adopted from saved squad if URL has no ?mode=
-  const mode = urlMode === "20" || urlMode === "15" ? urlMode : (autoMode || "15");
-  const profile = SQUAD_PROFILES[mode];
+  const [gameRules, setGameRules] = useState(null); // {total, budget, max_per_country, slots, ...}
+  const [gameTitle, setGameTitle] = useState(null);
+  const mode = gameRules ? String(gameRules.total) : (urlMode === "20" || urlMode === "15" ? urlMode : (autoMode || "15"));
+  const profile = gameRules
+    ? { total: gameRules.total, budget: gameRules.budget, slots: gameRules.slots }
+    : SQUAD_PROFILES[mode] || SQUAD_PROFILES["15"];
   const POS_LIMIT = profile.slots;
   const BUDGET = profile.budget;
+  // Per-team cap (max players from one country). Main 15-man: 2 (anti-stacking).
+  // Mini-games carry their own cap from `gameRules.max_per_country`.
+  const MAX_PER_COUNTRY = gameRules?.max_per_country ?? (mode === "15" ? 2 : 3);
   const [players, setPlayers] = useState([]);
   const [squad, setSquad] = useState([]);
   const [view, setView] = useState("pitch");
@@ -189,8 +197,20 @@ export default function BuildTeam() {
 
   useEffect(() => {
     (async () => {
+      // First — if a game_id is in the URL, fetch its rules and use the
+      // narrowed player pool. Otherwise use the full WC2026 pool.
+      let rules = null;
+      if (gameId) {
+        try {
+          const { data } = await api.get(`/fantasy/game-rules/${gameId}`);
+          rules = data?.rules || null;
+          if (rules) setGameRules(rules);
+          if (data?.title) setGameTitle(data.title);
+        } catch (_) {}
+      }
       try {
-        const { data } = await api.get("/fantasy/players?wc=true&limit=2000");
+        const qs = gameId ? `?game_id=${gameId}&limit=2000` : "?wc=true&limit=2000";
+        const { data } = await api.get(`/fantasy/players${qs}`);
         setPlayers(data.players || []);
       } catch (_) {}
       try {
@@ -211,38 +231,48 @@ export default function BuildTeam() {
         setOpponentByCountry(map);
       } catch (_) {}
     })();
-  }, []);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [gameId]);
 
-  // Load existing squad
+  // Load existing squad — separate scope for mini-games vs main 15-man.
   useEffect(() => {
     if (!user) return;
     (async () => {
       try {
-        const { data } = await api.get("/fantasy/squad");
-        if (data?.squad?.players) {
-          // If URL has no ?mode= AND saved squad has a mode, adopt it.
-          if (!urlMode && data.squad.mode && (data.squad.mode === "15" || data.squad.mode === "20")) {
-            setAutoMode(data.squad.mode);
+        // Mini-game → my entry for that game; Main → the WC2026 fantasy squad.
+        const url = gameId ? `/wc/games/${gameId}` : "/fantasy/squad";
+        const { data } = await api.get(url);
+        const sq = gameId ? (data?.game?.my_entry) : (data?.squad);
+        if (sq?.players) {
+          if (!urlMode && !gameId && sq.mode && (sq.mode === "15" || sq.mode === "20")) {
+            setAutoMode(sq.mode);
           }
-          const hydrated = data.squad.players.map(sp => ({
+          const hydrated = sq.players.map(sp => ({
             ...players.find(p => p.id === sp.player_id),
             ...sp,
             id: sp.player_id,
           })).filter(p => p.position);
           setSquad(hydrated);
           setOriginalIds(new Set(hydrated.map(p => p.id)));
-          const cap = data.squad.players.find(p => p.is_captain);
-          const vc = data.squad.players.find(p => p.is_vice);
+          const cap = sq.players.find(p => p.is_captain);
+          const vc = sq.players.find(p => p.is_vice);
           if (cap) setCaptainId(cap.player_id);
           if (vc) setViceId(vc.player_id);
-          if (data.squad.bench_boost) setBenchBoost(true);
-          if (data.squad.formation) setFormation(data.squad.formation);
-          if (Array.isArray(data.squad.bench_ids)) setBenchIds(new Set(data.squad.bench_ids));
+          if (sq.bench_boost) setBenchBoost(true);
+          if (sq.formation) setFormation(sq.formation);
+          if (Array.isArray(sq.bench_ids)) setBenchIds(new Set(sq.bench_ids));
+        } else {
+          // Reset state when switching scopes (main ↔ mini-game).
+          setSquad([]);
+          setOriginalIds(null);
+          setCaptainId(null);
+          setViceId(null);
+          setBenchIds(new Set());
         }
       } catch (_) {}
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [user, players.length]);
+  }, [user, players.length, gameId]);
 
   // Number of transfers since the saved snapshot (0 if first build)
   const transferCount = useMemo(() => {
@@ -290,10 +320,23 @@ export default function BuildTeam() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isFull, formation, mode]);
 
+  // Country counts — used to enforce MAX_PER_COUNTRY across all picks.
+  const countryCounts = useMemo(() => {
+    const c = {};
+    squad.forEach(p => { c[p.country] = (c[p.country] || 0) + 1; });
+    return c;
+  }, [squad]);
+
   const addPlayer = (p) => {
     if (squad.find(x => x.id === p.id)) return;
     if (counts[p.position] >= POS_LIMIT[p.position]) return;
     if (totalSpent + p.price > BUDGET) return;
+    // Hard country cap — keeps users from stacking one nation on the main team
+    // (anti-stacking) and follows the per-game caps for mini-games.
+    if ((countryCounts[p.country] || 0) >= MAX_PER_COUNTRY) {
+      alert(`Max ${MAX_PER_COUNTRY} player${MAX_PER_COUNTRY === 1 ? "" : "s"} from ${p.country} allowed${gameRules ? " in this game" : " in your main squad"}.`);
+      return;
+    }
     setSquad([...squad, p]);
     setPickerPos(null);
   };
@@ -393,25 +436,38 @@ export default function BuildTeam() {
   const persistSquad = async () => {
     setSaving(true);
     try {
-      await api.post("/fantasy/squad", {
-        competition_id: "fantasy-wc2026",
-        squad_name: "My Squad",
-        captain_id: captainId,
-        vice_captain_id: viceId,
-        formation,
-        bench_ids: Array.from(benchIds),
-        players: squad.map(p => ({
-          player_id: p.id,
-          position: p.position,
-          price_paid: p.price || 0,
-          is_captain: p.id === captainId,
-          is_vice: p.id === viceId,
-          on_bench: benchIds.has(p.id),
-          is_starting: !benchIds.has(p.id),
-        })),
-        mode,
-        bench_boost: benchBoost,
-      });
+      const playerPicks = squad.map(p => ({
+        player_id: p.id,
+        position: p.position,
+        price_paid: p.price || 0,
+        is_captain: p.id === captainId,
+        is_vice: p.id === viceId,
+        on_bench: benchIds.has(p.id),
+        is_starting: !benchIds.has(p.id),
+      }));
+      if (gameId) {
+        // Mini-game entry — persist to the per-game collection so it doesn't
+        // touch the user's main 15-man squad.
+        await api.post(`/wc/games/${gameId}/enter`, {
+          player_picks: playerPicks.map(p => ({
+            player_id: p.player_id, position: p.position,
+          })),
+          captain_player_id: captainId,
+          vice_captain_player_id: viceId,
+        });
+      } else {
+        await api.post("/fantasy/squad", {
+          competition_id: "fantasy-wc2026",
+          squad_name: "My Squad",
+          captain_id: captainId,
+          vice_captain_id: viceId,
+          formation,
+          bench_ids: Array.from(benchIds),
+          players: playerPicks,
+          mode,
+          bench_boost: benchBoost,
+        });
+      }
       setSavedAt(new Date());
       setOriginalIds(new Set(squad.map(p => p.id))); // reset transfer baseline
     } catch (e) {
@@ -451,11 +507,28 @@ export default function BuildTeam() {
 
   return (
     <div className="max-w-[1400px] mx-auto p-3 md:p-5" data-testid="build-team-page">
+      {/* Scope banner — clarifies that mini-game squads are independent of the main 15-man. */}
+      {gameId && (
+        <div
+          className="cp-surface mb-3 px-3 py-2 flex items-center gap-2 flex-wrap"
+          style={{ borderLeft: "3px solid var(--cp-lime)" }}
+          data-testid="mini-game-scope-banner"
+        >
+          <Trophy size={14} className="text-cp-lime"/>
+          <span className="text-xs">
+            <b>Mini-game team</b> — {gameTitle || "WC mini-game"}. This squad is <b>separate</b> from your main 15-man.
+            Max <b>{MAX_PER_COUNTRY}</b> player{MAX_PER_COUNTRY === 1 ? "" : "s"} per country.
+          </span>
+          <Link to="/build-team" className="ml-auto text-[11px] font-bold underline" data-testid="back-to-main-squad">
+            ← Back to main squad
+          </Link>
+        </div>
+      )}
       <div className="flex items-center justify-between gap-3 flex-wrap mb-3">
         <div className="flex items-center gap-2">
-          <h1 className="text-xl md:text-2xl font-extrabold">Build a Team</h1>
+          <h1 className="text-xl md:text-2xl font-extrabold">{gameId ? (gameTitle || "Mini-game squad") : "Build a Team"}</h1>
           <span className="text-[10px] font-bold px-2 py-0.5 rounded uppercase tracking-wider" style={{ background: "var(--cp-surface-2)", color: "var(--cp-text-muted)" }}>
-            {profile.total}-man · €{profile.budget}M
+            {profile.total}-man · €{profile.budget}M · max {MAX_PER_COUNTRY}/country
           </span>
         </div>
         <div className="flex items-center gap-2">

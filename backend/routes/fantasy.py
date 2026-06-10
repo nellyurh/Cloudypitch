@@ -4,6 +4,7 @@ from db import get_db, utcnow_iso
 from models import FantasySquadIn, new_id
 from fantasy_scoring import compute_player_points, aggregate_player_stats_from_events
 from scoring import compute_card_boost
+from typing import Optional
 import auth as a
 
 router = APIRouter(prefix="/api/fantasy", tags=["fantasy"])
@@ -17,10 +18,26 @@ async def get_competition():
 
 
 @router.get("/players")
-async def list_fantasy_players(limit: int = 2000):
+async def list_fantasy_players(limit: int = 2000, game_id: Optional[str] = None):
+    """Player pool. With `game_id`, returns the subset eligible for that
+    mini-game (driven by the game's eligible countries / teams). Without it,
+    returns the full WC2026 pool used by the main 15-man squad builder.
+    """
     db = get_db()
-    # Prefer real WC2026 players from Sportmonks. Sort by name so positions are interleaved
-    # in the response (clients can paginate up to ~1300 players across all 4 positions).
+    # When the caller passes a game_id, narrow the pool to that mini-game.
+    if game_id:
+        g = await db.wc_games.find_one({"id": game_id}, {"_id": 0})
+        if not g:
+            raise HTTPException(status_code=404, detail="Game not found")
+        countries = await _eligible_countries_for_game(db, g)
+        if countries:
+            players = await db.players.find(
+                {"is_wc_2026": True, "country": {"$in": list(countries)}},
+                {"_id": 0},
+            ).sort("name", 1).limit(limit).to_list(length=limit)
+            return {"players": players, "source": "wc2026_filtered", "countries": list(countries), "rules": _pick_rules_for_game(g)}
+
+    # Default — full WC2026 pool.
     players = await db.players.find({"is_wc_2026": True}, {"_id": 0}).sort("name", 1).limit(limit).to_list(length=limit)
     if players:
         return {"players": players, "source": "wc2026"}
@@ -40,6 +57,98 @@ async def list_fantasy_players(limit: int = 2000):
                 "country": t.get("country") or "World",
             })
     return {"players": out[:limit], "source": "synthetic"}
+
+
+# ── Mini-game eligibility / pick-rule helpers ──────────────────────────────
+
+async def _eligible_countries_for_game(db, g: dict) -> set[str]:
+    """Resolve the country names eligible for `g`. Different game_types pull
+    from different scopes:
+      • `match`    → the 2 teams in `g.match_info` (home/away).
+      • `group`    → the 4 teams in WC group `g.group_letter`.
+      • `matchday` → every team playing on `g.matchday`.
+      • `round`    → every team in `g.round_label` round (currently group-stage
+                     rounds only — pulls union of matchday or group teams).
+    """
+    gt = g.get("game_type")
+    out: set[str] = set()
+
+    if gt == "match" and g.get("match_info"):
+        mi = g["match_info"]
+        for k in ("home_team_name", "away_team_name", "home", "away"):
+            if isinstance(mi.get(k), str):
+                out.add(mi[k])
+
+    elif gt == "group" and g.get("group_letter"):
+        grp = await db.wc2026_groups.find_one({"group": g["group_letter"]}, {"_id": 0})
+        for t in (grp or {}).get("teams", []):
+            out.add(t)
+
+    elif gt == "matchday" and g.get("matchday"):
+        ms = await db.matches.find(
+            {"competition_kind": "wc2026", "matchday": g["matchday"]},
+            {"_id": 0, "home_team_name": 1, "away_team_name": 1},
+        ).to_list(length=64)
+        for m in ms:
+            if m.get("home_team_name"): out.add(m["home_team_name"])
+            if m.get("away_team_name"): out.add(m["away_team_name"])
+
+    elif gt == "round":
+        # If we know the round label, prefer that; else fall back to all WC2026.
+        if g.get("round_label"):
+            ms = await db.matches.find(
+                {"competition_kind": "wc2026", "round_label": g["round_label"]},
+                {"_id": 0, "home_team_name": 1, "away_team_name": 1},
+            ).to_list(length=64)
+            for m in ms:
+                if m.get("home_team_name"): out.add(m["home_team_name"])
+                if m.get("away_team_name"): out.add(m["away_team_name"])
+
+    # Fallback: if we couldn't resolve, use all WC2026 countries (no narrowing).
+    if not out:
+        all_g = await db.wc2026_groups.find({}, {"_id": 0}).to_list(length=12)
+        for grp in all_g:
+            out.update(grp.get("teams", []))
+    return out
+
+
+def _pick_rules_for_game(g: dict) -> dict:
+    """Pick rules per game_type — squad size, budget, per-country caps."""
+    gt = g.get("game_type")
+    if gt == "match":
+        # 8/7 split across the two teams playing the match.
+        # XI must field at least 5 from each side (fair-play rule).
+        return {"total": 15, "budget": 100, "max_per_country": 8,
+                "starters_min_per_country": 5,
+                "slots": {"GK": 2, "DEF": 5, "MID": 5, "FWD": 3}}
+    if gt == "group":
+        # 4 teams in the group, 20-man squad, 5 per country max.
+        return {"total": 20, "budget": 120, "max_per_country": 5,
+                "slots": {"GK": 3, "DEF": 7, "MID": 6, "FWD": 4}}
+    if gt in ("matchday", "round"):
+        # Many teams playing → 20-man with hard 2-per-country cap so no single
+        # nation dominates.
+        return {"total": 20, "budget": 120, "max_per_country": 2,
+                "slots": {"GK": 3, "DEF": 7, "MID": 6, "FWD": 4}}
+    return {"total": 15, "budget": 100, "max_per_country": 2,
+            "slots": {"GK": 2, "DEF": 5, "MID": 5, "FWD": 3}}
+
+
+@router.get("/game-rules/{game_id}")
+async def game_rules(game_id: str):
+    """Public — return pick rules + eligible-country list for a mini-game."""
+    db = get_db()
+    g = await db.wc_games.find_one({"id": game_id}, {"_id": 0})
+    if not g:
+        raise HTTPException(status_code=404, detail="Game not found")
+    countries = await _eligible_countries_for_game(db, g)
+    return {
+        "game_id": game_id,
+        "game_type": g.get("game_type"),
+        "rules": _pick_rules_for_game(g),
+        "eligible_countries": sorted(countries),
+        "title": g.get("title"),
+    }
 
 
 @router.get("/squad")

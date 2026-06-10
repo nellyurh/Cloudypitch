@@ -117,7 +117,9 @@ class CardUseIn(BaseModel):
 
 
 class GameEntryIn(BaseModel):
-    player_picks: list[PlayerPickIn] = Field(min_length=1, max_length=11)
+    # Allow main-15 / mini-game-20 squad sizes. Position validation still
+    # happens on the frontend; here we just bound the array size.
+    player_picks: list[PlayerPickIn] = Field(min_length=1, max_length=25)
     captain_player_id: Optional[str] = None
     vice_captain_player_id: Optional[str] = None
     cards_used: list[CardUseIn] = Field(default_factory=list)
