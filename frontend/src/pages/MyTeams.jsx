@@ -3,7 +3,7 @@ import { Link } from "react-router-dom";
 import api from "../lib/api";
 import { Trophy, Plus, ArrowRight, Star, Repeat, Coins } from "lucide-react";
 
-const fmt = (n) => `£${(n || 0).toFixed(1)}`;
+const fmt = (n) => `€${(n || 0).toFixed(1)}M`;
 
 export default function MyTeams() {
   const [teams, setTeams] = useState([]);
@@ -86,7 +86,13 @@ export default function MyTeams() {
           {teams.map(t => (
             <Link
               key={t.id}
-              to={t.game_id ? `/fantasy?game_id=${t.game_id}` : "/fantasy"}
+              to={
+                t.kind === "wc_game" && t.wc_game_id
+                  ? `/wc/games/${t.wc_game_id}`
+                  : t.game_id
+                  ? `/fantasy?game_id=${t.game_id}`
+                  : "/build-team"
+              }
               className="cp-surface p-4 hover:bg-white/5 transition flex flex-col gap-2"
               data-testid={`my-team-${t.id}`}
             >
@@ -94,8 +100,13 @@ export default function MyTeams() {
                 <h3 className="font-extrabold truncate flex-1">{t.squad_name || "My Squad"}</h3>
                 <ArrowRight size={14} className="opacity-60"/>
               </div>
-              <div className="text-[10px] uppercase tracking-widest" style={{ color: "var(--cp-text-muted)" }}>
-                {t.game_title || t.competition_id || "WC 2026 Fantasy"}
+              <div className="flex items-center gap-1.5 text-[10px] uppercase tracking-widest" style={{ color: "var(--cp-text-muted)" }}>
+                {t.kind === "wc_game" ? (
+                  <span className="cp-pill !text-[9px] !bg-amber-500/20 !text-amber-300 !font-extrabold">Mini-game</span>
+                ) : (
+                  <span className="cp-pill !text-[9px] !bg-cp-lime/20 !text-cp-lime !font-extrabold">Main</span>
+                )}
+                <span className="truncate">{t.game_title || t.competition_id || "WC 2026 Fantasy"}</span>
               </div>
               <div className="grid grid-cols-3 gap-2 text-center mt-1">
                 <div>

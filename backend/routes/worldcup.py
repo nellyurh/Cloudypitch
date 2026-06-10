@@ -146,6 +146,105 @@ async def list_groups():
     return {"groups": groups}
 
 
+@router.get("/standings")
+async def wc_standings():
+    """Live FIFA World Cup 2026 standings sourced from Sportmonks (league 732).
+
+    Sportmonks' raw response groups by qualification region, not the FIFA-draw
+    A–L bracket — so we use our local `wc2026_groups` doc as the authoritative
+    group layout and overlay live W/D/L/GF/GA/PTS rows from Sportmonks when a
+    team name matches. Pre-tournament every value is 0 (correct).
+
+    Background ingestion refreshes the underlying rows every hour via
+    `sync_sportmonks_standings_live(732)` (season 26618).
+    """
+    db = get_db()
+    sm_rows = await db.standings.find({"league_id": "sm-l-732"}, {"_id": 0}).to_list(length=64)
+    local_groups = await db.wc2026_groups.find({}, {"_id": 0}).sort("group", 1).to_list(length=12)
+    if not local_groups:
+        return {"groups": [], "source": "none", "count": 0}
+
+    # Tolerant name lookup — collapse whitespace and case, plus common aliases.
+    ALIASES = {
+        "korea republic": "south korea",
+        "south korea": "south korea",
+        "korea dpr": "north korea",
+        "côte d'ivoire": "ivory coast",
+        "cote d'ivoire": "ivory coast",
+        "cape verde islands": "cape verde",
+        "congo dr": "democratic republic of the congo",
+        "iran": "iran",
+        "iran ir": "iran",
+        "usa": "united states",
+    }
+    def norm(s: str) -> str:
+        s = (s or "").strip().lower()
+        return ALIASES.get(s, s)
+
+    by_team = {norm(r.get("team_name")): r for r in sm_rows if r.get("team_name")}
+
+    out_groups = []
+    for g in local_groups:
+        rows = []
+        for t in (g.get("teams") or []):
+            sm = by_team.get(norm(t))
+            rows.append({
+                "team": t,
+                "team_logo": sm.get("team_logo") if sm else None,
+                "P": (sm or {}).get("MP", (sm or {}).get("played", 0)) or 0,
+                "W": (sm or {}).get("W", (sm or {}).get("won", 0)) or 0,
+                "D": (sm or {}).get("D", (sm or {}).get("drawn", 0)) or 0,
+                "L": (sm or {}).get("L", (sm or {}).get("lost", 0)) or 0,
+                "GF": (sm or {}).get("GF", (sm or {}).get("goals_for", 0)) or 0,
+                "GA": (sm or {}).get("GA", (sm or {}).get("goals_against", 0)) or 0,
+                "GD": (sm or {}).get("goal_diff", 0) or 0,
+                "PTS": (sm or {}).get("points", 0) or 0,
+                "form": (sm or {}).get("form", []),
+                "position": (sm or {}).get("position", 0) or 0,
+            })
+        # Sort by PTS desc, then GD, then GF (FIFA tie-break).
+        rows.sort(key=lambda r: (-r["PTS"], -(r["GF"] - r["GA"]), -r["GF"]))
+        out_groups.append({"group": g["group"], "rows": rows})
+
+    return {
+        "groups": out_groups,
+        "source": "sportmonks" if sm_rows else "local",
+        "count": len(sm_rows),
+        "updated_at": (sm_rows[0].get("updated_at") if sm_rows else None),
+    }
+
+
+@router.get("/h2h")
+async def wc_head_to_head(team_a: str, team_b: str, limit: int = 10):
+    """Head-to-head fixtures between two WC teams. Pulls finished matches from
+    the `matches` collection where both teams appear in any order.
+    """
+    db = get_db()
+    rows = await db.matches.find({
+        "$or": [
+            {"home_team_name": team_a, "away_team_name": team_b},
+            {"home_team_name": team_b, "away_team_name": team_a},
+        ],
+    }, {"_id": 0}).sort("scheduled_at", -1).to_list(length=limit)
+    a_wins = b_wins = draws = 0
+    for m in rows:
+        hs, as_ = m.get("home_score"), m.get("away_score")
+        if hs is None or as_ is None: continue
+        if m["home_team_name"] == team_a:
+            if hs > as_: a_wins += 1
+            elif hs < as_: b_wins += 1
+            else: draws += 1
+        else:
+            if hs > as_: b_wins += 1
+            elif hs < as_: a_wins += 1
+            else: draws += 1
+    return {
+        "team_a": team_a, "team_b": team_b,
+        "matches": rows,
+        "summary": {"a_wins": a_wins, "b_wins": b_wins, "draws": draws, "total": len(rows)},
+    }
+
+
 @router.get("/bracket")
 async def bracket():
     # Knockout bracket (placeholder structure for the 16-team knockout)

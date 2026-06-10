@@ -276,12 +276,24 @@ function OverviewMatchCard({ m }) {
 }
 
 function StandingsTable({ groups, matches, compact = false }) {
-  // Tournament starts 11 Jun 2026. Until then, force all standings to 0 to
-  // avoid polluting the table with stale friendly/test fixture scores from
-  // Sportmonks. Once the tournament kicks off, flip TOURNAMENT_STARTED to true.
-  const TOURNAMENT_STARTED = false;
+  // Live standings from Sportmonks (refreshed hourly server-side). When we have
+  // them, they replace the client-side computation entirely so the table shows
+  // exactly what FIFA reports — including form, GD, and tie-break ordering.
+  const [serverStandings, setServerStandings] = useState(null);
+  useEffect(() => {
+    (async () => {
+      try {
+        const { data } = await api.get("/worldcup/standings");
+        if ((data?.groups || []).length > 0) setServerStandings(data.groups);
+      } catch (_) {}
+    })();
+  }, []);
 
-  // Pure standings computation using reduce only.
+  // Auto-flip once the WC has actually started (11 June 2026 UTC).
+  const TOURNAMENT_STARTED = new Date() >= new Date("2026-06-11T00:00:00Z");
+
+  // Client-side fallback computation — used pre-tournament and when Sportmonks
+  // hasn't returned data yet.
   const eligibleMatches = TOURNAMENT_STARTED
     ? matches.filter(m =>
         m.scheduled_at && m.scheduled_at >= "2026-06-11" && m.scheduled_at <= "2026-07-19" &&
@@ -312,9 +324,13 @@ function StandingsTable({ groups, matches, compact = false }) {
   ]));
 
   const [pick, setPick] = useState(groups[0]?.group || "A");
+  // Use Sportmonks server data when available; otherwise compute client-side.
+  const serverGroup = serverStandings?.find(g => g.group === pick);
   const groupTeams = (groups.find(g => g.group === pick)?.teams || []);
-  const rows = groupTeams.map(t => teamStats[t] || { team: t, P: 0, W: 0, D: 0, L: 0, GF: 0, GA: 0, PTS: 0 })
-    .sort((a, b) => b.PTS - a.PTS || (b.GF - b.GA) - (a.GF - a.GA) || b.GF - a.GF);
+  const rows = serverGroup?.rows
+    ? serverGroup.rows.map(r => ({ ...r, team: r.team }))
+    : groupTeams.map(t => teamStats[t] || { team: t, P: 0, W: 0, D: 0, L: 0, GF: 0, GA: 0, PTS: 0 })
+        .sort((a, b) => b.PTS - a.PTS || (b.GF - b.GA) - (a.GF - a.GA) || b.GF - a.GF);
 
   return (
     <div data-testid="wc-standings">
@@ -322,9 +338,14 @@ function StandingsTable({ groups, matches, compact = false }) {
         <span className="text-sm font-extrabold">Standings</span>
         {!compact && <Link to="/leaderboards" className="text-[11px] font-bold text-cp-lime hover:underline">Full view →</Link>}
       </div>
-      {!TOURNAMENT_STARTED && (
+      {!TOURNAMENT_STARTED && !serverStandings && (
         <div className="mb-2 rounded p-2 text-[11px] font-bold flex items-center gap-2" style={{ background: "rgba(163,230,53,0.08)", border: "1px solid rgba(163,230,53,0.2)", color: "var(--cp-text-muted)" }} data-testid="wc-standings-locked">
           <Trophy size={12} className="text-cp-lime"/> Standings unlock when the first match kicks off on <b>11 June 2026</b>.
+        </div>
+      )}
+      {serverStandings && (
+        <div className="mb-2 rounded p-1.5 text-[10px] font-bold flex items-center gap-1.5" style={{ background: "rgba(94,245,157,0.06)", color: "var(--cp-lime)" }} data-testid="wc-standings-live">
+          ● LIVE · Sportmonks
         </div>
       )}
       <div className="flex items-center gap-1 mb-2 overflow-x-auto no-scrollbar">

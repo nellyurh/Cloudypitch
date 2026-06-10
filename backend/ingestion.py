@@ -1118,20 +1118,37 @@ async def sync_sportmonks_standings_live(league_sm_id: int):
 
 
 async def sync_sportmonks_standings_all():
-    """Pull standings for all tier-1/2 leagues we know about."""
+    """Pull standings for all tier-1/2 leagues we know about plus FIFA WC 2026."""
     db = get_db()
     # Tier 1+2 leagues (tier_score >= 60) plus WC
     leagues = await db.leagues.find(
         {"sport_slug": "football", "primary_provider": "sportmonks", "tier_score": {"$gte": 60}},
         {"_id": 0, "sportmonks_id": 1, "name": 1},
     ).to_list(length=200)
+    sm_ids = {lg.get("sportmonks_id") for lg in leagues if lg.get("sportmonks_id")}
+    # Always include FIFA World Cup 2026 (Sportmonks league 732, season 26618)
+    sm_ids.add(732)
     total = 0
-    for lg in leagues:
-        if not lg.get("sportmonks_id"):
-            continue
-        n = await sync_sportmonks_standings_live(lg["sportmonks_id"])
-        total += n
-    log.info(f"sportmonks standings: {total} rows across {len(leagues)} leagues")
+    for sm_id in sm_ids:
+        if sm_id == 732:
+            # WC uses the season-based endpoint while the league season is "future".
+            try:
+                data = await sportmonks.fetch_standings_by_season(26618)
+                rows = (data or {}).get("data", []) if isinstance(data, dict) else []
+                if isinstance(rows, list) and rows:
+                    await db.standings.delete_many({"league_id": "sm-l-732"})
+                    for r in rows:
+                        try:
+                            await upsert_standing(r, "sm-l-732")
+                        except Exception as e:
+                            log.warning(f"WC standing upsert: {e}")
+                    total += len(rows)
+            except Exception as e:
+                log.warning(f"WC2026 standings: {e}")
+        else:
+            n = await sync_sportmonks_standings_live(sm_id)
+            total += n
+    log.info(f"sportmonks standings: {total} rows across {len(sm_ids)} leagues")
     return total
 
 

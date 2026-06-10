@@ -581,12 +581,13 @@ export default function BuildTeam() {
         </div>
       )}
 
-      {/* Mobile sticky save bar */}
+      {/* Mobile sticky save bar — anchored ABOVE the bottom nav (z-40) and the
+          mobile ad slot (bottom:56). z-50 ensures we never hide behind them. */}
       <button
         onClick={saveSquad}
         disabled={!isFull || saving}
-        className="md:hidden fixed bottom-3 left-3 right-3 flex items-center justify-center gap-2 rounded px-3 py-3 font-extrabold disabled:opacity-40 z-30"
-        style={{ background: "var(--cp-lime)", color: "var(--cp-forest)", boxShadow: "0 6px 24px rgba(0,0,0,0.4)" }}
+        className="lg:hidden fixed left-3 right-3 flex items-center justify-center gap-2 rounded px-3 py-3 font-extrabold disabled:opacity-40 z-50"
+        style={{ bottom: 128, background: "var(--cp-lime)", color: "var(--cp-forest)", boxShadow: "0 6px 24px rgba(0,0,0,0.4)" }}
         data-testid="save-squad-mobile"
       >
         <Save size={14}/> {saving ? "Saving…" : isFull ? (savedAt ? "Saved ✓" : "Save squad") : `Pick ${profile.total - totalCount} more`}

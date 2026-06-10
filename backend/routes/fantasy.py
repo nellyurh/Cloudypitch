@@ -128,27 +128,50 @@ async def create_or_update_squad(payload: FantasySquadIn, user: dict = Depends(a
 
 @router.get("/my-teams")
 async def my_teams(user: dict = Depends(a.get_current_user)):
-    """Return ALL squads owned by the current user (across competitions / games)."""
+    """Return ALL squads owned by the current user — both the main fantasy
+    squads AND all WC mini-game entries (`wc_game_entries`), unified under one
+    shape so the frontend `/my-teams` page renders everything in one list.
+    """
     db = get_db()
-    rows = await db.fantasy_squads.find({"user_id": user["id"]}, {"_id": 0}).sort("updated_at", -1).to_list(length=200)
-    # Optionally enrich with game title
-    out = []
-    for r in rows:
-        game_title = None
-        if r.get("game_id"):
-            g = await db.wc_games.find_one({"id": r["game_id"]}, {"_id": 0, "game_type": 1, "stage": 1, "group_letter": 1, "matchday": 1})
-            if g:
-                bits = [str(g.get("game_type", "")).title(), str(g.get("stage", ""))]
-                if g.get("group_letter"):
-                    bits.append("Group " + str(g["group_letter"]))
-                if g.get("matchday"):
-                    bits.append("MD" + str(g["matchday"]))
-                game_title = " · ".join([b for b in bits if b])
+    out: list[dict] = []
+
+    # 1) Main fantasy squads (per competition)
+    fs = await db.fantasy_squads.find({"user_id": user["id"]}, {"_id": 0}).sort("updated_at", -1).to_list(length=200)
+    for r in fs:
         out.append({
             **r,
-            "game_title": game_title,
+            "kind": "main",
+            "game_title": "Main squad",
             "player_count": len(r.get("players", [])),
         })
+
+    # 2) WC mini-game entries
+    ge = await db.wc_game_entries.find({"user_id": user["id"]}, {"_id": 0}).sort("updated_at", -1).to_list(length=400)
+    for r in ge:
+        game_title = None
+        if r.get("wc_game_id"):
+            g = await db.wc_games.find_one(
+                {"id": r["wc_game_id"]},
+                {"_id": 0, "game_type": 1, "stage": 1, "group_letter": 1, "matchday": 1, "title": 1, "match_info": 1},
+            )
+            if g:
+                if g.get("title"):
+                    game_title = g["title"]
+                else:
+                    bits = [str(g.get("game_type", "")).title(), str(g.get("stage", ""))]
+                    if g.get("group_letter"):
+                        bits.append("Group " + str(g["group_letter"]))
+                    if g.get("matchday"):
+                        bits.append("MD" + str(g["matchday"]))
+                    game_title = " · ".join([b for b in bits if b])
+        out.append({
+            **r,
+            "kind": "wc_game",
+            "game_title": game_title or "WC mini-game",
+            "player_count": len(r.get("players", [])),
+        })
+
+    out.sort(key=lambda x: x.get("updated_at") or "", reverse=True)
     return {"teams": out, "count": len(out)}
 
 

@@ -5,7 +5,7 @@ import { useAuth } from "../lib/auth";
 
 const ITEMS = [
   { to: "/", label: "Scores", icon: Home, end: true, testid: "bn-scores" },
-  { to: "/worldcup", label: "WC 2026", icon: Trophy, testid: "bn-wc" },
+  { to: "/worldcup", label: "WC26", icon: Trophy, testid: "bn-wc" },
   { to: "/predictions", label: "Predict", icon: Target, testid: "bn-predict" },
   { to: "/fantasy", label: "Fantasy", icon: ShieldCheck, testid: "bn-fantasy" },
 ];
