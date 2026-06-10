@@ -180,6 +180,7 @@ async def create_or_update_squad(payload: FantasySquadIn, user: dict = Depends(a
     # Derive is_starting from on_bench / bench_ids
     bench_set = set(payload.bench_ids or [p.player_id for p in payload.players if p.on_bench])
     players_out = []
+    pick_pos_by_id: dict[str, str] = {}
     for p in payload.players:
         d = p.model_dump()
         d["is_starting"] = p.player_id not in bench_set
@@ -187,8 +188,48 @@ async def create_or_update_squad(payload: FantasySquadIn, user: dict = Depends(a
         d["is_captain"] = (payload.captain_id == p.player_id)
         d["is_vice"] = (payload.vice_captain_id == p.player_id)
         players_out.append(d)
+        pick_pos_by_id[p.player_id] = p.position
 
-    # Validate cards belong to user with uses remaining (cap 5 per gameweek)
+    # ---- Per-player card targeting (new) ----
+    # Accept both the legacy `applied_card_ids` (flat list) and the new
+    # `applied_cards` (per-player target). Validate ownership + uses_left +
+    # position lock for the new shape.
+    valid_per_player_cards: list[dict] = []
+    if payload.applied_cards:
+        # Enforce uniqueness — one card use per submit
+        seen_uc_ids: set[str] = set()
+        seen_targets: set[str] = set()
+        for cu in payload.applied_cards[:5]:
+            if cu.user_card_id in seen_uc_ids:
+                raise HTTPException(400, "Each card can only be applied once per squad")
+            seen_uc_ids.add(cu.user_card_id)
+            if cu.target_player_id in seen_targets:
+                raise HTTPException(400, "Each player can carry at most one boost card")
+            seen_targets.add(cu.target_player_id)
+            if cu.target_player_id not in pick_pos_by_id:
+                raise HTTPException(400, "Card target must be one of your picked players")
+            owned = await db.user_cards.find_one({"id": cu.user_card_id, "user_id": user["id"]}, {"_id": 0, "id": 1, "card_id": 1, "uses_remaining": 1, "uses_left": 1})
+            if not owned:
+                raise HTTPException(400, "You don't own one of the applied cards")
+            remaining = int(owned.get("uses_remaining", owned.get("uses_left", 0)) or 0)
+            if remaining <= 0:
+                raise HTTPException(400, "One of your selected cards has 0 uses left")
+            legend = await db.legend_cards.find_one({"id": owned.get("card_id")}, {"_id": 0, "id": 1, "position": 1, "name": 1})
+            if legend:
+                card_pos = (legend.get("position") or "ANY").upper()
+                if card_pos != "ANY":
+                    tgt_pos = (pick_pos_by_id.get(cu.target_player_id) or "").upper()
+                    if tgt_pos != card_pos:
+                        raise HTTPException(
+                            400,
+                            f"{legend.get('name')} can only boost a {card_pos} — your target is {tgt_pos or 'unknown'}.",
+                        )
+            valid_per_player_cards.append({
+                "user_card_id": cu.user_card_id,
+                "target_player_id": cu.target_player_id,
+            })
+
+    # Validate cards belong to user with uses remaining (cap 5 per gameweek) — LEGACY flat path
     valid_cards: list[str] = []
     for ucid in (payload.applied_card_ids or [])[:5]:
         owned = await db.user_cards.find_one({"id": ucid, "user_id": user["id"]})
@@ -207,6 +248,7 @@ async def create_or_update_squad(payload: FantasySquadIn, user: dict = Depends(a
         "bench_boost": bool(payload.bench_boost),
         "players": players_out,
         "applied_card_ids": valid_cards,
+        "applied_cards": valid_per_player_cards,
         "total_cost": total_cost,
         "budget": budget,
         "updated_at": utcnow_iso(),

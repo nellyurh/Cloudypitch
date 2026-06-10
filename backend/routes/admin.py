@@ -273,3 +273,86 @@ async def admin_set_player_price(player_id: str, payload: dict, user: dict = Dep
     if not res.matched_count:
         raise HTTPException(404, "Player not found")
     return {"ok": True, "id": player_id, "price": price}
+
+
+
+# ---------- Legend Cards (price + position editor) ----------
+@router.get("/cards")
+async def admin_list_cards(user: dict = Depends(a.require_admin), tier: Optional[int] = None):
+    """List every legend card with its admin-editable fields."""
+    db = get_db()
+    q: dict = {}
+    if tier in (1, 2, 3):
+        q["tier"] = tier
+    rows = await db.legend_cards.find(q, {"_id": 0}).sort([("tier", 1), ("name", 1)]).to_list(length=500)
+    return {"cards": rows, "count": len(rows)}
+
+
+@router.patch("/cards/{card_id}")
+async def admin_update_card(card_id: str, payload: dict, user: dict = Depends(a.require_admin)):
+    """Edit price (USD cents) and/or position lock of a single legend card.
+    Supported fields: `price_usd_cents` (50-10000), `position` (GK/DEF/MID/FWD/ANY),
+    `description` (free text, ≤200 chars).
+    """
+    db = get_db()
+    old = await db.legend_cards.find_one({"id": card_id}, {"_id": 0})
+    if not old:
+        raise HTTPException(404, "Card not found")
+    upd: dict = {}
+    if "price_usd_cents" in payload and payload["price_usd_cents"] is not None:
+        try:
+            p = int(payload["price_usd_cents"])
+        except (TypeError, ValueError):
+            raise HTTPException(400, "price_usd_cents must be an integer (cents)")
+        if not (10 <= p <= 100000):
+            raise HTTPException(400, "price_usd_cents must be 10-100000 (¢$0.10-$1,000)")
+        upd["price_usd_cents"] = p
+    if "position" in payload and payload["position"] is not None:
+        pos = str(payload["position"]).upper()
+        if pos not in ("GK", "DEF", "MID", "FWD", "ANY"):
+            raise HTTPException(400, "position must be GK/DEF/MID/FWD/ANY")
+        upd["position"] = pos
+    if "description" in payload and payload["description"] is not None:
+        desc = str(payload["description"])[:200]
+        upd["description"] = desc
+    if not upd:
+        raise HTTPException(400, "No editable fields supplied")
+    upd["updated_at"] = utcnow_iso()
+    upd["updated_by"] = user["id"]
+    await db.legend_cards.update_one({"id": card_id}, {"$set": upd})
+    await db.audit_log.insert_one({
+        "id": __import__("uuid").uuid4().hex, "user_id": user["id"], "email": user.get("email"),
+        "action": "legend_card_update",
+        "metadata": {"card_id": card_id, "old": {k: old.get(k) for k in upd}, "new": upd},
+        "created_at": utcnow_iso(),
+    })
+    fresh = await db.legend_cards.find_one({"id": card_id}, {"_id": 0})
+    return {"ok": True, "card": fresh}
+
+
+@router.post("/cards/bulk-price")
+async def admin_bulk_set_card_price(payload: dict, user: dict = Depends(a.require_admin)):
+    """Bulk-update all cards of a tier to a new price.
+    Body: {tier: 1|2|3, price_usd_cents: int}
+    """
+    try:
+        tier = int(payload.get("tier"))
+        price = int(payload.get("price_usd_cents"))
+    except (TypeError, ValueError):
+        raise HTTPException(400, "tier and price_usd_cents are required integers")
+    if tier not in (1, 2, 3):
+        raise HTTPException(400, "tier must be 1, 2 or 3")
+    if not (10 <= price <= 100000):
+        raise HTTPException(400, "price_usd_cents must be 10-100000")
+    db = get_db()
+    res = await db.legend_cards.update_many(
+        {"tier": tier},
+        {"$set": {"price_usd_cents": price, "updated_at": utcnow_iso(), "updated_by": user["id"]}},
+    )
+    await db.audit_log.insert_one({
+        "id": __import__("uuid").uuid4().hex, "user_id": user["id"], "email": user.get("email"),
+        "action": "legend_card_bulk_price",
+        "metadata": {"tier": tier, "price_usd_cents": price, "matched": res.matched_count, "modified": res.modified_count},
+        "created_at": utcnow_iso(),
+    })
+    return {"ok": True, "tier": tier, "modified": res.modified_count}

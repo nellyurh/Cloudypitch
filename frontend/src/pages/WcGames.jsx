@@ -318,6 +318,7 @@ function GameEntryView({ game, onClose, onSaved }) {
                   const applied = appliedCards.find(c => c.user_card_id === uc.id);
                   const sel = !!applied;
                   const targetedPlayer = applied?.target_player_id ? eligible.find(p => p.id === applied.target_player_id) : null;
+                  const lockPos = (uc.card?.position || "ANY").toUpperCase();
                   return (
                     <div key={uc.id} className={`rounded text-xs ${sel ? "ring-1 ring-cp-lime bg-cp-lime/10" : ""}`} style={{ background: sel ? undefined : "var(--cp-surface-2)" }}>
                       <button
@@ -326,7 +327,12 @@ function GameEntryView({ game, onClose, onSaved }) {
                         className="px-2 py-1.5 w-full text-left disabled:opacity-30"
                         data-testid={`wc-card-${uc.id}`}
                       >
-                        <div className="font-bold truncate">{uc.card?.name}</div>
+                        <div className="flex items-center gap-1.5">
+                          <span className="font-bold truncate flex-1">{uc.card?.name}</span>
+                          {lockPos !== "ANY" && (
+                            <span className="cp-pill text-[8px] font-extrabold" style={{ background: POS_COLOR[lockPos] || "#666", color: "#0F1115" }} title={`${lockPos}-only card`}>{lockPos}</span>
+                          )}
+                        </div>
                         <div className="text-[10px] opacity-70">+{Math.round(((uc.card?.effect_value?.multiplier || 1) - 1) * 100)}% · {uc.uses_remaining ?? uc.uses_left} uses left</div>
                       </button>
                       {sel && (
@@ -358,38 +364,51 @@ function GameEntryView({ game, onClose, onSaved }) {
         {targetingCard && (
           <div className="absolute inset-0 z-[10] flex items-center justify-center p-3" style={{ background: "rgba(0,0,0,0.85)" }} data-testid="wc-target-picker">
             <div className="cp-surface w-full max-w-md max-h-[80vh] overflow-hidden flex flex-col">
-              <div className="px-4 py-3 flex items-center justify-between border-b" style={{ borderColor: "var(--cp-border)" }}>
-                <div>
-                  <div className="text-[10px] uppercase tracking-widest text-cp-lime">Boost target</div>
-                  <div className="text-sm font-extrabold">{ownedCards.find(o => o.id === targetingCard)?.card?.name || "Card"}</div>
-                </div>
-                <button onClick={() => { setAppliedCards(ac => ac.filter(c => c.user_card_id !== targetingCard)); setTargetingCard(null); }} className="cp-btn-ghost !p-2" data-testid="wc-target-cancel">✕</button>
-              </div>
-              <div className="overflow-y-auto p-2">
-                {Object.keys(picks).length === 0 && (
-                  <div className="p-4 text-xs text-center" style={{ color: "var(--cp-text-muted)" }}>Pick players first, then apply cards to them.</div>
-                )}
-                {Object.keys(picks).map(pid => {
-                  const p = eligible.find(x => x.id === pid);
-                  if (!p) return null;
-                  // Disable if another applied card already targets this player
-                  const usedByOther = appliedCards.find(c => c.target_player_id === pid && c.user_card_id !== targetingCard);
-                  return (
-                    <button
-                      key={pid}
-                      onClick={() => !usedByOther && targetCardToPlayer(targetingCard, pid)}
-                      disabled={!!usedByOther}
-                      className="w-full px-2 py-1.5 text-left text-sm rounded hover:bg-white/5 disabled:opacity-30 flex items-center gap-2"
-                      data-testid={`wc-target-pick-${pid}`}
-                    >
-                      {p.team_logo && <img src={p.team_logo} className="w-4 h-4 object-contain" alt="" onError={(e)=>{e.target.style.display="none"}}/>}
-                      <span className="cp-pill text-[9px] font-bold" style={{ background: "var(--cp-surface-2)", color: POS_COLOR[p.position] }}>{p.position}</span>
-                      <span className="flex-1 truncate">{p.name}</span>
-                      {usedByOther && <span className="text-[10px]" style={{ color: "var(--cp-text-muted)" }}>boosted</span>}
-                    </button>
-                  );
-                })}
-              </div>
+              {(() => {
+                const targetingCardObj = ownedCards.find(o => o.id === targetingCard);
+                const lockPos = (targetingCardObj?.card?.position || "ANY").toUpperCase();
+                return (
+                  <>
+                    <div className="px-4 py-3 flex items-center justify-between border-b" style={{ borderColor: "var(--cp-border)" }}>
+                      <div>
+                        <div className="text-[10px] uppercase tracking-widest text-cp-lime">
+                          Boost target {lockPos !== "ANY" ? `· ${lockPos} only` : ""}
+                        </div>
+                        <div className="text-sm font-extrabold">{targetingCardObj?.card?.name || "Card"}</div>
+                      </div>
+                      <button onClick={() => { setAppliedCards(ac => ac.filter(c => c.user_card_id !== targetingCard)); setTargetingCard(null); }} className="cp-btn-ghost !p-2" data-testid="wc-target-cancel">✕</button>
+                    </div>
+                    <div className="overflow-y-auto p-2">
+                      {Object.keys(picks).length === 0 && (
+                        <div className="p-4 text-xs text-center" style={{ color: "var(--cp-text-muted)" }}>Pick players first, then apply cards to them.</div>
+                      )}
+                      {Object.keys(picks).map(pid => {
+                        const p = eligible.find(x => x.id === pid);
+                        if (!p) return null;
+                        // Disable if another applied card already targets this player
+                        const usedByOther = appliedCards.find(c => c.target_player_id === pid && c.user_card_id !== targetingCard);
+                        const posMismatch = lockPos !== "ANY" && (p.position || "").toUpperCase() !== lockPos;
+                        const disabled = !!usedByOther || posMismatch;
+                        const reasonLabel = posMismatch ? `${lockPos} only` : (usedByOther ? "boosted" : null);
+                        return (
+                          <button
+                            key={pid}
+                            onClick={() => !disabled && targetCardToPlayer(targetingCard, pid)}
+                            disabled={disabled}
+                            className="w-full px-2 py-1.5 text-left text-sm rounded hover:bg-white/5 disabled:opacity-30 flex items-center gap-2"
+                            data-testid={`wc-target-pick-${pid}`}
+                          >
+                            {p.team_logo && <img src={p.team_logo} className="w-4 h-4 object-contain" alt="" onError={(e)=>{e.target.style.display="none"}}/>}
+                            <span className="cp-pill text-[9px] font-bold" style={{ background: "var(--cp-surface-2)", color: POS_COLOR[p.position] }}>{p.position}</span>
+                            <span className="flex-1 truncate">{p.name}</span>
+                            {reasonLabel && <span className="text-[10px]" style={{ color: posMismatch ? "#FBBF24" : "var(--cp-text-muted)" }}>{reasonLabel}</span>}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </>
+                );
+              })()}
             </div>
           </div>
         )}

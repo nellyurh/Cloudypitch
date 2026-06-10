@@ -121,12 +121,19 @@ def league_tier_score(name: str, country: str | None = None) -> int:
 
 
 # ===== Legend Cards Catalog (100 cards) =====
-def _card(name, player_name, country, tier, price, effect_type, effect_value, description, image_url=""):
+def _card(name, player_name, country, tier, price, effect_type, effect_value, description, image_url="", position="ANY"):
+    """Build a legend card.
+
+    `position` is the slot the card LOCKS to — only that-position player can be
+    boosted. Use 'ANY' for cards that work on any role (typically captain-style
+    cards). Allowed: 'GK', 'DEF', 'MID', 'FWD', 'ANY'.
+    """
     # Pricing in USD cents (stored as integer to avoid float issues). $2 = 200, $1 = 100, $0.50 = 50.
     USD_BY_TIER = {1: 200, 2: 100, 3: 50}
     return {
         "id": new_id(), "name": name, "player_name": player_name,
         "country_code": country, "tier": tier,
+        "position": position.upper() if position else "ANY",
         "price_ngn": price,                          # legacy field, kept for back-compat
         "price_usd_cents": USD_BY_TIER.get(tier, 50),
         "effect_type": effect_type, "effect_value": effect_value,
@@ -134,116 +141,123 @@ def _card(name, player_name, country, tier, price, effect_type, effect_value, de
     }
 
 
+# Position helper — used inside the GOAT/Elite literal arrays below so we don't
+# repeat the position kwarg on every single line.
+def _p(pos: str):
+    return pos
+
+
 GOAT_CARDS = [
-    _card("Pelé Spirit", "Pelé", "BR", 1, 2000, "score_boost", {"multiplier": 2.0}, "Doubles points on exact-score predictions"),
-    _card("Maradona Hand", "Diego Maradona", "AR", 1, 2000, "score_boost", {"multiplier": 2.0}, "Doubles points on goal-scorer predictions"),
-    _card("Messi Magic", "Lionel Messi", "AR", 1, 2000, "outcome_boost", {"multiplier": 1.75}, "75% bonus on outcome correct"),
-    _card("CR7 Power", "Cristiano Ronaldo", "PT", 1, 2000, "score_boost", {"multiplier": 1.75}, "75% bonus on exact score"),
-    _card("Zidane Class", "Zinedine Zidane", "FR", 1, 2000, "captain_boost", {"multiplier": 3.0}, "Triples captain points one round"),
-    _card("Cruyff Turn", "Johan Cruyff", "NL", 1, 2000, "outcome_boost", {"multiplier": 1.75}, "Outcome bonus + assist points x2"),
-    _card("Beckenbauer Wall", "Franz Beckenbauer", "DE", 1, 2000, "defense_boost", {"multiplier": 2.0}, "Clean sheet bonus x2"),
-    _card("Ronaldo R9", "Ronaldo Nazário", "BR", 1, 2000, "score_boost", {"multiplier": 1.75}, "Goal predictions x1.75"),
-    _card("Best of British", "George Best", "GB", 1, 2000, "outcome_boost", {"multiplier": 1.5}, "50% on outcome + draw bonus"),
-    _card("Eusébio Strike", "Eusébio", "PT", 1, 2000, "score_boost", {"multiplier": 1.6}, "60% bonus on goalscorers"),
-    _card("Di Stéfano Vision", "Alfredo Di Stéfano", "AR", 1, 2000, "captain_boost", {"multiplier": 2.5}, "Captain x2.5"),
-    _card("Garrincha Joy", "Garrincha", "BR", 1, 2000, "outcome_boost", {"multiplier": 1.75}, "Draw outcome x3"),
-    _card("Puskás Hammer", "Ferenc Puskás", "HU", 1, 2000, "score_boost", {"multiplier": 1.75}, "Away win exact-score x2"),
-    _card("Yashin Gloves", "Lev Yashin", "RU", 1, 2000, "defense_boost", {"multiplier": 2.5}, "Clean sheet x2.5"),
-    _card("Platini Free-Kick", "Michel Platini", "FR", 1, 2000, "score_boost", {"multiplier": 1.5}, "Set-piece goal bonus"),
-    _card("Müller Bomber", "Gerd Müller", "DE", 1, 2000, "score_boost", {"multiplier": 1.75}, "Tournament top-scorer bonus"),
-    _card("Kaká Lightning", "Kaká", "BR", 1, 2000, "outcome_boost", {"multiplier": 1.5}, "Win + clean sheet combo"),
-    _card("Baggio Ponytail", "Roberto Baggio", "IT", 1, 2000, "score_boost", {"multiplier": 1.5}, "Knockout-round bonus"),
-    _card("Henry Finesse", "Thierry Henry", "FR", 1, 2000, "score_boost", {"multiplier": 1.75}, "Group-stage exact score x2"),
-    _card("Zico Brazilian", "Zico", "BR", 1, 2000, "outcome_boost", {"multiplier": 1.5}, "Brazil match bonus x2"),
+    _card("Pelé Spirit",          "Pelé",                "BR", 1, 2000, "score_boost",   {"multiplier": 2.0},  "Doubles points on exact-score predictions", position="FWD"),
+    _card("Maradona Hand",        "Diego Maradona",      "AR", 1, 2000, "score_boost",   {"multiplier": 2.0},  "Doubles points on goal-scorer predictions", position="MID"),
+    _card("Messi Magic",          "Lionel Messi",        "AR", 1, 2000, "outcome_boost", {"multiplier": 1.75}, "75% bonus on outcome correct", position="FWD"),
+    _card("CR7 Power",            "Cristiano Ronaldo",   "PT", 1, 2000, "score_boost",   {"multiplier": 1.75}, "75% bonus on exact score", position="FWD"),
+    _card("Zidane Class",         "Zinedine Zidane",     "FR", 1, 2000, "captain_boost", {"multiplier": 3.0},  "Triples captain points one round", position="MID"),
+    _card("Cruyff Turn",          "Johan Cruyff",        "NL", 1, 2000, "outcome_boost", {"multiplier": 1.75}, "Outcome bonus + assist points x2", position="FWD"),
+    _card("Beckenbauer Wall",     "Franz Beckenbauer",   "DE", 1, 2000, "defense_boost", {"multiplier": 2.0},  "Clean sheet bonus x2", position="DEF"),
+    _card("Ronaldo R9",           "Ronaldo Nazário",     "BR", 1, 2000, "score_boost",   {"multiplier": 1.75}, "Goal predictions x1.75", position="FWD"),
+    _card("Best of British",      "George Best",         "GB", 1, 2000, "outcome_boost", {"multiplier": 1.5},  "50% on outcome + draw bonus", position="FWD"),
+    _card("Eusébio Strike",       "Eusébio",             "PT", 1, 2000, "score_boost",   {"multiplier": 1.6},  "60% bonus on goalscorers", position="FWD"),
+    _card("Di Stéfano Vision",    "Alfredo Di Stéfano",  "AR", 1, 2000, "captain_boost", {"multiplier": 2.5},  "Captain x2.5", position="FWD"),
+    _card("Garrincha Joy",        "Garrincha",           "BR", 1, 2000, "outcome_boost", {"multiplier": 1.75}, "Draw outcome x3", position="FWD"),
+    _card("Puskás Hammer",        "Ferenc Puskás",       "HU", 1, 2000, "score_boost",   {"multiplier": 1.75}, "Away win exact-score x2", position="FWD"),
+    _card("Yashin Gloves",        "Lev Yashin",          "RU", 1, 2000, "defense_boost", {"multiplier": 2.5},  "Clean sheet x2.5", position="GK"),
+    _card("Platini Free-Kick",    "Michel Platini",      "FR", 1, 2000, "score_boost",   {"multiplier": 1.5},  "Set-piece goal bonus", position="MID"),
+    _card("Müller Bomber",        "Gerd Müller",         "DE", 1, 2000, "score_boost",   {"multiplier": 1.75}, "Tournament top-scorer bonus", position="FWD"),
+    _card("Kaká Lightning",       "Kaká",                "BR", 1, 2000, "outcome_boost", {"multiplier": 1.5},  "Win + clean sheet combo", position="MID"),
+    _card("Baggio Ponytail",      "Roberto Baggio",      "IT", 1, 2000, "score_boost",   {"multiplier": 1.5},  "Knockout-round bonus", position="FWD"),
+    _card("Henry Finesse",        "Thierry Henry",       "FR", 1, 2000, "score_boost",   {"multiplier": 1.75}, "Group-stage exact score x2", position="FWD"),
+    _card("Zico Brazilian",       "Zico",                "BR", 1, 2000, "outcome_boost", {"multiplier": 1.5},  "Brazil match bonus x2", position="MID"),
 ]
 
 ELITE_CARDS = [
-    _card("Ronaldinho Smile", "Ronaldinho", "BR", 2, 1000, "outcome_boost", {"multiplier": 1.4}, "Outcome correct +40%"),
-    _card("Drogba King", "Didier Drogba", "CI", 2, 1000, "score_boost", {"multiplier": 1.4}, "African team bonus"),
-    _card("Okocha Showtime", "Jay-Jay Okocha", "NG", 2, 1000, "outcome_boost", {"multiplier": 1.5}, "Nigeria & African team x2"),
-    _card("Salah Pharaoh", "Mohamed Salah", "EG", 2, 1000, "score_boost", {"multiplier": 1.4}, "Egypt & African team bonus"),
-    _card("Mahrez Flair", "Riyad Mahrez", "DZ", 2, 1000, "score_boost", {"multiplier": 1.4}, "Algeria & African team bonus"),
-    _card("Modric Engine", "Luka Modrić", "HR", 2, 1000, "captain_boost", {"multiplier": 2.0}, "Captain x2"),
-    _card("Iniesta Whisper", "Andrés Iniesta", "ES", 2, 1000, "outcome_boost", {"multiplier": 1.4}, "Spain match bonus"),
-    _card("Xavi Maestro", "Xavi", "ES", 2, 1000, "captain_boost", {"multiplier": 1.8}, "Captain x1.8"),
-    _card("Kanté Engine", "N'Golo Kanté", "FR", 2, 1000, "defense_boost", {"multiplier": 1.5}, "Defensive players +50%"),
-    _card("Eto'o Lion", "Samuel Eto'o", "CM", 2, 1000, "score_boost", {"multiplier": 1.5}, "Cameroon & African bonus"),
-    _card("Yaya Beast", "Yaya Touré", "CI", 2, 1000, "score_boost", {"multiplier": 1.4}, "Ivory Coast bonus"),
-    _card("Weah Liberian", "George Weah", "LR", 2, 1000, "outcome_boost", {"multiplier": 1.5}, "Underdog win bonus"),
-    _card("Mbappé Rocket", "Kylian Mbappé", "FR", 2, 1000, "score_boost", {"multiplier": 1.5}, "France match bonus"),
-    _card("Haaland Force", "Erling Haaland", "NO", 2, 1000, "score_boost", {"multiplier": 1.4}, "Goals x1.4"),
-    _card("Vinícius Dance", "Vinícius Júnior", "BR", 2, 1000, "score_boost", {"multiplier": 1.4}, "Brazil bonus"),
-    _card("Bellingham Heart", "Jude Bellingham", "GB", 2, 1000, "captain_boost", {"multiplier": 1.8}, "Captain x1.8"),
-    _card("De Bruyne Vision", "Kevin De Bruyne", "BE", 2, 1000, "score_boost", {"multiplier": 1.4}, "Assist points x2"),
-    _card("Pirlo Conductor", "Andrea Pirlo", "IT", 2, 1000, "captain_boost", {"multiplier": 1.7}, "Captain x1.7"),
-    _card("Buffon Saves", "Gianluigi Buffon", "IT", 2, 1000, "defense_boost", {"multiplier": 2.0}, "Goalkeeper clean sheet x2"),
-    _card("Casillas Hands", "Iker Casillas", "ES", 2, 1000, "defense_boost", {"multiplier": 1.8}, "Spain defense bonus"),
-    _card("Lewa Klass", "Robert Lewandowski", "PL", 2, 1000, "score_boost", {"multiplier": 1.4}, "Striker goals x1.4"),
-    _card("Suárez Bite", "Luis Suárez", "UY", 2, 1000, "score_boost", {"multiplier": 1.4}, "Knockout bonus"),
-    _card("Neymar Jr", "Neymar", "BR", 2, 1000, "outcome_boost", {"multiplier": 1.4}, "Brazil flair"),
-    _card("Cantona Collar", "Eric Cantona", "FR", 2, 1000, "captain_boost", {"multiplier": 1.6}, "Captain x1.6"),
-    _card("Beckham Bend", "David Beckham", "GB", 2, 1000, "score_boost", {"multiplier": 1.4}, "Set-piece bonus"),
-    _card("Gerrard Heart", "Steven Gerrard", "GB", 2, 1000, "captain_boost", {"multiplier": 1.7}, "Captain x1.7"),
-    _card("Lampard Late", "Frank Lampard", "GB", 2, 1000, "score_boost", {"multiplier": 1.4}, "Late goal bonus"),
-    _card("Cafu Run", "Cafu", "BR", 2, 1000, "defense_boost", {"multiplier": 1.5}, "Full-back assists"),
-    _card("Roberto Carlos Boom", "Roberto Carlos", "BR", 2, 1000, "score_boost", {"multiplier": 1.4}, "Free-kick bonus"),
-    _card("Maldini Eternal", "Paolo Maldini", "IT", 2, 1000, "defense_boost", {"multiplier": 1.8}, "Italian defense bonus"),
+    _card("Ronaldinho Smile",     "Ronaldinho",          "BR", 2, 1000, "outcome_boost", {"multiplier": 1.4}, "Outcome correct +40%", position="MID"),
+    _card("Drogba King",          "Didier Drogba",       "CI", 2, 1000, "score_boost",   {"multiplier": 1.4}, "African team bonus", position="FWD"),
+    _card("Okocha Showtime",      "Jay-Jay Okocha",      "NG", 2, 1000, "outcome_boost", {"multiplier": 1.5}, "Nigeria & African team x2", position="MID"),
+    _card("Salah Pharaoh",        "Mohamed Salah",       "EG", 2, 1000, "score_boost",   {"multiplier": 1.4}, "Egypt & African team bonus", position="FWD"),
+    _card("Mahrez Flair",         "Riyad Mahrez",        "DZ", 2, 1000, "score_boost",   {"multiplier": 1.4}, "Algeria & African team bonus", position="FWD"),
+    _card("Modric Engine",        "Luka Modrić",         "HR", 2, 1000, "captain_boost", {"multiplier": 2.0}, "Captain x2", position="MID"),
+    _card("Iniesta Whisper",      "Andrés Iniesta",      "ES", 2, 1000, "outcome_boost", {"multiplier": 1.4}, "Spain match bonus", position="MID"),
+    _card("Xavi Maestro",         "Xavi",                "ES", 2, 1000, "captain_boost", {"multiplier": 1.8}, "Captain x1.8", position="MID"),
+    _card("Kanté Engine",         "N'Golo Kanté",        "FR", 2, 1000, "defense_boost", {"multiplier": 1.5}, "Defensive players +50%", position="MID"),
+    _card("Eto'o Lion",           "Samuel Eto'o",        "CM", 2, 1000, "score_boost",   {"multiplier": 1.5}, "Cameroon & African bonus", position="FWD"),
+    _card("Yaya Beast",           "Yaya Touré",          "CI", 2, 1000, "score_boost",   {"multiplier": 1.4}, "Ivory Coast bonus", position="MID"),
+    _card("Weah Liberian",        "George Weah",         "LR", 2, 1000, "outcome_boost", {"multiplier": 1.5}, "Underdog win bonus", position="FWD"),
+    _card("Mbappé Rocket",        "Kylian Mbappé",       "FR", 2, 1000, "score_boost",   {"multiplier": 1.5}, "France match bonus", position="FWD"),
+    _card("Haaland Force",        "Erling Haaland",      "NO", 2, 1000, "score_boost",   {"multiplier": 1.4}, "Goals x1.4", position="FWD"),
+    _card("Vinícius Dance",       "Vinícius Júnior",     "BR", 2, 1000, "score_boost",   {"multiplier": 1.4}, "Brazil bonus", position="FWD"),
+    _card("Bellingham Heart",     "Jude Bellingham",     "GB", 2, 1000, "captain_boost", {"multiplier": 1.8}, "Captain x1.8", position="MID"),
+    _card("De Bruyne Vision",     "Kevin De Bruyne",     "BE", 2, 1000, "score_boost",   {"multiplier": 1.4}, "Assist points x2", position="MID"),
+    _card("Pirlo Conductor",      "Andrea Pirlo",        "IT", 2, 1000, "captain_boost", {"multiplier": 1.7}, "Captain x1.7", position="MID"),
+    _card("Buffon Saves",         "Gianluigi Buffon",    "IT", 2, 1000, "defense_boost", {"multiplier": 2.0}, "Goalkeeper clean sheet x2", position="GK"),
+    _card("Casillas Hands",       "Iker Casillas",       "ES", 2, 1000, "defense_boost", {"multiplier": 1.8}, "Spain defense bonus", position="GK"),
+    _card("Lewa Klass",           "Robert Lewandowski",  "PL", 2, 1000, "score_boost",   {"multiplier": 1.4}, "Striker goals x1.4", position="FWD"),
+    _card("Suárez Bite",          "Luis Suárez",         "UY", 2, 1000, "score_boost",   {"multiplier": 1.4}, "Knockout bonus", position="FWD"),
+    _card("Neymar Jr",            "Neymar",              "BR", 2, 1000, "outcome_boost", {"multiplier": 1.4}, "Brazil flair", position="FWD"),
+    _card("Cantona Collar",       "Eric Cantona",        "FR", 2, 1000, "captain_boost", {"multiplier": 1.6}, "Captain x1.6", position="FWD"),
+    _card("Beckham Bend",         "David Beckham",       "GB", 2, 1000, "score_boost",   {"multiplier": 1.4}, "Set-piece bonus", position="MID"),
+    _card("Gerrard Heart",        "Steven Gerrard",      "GB", 2, 1000, "captain_boost", {"multiplier": 1.7}, "Captain x1.7", position="MID"),
+    _card("Lampard Late",         "Frank Lampard",       "GB", 2, 1000, "score_boost",   {"multiplier": 1.4}, "Late goal bonus", position="MID"),
+    _card("Cafu Run",             "Cafu",                "BR", 2, 1000, "defense_boost", {"multiplier": 1.5}, "Full-back assists", position="DEF"),
+    _card("Roberto Carlos Boom",  "Roberto Carlos",      "BR", 2, 1000, "score_boost",   {"multiplier": 1.4}, "Free-kick bonus", position="DEF"),
+    _card("Maldini Eternal",      "Paolo Maldini",       "IT", 2, 1000, "defense_boost", {"multiplier": 1.8}, "Italian defense bonus", position="DEF"),
 ]
 
 STAR_CARDS = [
-    _card(f"Star Card {i+1}", name, country, 3, 500, eff, val, desc)
-    for i, (name, country, eff, val, desc) in enumerate([
-        ("Vidal", "CL", "score_boost", {"multiplier": 1.2}, "Mid score +20%"),
-        ("Cavani", "UY", "score_boost", {"multiplier": 1.2}, "Striker score +20%"),
-        ("Bale", "GB", "score_boost", {"multiplier": 1.25}, "Set-piece +25%"),
-        ("Pogba", "FR", "captain_boost", {"multiplier": 1.4}, "Captain +40%"),
-        ("Hazard", "BE", "outcome_boost", {"multiplier": 1.2}, "Outcome +20%"),
-        ("Lukaku", "BE", "score_boost", {"multiplier": 1.2}, "Goals +20%"),
-        ("Coutinho", "BR", "score_boost", {"multiplier": 1.2}, "Brazil bonus"),
-        ("Falcao", "CO", "score_boost", {"multiplier": 1.25}, "Colombia bonus"),
-        ("James", "CO", "outcome_boost", {"multiplier": 1.2}, "Colombia outcome"),
-        ("Forlán", "UY", "score_boost", {"multiplier": 1.25}, "Uruguay bonus"),
-        ("Sneijder", "NL", "captain_boost", {"multiplier": 1.4}, "Netherlands captain"),
-        ("Robben", "NL", "score_boost", {"multiplier": 1.25}, "Cut-inside goals"),
-        ("Van Persie", "NL", "score_boost", {"multiplier": 1.2}, "Netherlands striker"),
-        ("Kompany", "BE", "defense_boost", {"multiplier": 1.5}, "Center-back +50%"),
-        ("Ramos", "ES", "defense_boost", {"multiplier": 1.5}, "Spain defense"),
-        ("Piqué", "ES", "defense_boost", {"multiplier": 1.4}, "Spain CB"),
-        ("Busquets", "ES", "captain_boost", {"multiplier": 1.4}, "Spain captain"),
-        ("Alba", "ES", "defense_boost", {"multiplier": 1.4}, "LB assists"),
-        ("Marcelo", "BR", "defense_boost", {"multiplier": 1.4}, "Brazil LB"),
-        ("Thiago Silva", "BR", "defense_boost", {"multiplier": 1.5}, "Brazil CB"),
-        ("Casemiro", "BR", "defense_boost", {"multiplier": 1.4}, "Defensive mid"),
-        ("Verratti", "IT", "captain_boost", {"multiplier": 1.4}, "Italy captain"),
-        ("Donnarumma", "IT", "defense_boost", {"multiplier": 1.6}, "Italy GK"),
-        ("Chiellini", "IT", "defense_boost", {"multiplier": 1.5}, "Italy CB"),
-        ("Insigne", "IT", "score_boost", {"multiplier": 1.2}, "Italy LW"),
-        ("Kimmich", "DE", "captain_boost", {"multiplier": 1.4}, "Germany captain"),
-        ("Müller T.", "DE", "score_boost", {"multiplier": 1.25}, "Germany striker"),
-        ("Neuer", "DE", "defense_boost", {"multiplier": 1.6}, "Germany GK"),
-        ("Sané", "DE", "score_boost", {"multiplier": 1.2}, "Germany winger"),
-        ("Aubameyang", "GA", "score_boost", {"multiplier": 1.25}, "Gabon striker"),
-        ("Manè", "SN", "score_boost", {"multiplier": 1.3}, "Senegal bonus"),
-        ("Koulibaly", "SN", "defense_boost", {"multiplier": 1.5}, "Senegal CB"),
-        ("Hakimi", "MA", "defense_boost", {"multiplier": 1.5}, "Morocco RB"),
-        ("Ziyech", "MA", "score_boost", {"multiplier": 1.25}, "Morocco winger"),
-        ("Onana", "CM", "defense_boost", {"multiplier": 1.5}, "Cameroon GK"),
-        ("Boateng", "GH", "defense_boost", {"multiplier": 1.4}, "Ghana CB"),
-        ("Partey", "GH", "captain_boost", {"multiplier": 1.4}, "Ghana captain"),
-        ("Iheanacho", "NG", "score_boost", {"multiplier": 1.3}, "Nigeria bonus"),
-        ("Osimhen", "NG", "score_boost", {"multiplier": 1.35}, "Nigeria striker"),
-        ("Lookman", "NG", "score_boost", {"multiplier": 1.3}, "Nigeria winger"),
-        ("Chukwueze", "NG", "score_boost", {"multiplier": 1.25}, "Nigeria RW"),
-        ("Trossard", "BE", "score_boost", {"multiplier": 1.2}, "Belgium forward"),
-        ("Saka", "GB", "score_boost", {"multiplier": 1.25}, "England winger"),
-        ("Foden", "GB", "score_boost", {"multiplier": 1.25}, "England playmaker"),
-        ("Rice", "GB", "captain_boost", {"multiplier": 1.3}, "England DM"),
-        ("Pickford", "GB", "defense_boost", {"multiplier": 1.4}, "England GK"),
-        ("Trippier", "GB", "defense_boost", {"multiplier": 1.3}, "England RB"),
-        ("Kane", "GB", "score_boost", {"multiplier": 1.3}, "England captain & striker"),
-        ("Pulisic", "US", "score_boost", {"multiplier": 1.2}, "USA winger"),
-        ("Reyna", "US", "outcome_boost", {"multiplier": 1.2}, "USA bonus"),
-    ])
+    _card(card_name, player_name, country, 3, 500, eff, val, desc, position=pos)
+    for (card_name, player_name, country, pos, eff, val, desc) in [
+        ("Vidal Iron Lung",      "Arturo Vidal",        "CL", "MID", "score_boost",    {"multiplier": 1.20}, "Midfield engine +20%"),
+        ("Cavani El Matador",    "Edinson Cavani",      "UY", "FWD", "score_boost",    {"multiplier": 1.20}, "Striker score +20%"),
+        ("Bale Wales Wonder",    "Gareth Bale",         "GB", "FWD", "score_boost",    {"multiplier": 1.25}, "Set-piece +25%"),
+        ("Pogba Dab",            "Paul Pogba",          "FR", "MID", "captain_boost",  {"multiplier": 1.40}, "Captain +40%"),
+        ("Hazard Eden",          "Eden Hazard",         "BE", "MID", "outcome_boost",  {"multiplier": 1.20}, "Outcome +20%"),
+        ("Lukaku Bull",          "Romelu Lukaku",       "BE", "FWD", "score_boost",    {"multiplier": 1.20}, "Goals +20%"),
+        ("Coutinho Magician",    "Philippe Coutinho",   "BR", "MID", "score_boost",    {"multiplier": 1.20}, "Brazil bonus"),
+        ("Falcao El Tigre",      "Radamel Falcao",      "CO", "FWD", "score_boost",    {"multiplier": 1.25}, "Colombia bonus"),
+        ("James No.10",          "James Rodríguez",     "CO", "MID", "outcome_boost",  {"multiplier": 1.20}, "Colombia outcome"),
+        ("Forlán Uruguay",       "Diego Forlán",        "UY", "FWD", "score_boost",    {"multiplier": 1.25}, "Uruguay bonus"),
+        ("Sneijder Orange",      "Wesley Sneijder",     "NL", "MID", "captain_boost",  {"multiplier": 1.40}, "Netherlands captain"),
+        ("Robben Cut-In",        "Arjen Robben",        "NL", "FWD", "score_boost",    {"multiplier": 1.25}, "Cut-inside goals"),
+        ("Van Persie Header",    "Robin van Persie",    "NL", "FWD", "score_boost",    {"multiplier": 1.20}, "Netherlands striker"),
+        ("Kompany Captain",      "Vincent Kompany",     "BE", "DEF", "defense_boost",  {"multiplier": 1.50}, "Center-back +50%"),
+        ("Ramos Warrior",        "Sergio Ramos",        "ES", "DEF", "defense_boost",  {"multiplier": 1.50}, "Spain defense"),
+        ("Piqué Pillar",         "Gerard Piqué",        "ES", "DEF", "defense_boost",  {"multiplier": 1.40}, "Spain CB"),
+        ("Busquets Anchor",      "Sergio Busquets",     "ES", "MID", "captain_boost",  {"multiplier": 1.40}, "Spain captain"),
+        ("Alba Overlap",         "Jordi Alba",          "ES", "DEF", "defense_boost",  {"multiplier": 1.40}, "LB assists"),
+        ("Marcelo Samba",        "Marcelo",             "BR", "DEF", "defense_boost",  {"multiplier": 1.40}, "Brazil LB"),
+        ("Thiago Silva Wall",    "Thiago Silva",        "BR", "DEF", "defense_boost",  {"multiplier": 1.50}, "Brazil CB"),
+        ("Casemiro Shield",      "Casemiro",            "BR", "MID", "defense_boost",  {"multiplier": 1.40}, "Defensive mid"),
+        ("Verratti Picolo",      "Marco Verratti",      "IT", "MID", "captain_boost",  {"multiplier": 1.40}, "Italy captain"),
+        ("Donnarumma Gigio",     "Gianluigi Donnarumma","IT", "GK",  "defense_boost",  {"multiplier": 1.60}, "Italy GK"),
+        ("Chiellini Stopper",    "Giorgio Chiellini",   "IT", "DEF", "defense_boost",  {"multiplier": 1.50}, "Italy CB"),
+        ("Insigne Maestro",      "Lorenzo Insigne",     "IT", "FWD", "score_boost",    {"multiplier": 1.20}, "Italy LW"),
+        ("Kimmich Captain",      "Joshua Kimmich",      "DE", "MID", "captain_boost",  {"multiplier": 1.40}, "Germany captain"),
+        ("Thomas Müller Raumdeuter", "Thomas Müller",   "DE", "FWD", "score_boost",    {"multiplier": 1.25}, "Germany striker"),
+        ("Neuer Sweeper",        "Manuel Neuer",        "DE", "GK",  "defense_boost",  {"multiplier": 1.60}, "Germany GK"),
+        ("Sané Speed",           "Leroy Sané",          "DE", "FWD", "score_boost",    {"multiplier": 1.20}, "Germany winger"),
+        ("Aubameyang Panther",   "Pierre-Emerick Aubameyang", "GA", "FWD", "score_boost", {"multiplier": 1.25}, "Gabon striker"),
+        ("Mané Lion",            "Sadio Mané",          "SN", "FWD", "score_boost",    {"multiplier": 1.30}, "Senegal bonus"),
+        ("Koulibaly Stone",      "Kalidou Koulibaly",   "SN", "DEF", "defense_boost",  {"multiplier": 1.50}, "Senegal CB"),
+        ("Hakimi Rocket",        "Achraf Hakimi",       "MA", "DEF", "defense_boost",  {"multiplier": 1.50}, "Morocco RB"),
+        ("Ziyech Wand",          "Hakim Ziyech",        "MA", "MID", "score_boost",    {"multiplier": 1.25}, "Morocco winger"),
+        ("Onana Reflex",         "André Onana",         "CM", "GK",  "defense_boost",  {"multiplier": 1.50}, "Cameroon GK"),
+        ("Boateng Brick",        "Jérôme Boateng",      "GH", "DEF", "defense_boost",  {"multiplier": 1.40}, "Ghana CB"),
+        ("Partey Power",         "Thomas Partey",       "GH", "MID", "captain_boost",  {"multiplier": 1.40}, "Ghana captain"),
+        ("Iheanacho Sleek",      "Kelechi Iheanacho",   "NG", "FWD", "score_boost",    {"multiplier": 1.30}, "Nigeria bonus"),
+        ("Osimhen Mask",         "Victor Osimhen",      "NG", "FWD", "score_boost",    {"multiplier": 1.35}, "Nigeria striker"),
+        ("Lookman Wonder",       "Ademola Lookman",     "NG", "FWD", "score_boost",    {"multiplier": 1.30}, "Nigeria winger"),
+        ("Chukwueze Dribble",    "Samuel Chukwueze",    "NG", "FWD", "score_boost",    {"multiplier": 1.25}, "Nigeria RW"),
+        ("Trossard Pulse",       "Leandro Trossard",    "BE", "FWD", "score_boost",    {"multiplier": 1.20}, "Belgium forward"),
+        ("Saka Star Boy",        "Bukayo Saka",         "GB", "FWD", "score_boost",    {"multiplier": 1.25}, "England winger"),
+        ("Foden Stockport Iniesta", "Phil Foden",       "GB", "MID", "score_boost",    {"multiplier": 1.25}, "England playmaker"),
+        ("Rice Anchor",          "Declan Rice",         "GB", "MID", "captain_boost",  {"multiplier": 1.30}, "England DM"),
+        ("Pickford Wall",        "Jordan Pickford",     "GB", "GK",  "defense_boost",  {"multiplier": 1.40}, "England GK"),
+        ("Trippier Right",       "Kieran Trippier",     "GB", "DEF", "defense_boost",  {"multiplier": 1.30}, "England RB"),
+        ("Kane Captain",         "Harry Kane",          "GB", "FWD", "score_boost",    {"multiplier": 1.30}, "England captain & striker"),
+        ("Pulisic American",     "Christian Pulisic",   "US", "FWD", "score_boost",    {"multiplier": 1.20}, "USA winger"),
+        ("Reyna Stars",          "Giovanni Reyna",      "US", "MID", "outcome_boost",  {"multiplier": 1.20}, "USA bonus"),
+        ("Modric Spirit",        "Luka Modrić",         "HR", "MID", "captain_boost",  {"multiplier": 1.35}, "Croatia maestro"),
+    ]
 ]
 
 ALL_CARDS = GOAT_CARDS + ELITE_CARDS + STAR_CARDS
@@ -358,16 +372,44 @@ async def seed_all():
             upsert=True,
         )
     # Legend Cards
+    # One-time migration: legacy seeds named the star cards "Star Card 1..50".
+    # Rename those rows IN PLACE (preserving id, so any user_cards.card_id
+    # references stay valid) to the new descriptive names + add position +
+    # canonical player name. STAR_CARDS preserves the original index order.
+    for i, c in enumerate(STAR_CARDS):
+        legacy_name = f"Star Card {i+1}"
+        legacy = await db.legend_cards.find_one({"name": legacy_name}, {"_id": 0, "id": 1})
+        if legacy:
+            await db.legend_cards.update_one(
+                {"id": legacy["id"]},
+                {"$set": {
+                    "name": c["name"],
+                    "player_name": c["player_name"],
+                    "country_code": c["country_code"],
+                    "position": c.get("position", "ANY"),
+                    "tier": c["tier"],
+                    "price_usd_cents": c["price_usd_cents"],
+                    "effect_type": c["effect_type"],
+                    "effect_value": c["effect_value"],
+                    "description": c["description"],
+                }},
+            )
     for c in ALL_CARDS:
-        # $setOnInsert without the dynamic price fields (which also go to $set so it works on existing rows too)
-        on_insert = {k: v for k, v in c.items() if k not in ("price_usd_cents", "tier")}
+        # Upsert by the canonical card `name`. `position` always upserts so
+        # existing rows pick up the new field.
+        on_insert = {k: v for k, v in c.items() if k not in ("price_usd_cents", "tier", "position", "description", "effect_type", "effect_value")}
         on_insert["created_at"] = utcnow_iso()
+        always_set = {
+            "tier": c["tier"],
+            "position": c.get("position", "ANY"),
+            "price_usd_cents": c["price_usd_cents"],
+            "description": c.get("description", ""),
+            "effect_type": c.get("effect_type"),
+            "effect_value": c.get("effect_value"),
+        }
         await db.legend_cards.update_one(
             {"name": c["name"]},
-            {
-                "$setOnInsert": on_insert,
-                "$set": {"price_usd_cents": c["price_usd_cents"], "tier": c["tier"]},
-            },
+            {"$setOnInsert": on_insert, "$set": always_set},
             upsert=True,
         )
     # Fantasy comp

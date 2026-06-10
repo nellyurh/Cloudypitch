@@ -57,6 +57,13 @@ class FantasySquadPlayerIn(BaseModel):
     price_paid: float = 0
 
 
+class CardUseIn(BaseModel):
+    """One card applied to one player. Mirrors the WC mini-game payload so
+    main-squad cards can be targeted (and position-validated) the same way."""
+    user_card_id: str
+    target_player_id: str
+
+
 class FantasySquadIn(BaseModel):
     competition_id: str = "fantasy-wc2026"
     game_id: Optional[str] = None
@@ -68,7 +75,10 @@ class FantasySquadIn(BaseModel):
     bench_ids: list[str] = Field(default_factory=list)
     bench_boost: bool = False
     players: list[FantasySquadPlayerIn] = Field(min_length=1, max_length=20)
+    # Legacy flat list (kept for backward compat) — superseded by `applied_cards`.
     applied_card_ids: list[str] = Field(default_factory=list, max_length=5)
+    # New: per-player card targeting. Each entry pins a card to ONE player.
+    applied_cards: list[CardUseIn] = Field(default_factory=list, max_length=5)
 
 
 def clean_doc(doc: dict | None) -> dict | None:

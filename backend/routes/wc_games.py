@@ -145,11 +145,43 @@ async def enter_game(game_id: str, body: GameEntryIn, user: dict = Depends(a.get
         seen_card_ids.add(cu.user_card_id)
     # Each card MUST target a picked player
     picked_player_ids = {p.player_id for p in body.player_picks}
+    pick_pos_by_id = {p.player_id: p.position for p in body.player_picks}
     for cu in body.cards_used:
         if not cu.target_player_id:
             raise HTTPException(status_code=400, detail="Each card must target a player in your squad")
         if cu.target_player_id not in picked_player_ids:
             raise HTTPException(status_code=400, detail="Card target must be one of your picked players")
+
+    # Position-lock validation — a card with `position=FWD` cannot be applied
+    # to a DEF/MID/GK. Cards with position='ANY' (or missing) skip the check.
+    if body.cards_used:
+        card_ids_for_check = list({cu.user_card_id for cu in body.cards_used})
+        uc_rows = await db.user_cards.find(
+            {"id": {"$in": card_ids_for_check}, "user_id": user["id"]},
+            {"_id": 0, "id": 1, "card_id": 1},
+        ).to_list(length=20)
+        legend_ids = list({r["card_id"] for r in uc_rows if r.get("card_id")})
+        legends = await db.legend_cards.find(
+            {"id": {"$in": legend_ids}}, {"_id": 0, "id": 1, "position": 1, "name": 1},
+        ).to_list(length=50)
+        legend_by_id = {l["id"]: l for l in legends}
+        uc_by_id = {r["id"]: r for r in uc_rows}
+        for cu in body.cards_used:
+            uc = uc_by_id.get(cu.user_card_id)
+            if not uc:
+                continue
+            legend = legend_by_id.get(uc.get("card_id"))
+            if not legend:
+                continue
+            card_pos = (legend.get("position") or "ANY").upper()
+            if card_pos == "ANY":
+                continue
+            target_pos = (pick_pos_by_id.get(cu.target_player_id) or "").upper()
+            if target_pos != card_pos:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"{legend.get('name')} can only boost a {card_pos} — your target is {target_pos or 'unknown'}.",
+                )
 
     # Compare against previous entry — figure out which cards are NEW (consume) vs UNCHANGED (skip) vs REMOVED (refund)
     existing = await db.wc_game_entries.find_one({"user_id": user["id"], "wc_game_id": game_id})

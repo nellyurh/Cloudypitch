@@ -95,8 +95,12 @@ function PlayerPic({ player, size = 56, posColor = "#A3E635" }) {
 }
 
 /** A pitch slot — either populated or an empty "+ add" tile.
- *  Sizes scale on mobile so 7-wide defender rows (5-4-1 / 5-3-2) don't clip. */
-function PitchSlot({ pos, picked, onPick, onTap, isCaptain, isVice, isBench, opponentCode }) {
+ *  Sizes scale on mobile so 7-wide defender rows (5-4-1 / 5-3-2) don't clip.
+ *  `cardApplied` = { name, multiplier, position } when a legend card boost
+ *  is attached to this player; renders a small badge at the top-left of the
+ *  circle showing the multiplier (FUT-style "+xx%").
+ */
+function PitchSlot({ pos, picked, onPick, onTap, isCaptain, isVice, isBench, opponentCode, cardApplied }) {
   if (!picked) {
     return (
       <button
@@ -130,6 +134,21 @@ function PitchSlot({ pos, picked, onPick, onTap, isCaptain, isVice, isBench, opp
         title={isCaptain ? "Captain" : isVice ? "Vice-captain" : (isBench ? "On bench — tap to start" : "Tap for player info / remove")}
       >
         <ResponsivePlayerPic player={picked} posColor={POS_COLOR[pos]}/>
+        {cardApplied && (
+          <span
+            className="absolute -top-1 -left-1 z-20 flex items-center gap-0.5 px-1 py-0.5 rounded text-[7px] sm:text-[9px] font-extrabold ring-2 ring-black/40 shadow-lg"
+            style={{
+              background: "linear-gradient(135deg, #FFD27A 0%, #F5A623 100%)",
+              color: "#1B1B1B",
+              minWidth: 18,
+              justifyContent: "center",
+            }}
+            title={`${cardApplied.name} · +${Math.round((cardApplied.multiplier - 1) * 100)}%`}
+            data-testid={`pitch-card-${picked.id}`}
+          >
+            ×{cardApplied.multiplier.toFixed(2)}
+          </span>
+        )}
         {isCaptain && (
           <span className="absolute -top-1 -right-1 bg-cp-lime text-cp-forest text-[8px] sm:text-[9px] font-extrabold w-4 h-4 sm:w-5 sm:h-5 rounded-full flex items-center justify-center ring-2 ring-black/40 z-10" data-testid={`captain-${picked.id}`}>C</span>
         )}
@@ -244,6 +263,13 @@ export default function BuildTeam() {
   // Player detail bottom sheet — Sofascore-style. null = closed.
   const [detailPlayer, setDetailPlayer] = useState(null);
 
+  // ===== Legend-card application state =====
+  // ownedCards: user's cards w/ uses_remaining > 0. appliedCards: [{user_card_id, target_player_id}]
+  // targetingCard: user_card_id currently being assigned to a player (null when not picking).
+  const [ownedCards, setOwnedCards] = useState([]);
+  const [appliedCards, setAppliedCards] = useState([]);
+  const [targetingCard, setTargetingCard] = useState(null);
+
   useEffect(() => {
     (async () => {
       // First — if a game_id is in the URL, fetch its rules and use the
@@ -313,6 +339,12 @@ export default function BuildTeam() {
           if (sq.bench_boost) setBenchBoost(true);
           if (sq.formation) setFormation(sq.formation);
           if (Array.isArray(sq.bench_ids)) setBenchIds(new Set(sq.bench_ids));
+          // Restore per-player card targeting (main squad uses `applied_cards`;
+          // mini-game entries use `cards_used` — normalise both into one shape).
+          const restored = (sq.applied_cards || sq.cards_used || []).map(c => ({
+            user_card_id: c.user_card_id, target_player_id: c.target_player_id,
+          })).filter(c => c.user_card_id && c.target_player_id);
+          setAppliedCards(restored);
         } else {
           // Reset state when switching scopes (main ↔ mini-game).
           setSquad([]);
@@ -320,11 +352,24 @@ export default function BuildTeam() {
           setCaptainId(null);
           setViceId(null);
           setBenchIds(new Set());
+          setAppliedCards([]);
         }
       } catch (_) {}
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user, players.length, gameId]);
+
+  // Load owned legend cards (only those with uses_remaining > 0) — used by the
+  // "Apply Boost Cards" panel and the pitch-circle multiplier badge.
+  useEffect(() => {
+    if (!user) return;
+    (async () => {
+      try {
+        const { data } = await api.get("/cards/me");
+        setOwnedCards((data.owned || []).filter(o => (o.uses_remaining ?? o.uses_left ?? 0) > 0));
+      } catch (_) {}
+    })();
+  }, [user]);
 
   // Number of transfers since the saved snapshot (0 if first build)
   const transferCount = useMemo(() => {
@@ -338,6 +383,47 @@ export default function BuildTeam() {
     const c = { GK: 0, DEF: 0, MID: 0, FWD: 0 };
     squad.forEach(p => { if (c[p.position] != null) c[p.position] += 1; });
     return c;
+  }, [squad]);
+
+  // Lookup: player_id → applied card meta (used by PitchSlot for the badge).
+  const cardsByPlayer = useMemo(() => {
+    const m = {};
+    for (const ac of appliedCards) {
+      if (!ac.target_player_id) continue;
+      const owned = ownedCards.find(o => o.id === ac.user_card_id);
+      const card = owned?.card;
+      if (!card) continue;
+      m[ac.target_player_id] = {
+        name: card.name,
+        multiplier: Number(card.effect_value?.multiplier || 1),
+        position: (card.position || "ANY").toUpperCase(),
+      };
+    }
+    return m;
+  }, [appliedCards, ownedCards]);
+
+  // Card-application card cap — main squad uses the FPL-style 5-max-per-squad
+  // shared with the rest of the app. Mini-games override via gameRules.
+  const cardCap = 5;
+
+  const toggleApplyCard = (uc) => {
+    setAppliedCards(prev => {
+      const exists = prev.find(c => c.user_card_id === uc.id);
+      if (exists) return prev.filter(c => c.user_card_id !== uc.id);
+      if (prev.length >= cardCap) return prev;
+      // New card — open the player picker so the user attaches it to a slot.
+      setTargetingCard(uc.id);
+      return [...prev, { user_card_id: uc.id, target_player_id: null }];
+    });
+  };
+  const setCardTarget = (user_card_id, target_player_id) => {
+    setAppliedCards(prev => prev.map(c => c.user_card_id === user_card_id ? { ...c, target_player_id } : c));
+    setTargetingCard(null);
+  };
+  // When a player is removed from the squad, drop any card targeting them.
+  useEffect(() => {
+    const ids = new Set(squad.map(p => p.id));
+    setAppliedCards(prev => prev.filter(c => !c.target_player_id || ids.has(c.target_player_id)));
   }, [squad]);
   const totalSpent = useMemo(() => squad.reduce((s, p) => s + (p.price || 0), 0), [squad]);
   const remaining = BUDGET - totalSpent;
@@ -486,6 +572,11 @@ export default function BuildTeam() {
   };
 
   const persistSquad = async () => {
+    // Refuse to save if any applied card hasn't been targeted yet.
+    if (appliedCards.some(c => !c.target_player_id)) {
+      alert("One of your applied cards has no target player. Tap the card and pick a player.");
+      return;
+    }
     setSaving(true);
     try {
       const playerPicks = squad.map(p => ({
@@ -497,6 +588,9 @@ export default function BuildTeam() {
         on_bench: benchIds.has(p.id),
         is_starting: !benchIds.has(p.id),
       }));
+      const appliedPayload = appliedCards
+        .filter(c => c.user_card_id && c.target_player_id)
+        .map(c => ({ user_card_id: c.user_card_id, target_player_id: c.target_player_id }));
       if (gameId) {
         // Mini-game entry — persist to the per-game collection so it doesn't
         // touch the user's main 15-man squad.
@@ -506,6 +600,7 @@ export default function BuildTeam() {
           })),
           captain_player_id: captainId,
           vice_captain_player_id: viceId,
+          cards_used: appliedPayload,
         });
       } else {
         await api.post("/fantasy/squad", {
@@ -518,6 +613,7 @@ export default function BuildTeam() {
           players: playerPicks,
           mode,
           bench_boost: benchBoost,
+          applied_cards: appliedPayload,
         });
       }
       setSavedAt(new Date());
@@ -655,9 +751,21 @@ export default function BuildTeam() {
       )}
 
       {view === "pitch" ? (
-        <PitchView counts={counts} squad={squad} onPick={setPickerPos} onTap={onPlayerTap} posLimit={POS_LIMIT} captainId={captainId} viceId={viceId} armbandStep={armbandStep} benchIds={benchIds} isFull={isFull} formation={formation} startersNeeded={startersNeeded} opponentByCountry={opponentByCountry}/>
+        <PitchView counts={counts} squad={squad} onPick={setPickerPos} onTap={onPlayerTap} posLimit={POS_LIMIT} captainId={captainId} viceId={viceId} armbandStep={armbandStep} benchIds={benchIds} isFull={isFull} formation={formation} startersNeeded={startersNeeded} opponentByCountry={opponentByCountry} cardsByPlayer={cardsByPlayer}/>
       ) : (
         <ListView squad={squad} counts={counts} onPick={setPickerPos} onRemove={removePlayer} posLimit={POS_LIMIT} captainId={captainId} viceId={viceId} onSetCaptain={(p) => setCaptainId(p.id === captainId ? null : p.id)} onSetVice={(p) => setViceId(p.id === viceId ? null : p.id)} benchIds={benchIds} onToggleBench={(p) => onPlayerTap(p)} isFull={isFull}/>
+      )}
+
+      {/* === Apply Boost Cards === per-player legend-card targeting */}
+      {ownedCards.length > 0 && (
+        <BoostCardsPanel
+          ownedCards={ownedCards}
+          appliedCards={appliedCards}
+          cardCap={cardCap}
+          squad={squad}
+          onToggle={toggleApplyCard}
+          onRetarget={(uc_id) => setTargetingCard(uc_id)}
+        />
       )}
 
       {/* Substitutions + Transfers — Sofascore-style bottom actions row.
@@ -756,6 +864,17 @@ export default function BuildTeam() {
           inSquad={true}
         />
       )}
+
+      {/* Boost-card target picker — same pattern as WC mini-game */}
+      {targetingCard && (
+        <CardTargetPicker
+          targetingCard={ownedCards.find(o => o.id === targetingCard)}
+          squad={squad}
+          appliedCards={appliedCards}
+          onCancel={() => { setAppliedCards(ac => ac.filter(c => c.user_card_id !== targetingCard)); setTargetingCard(null); }}
+          onPick={(pid) => setCardTarget(targetingCard, pid)}
+        />
+      )}
     </div>
   );
 }
@@ -770,7 +889,7 @@ function Stat({ label, value, tone }) {
   );
 }
 
-function PitchView({ counts, squad, onPick, onTap, posLimit, captainId, viceId, armbandStep, benchIds, isFull, formation, startersNeeded, opponentByCountry = {} }) {
+function PitchView({ counts, squad, onPick, onTap, posLimit, captainId, viceId, armbandStep, benchIds, isFull, formation, startersNeeded, opponentByCountry = {}, cardsByPlayer = {} }) {
   // When the squad is NOT full → keep the legacy "build slots" layout so users can see empty + tiles.
   if (!isFull) {
     const slots = POSITIONS.flatMap(pos => {
@@ -793,6 +912,7 @@ function PitchView({ counts, squad, onPick, onTap, posLimit, captainId, viceId, 
                 <PitchSlot key={`${pos}-${i}`} pos={pos} picked={s.player} onPick={onPick} onTap={onTap}
                   isCaptain={s.player?.id === captainId} isVice={s.player?.id === viceId}
                   isBench={s.player ? benchIds?.has(s.player.id) : false}
+                  cardApplied={s.player ? cardsByPlayer[s.player.id] : null}
                   opponentCode={s.player ? opponentByCountry[s.player.country] : undefined}/>
               ))}
             </div>
@@ -822,6 +942,7 @@ function PitchView({ counts, squad, onPick, onTap, posLimit, captainId, viceId, 
               {startersByPos[pos].map((p) => (
                 <PitchSlot key={p.id} pos={pos} picked={p} onPick={onPick} onTap={onTap}
                   isCaptain={p.id === captainId} isVice={p.id === viceId} isBench={false}
+                  cardApplied={cardsByPlayer[p.id]}
                   opponentCode={opponentByCountry[p.country]}/>
               ))}
             </div>
@@ -840,6 +961,7 @@ function PitchView({ counts, squad, onPick, onTap, posLimit, captainId, viceId, 
           ) : benched.map(p => (
             <PitchSlot key={p.id} pos={p.position} picked={p} onPick={onPick} onTap={onTap}
               isCaptain={p.id === captainId} isVice={p.id === viceId} isBench={true}
+              cardApplied={cardsByPlayer[p.id]}
               opponentCode={opponentByCountry[p.country]}/>
           ))}
         </div>
@@ -1170,6 +1292,114 @@ function PlayerPicker({ position, allPlayers, alreadyPickedIds, counts, countryC
               })}
             </ul>
           )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+
+/** Per-player legend-card application panel (main squad).
+ *  Each owned card can boost ONE picked player. Position-locked cards (e.g.
+ *  a striker card) cannot be attached to a non-striker — enforced client-side
+ *  + by the backend. */
+function BoostCardsPanel({ ownedCards, appliedCards, cardCap, squad, onToggle, onRetarget }) {
+  return (
+    <div className="cp-surface p-3 mt-3" data-testid="boost-cards-panel">
+      <div className="flex items-center justify-between mb-2">
+        <h3 className="text-sm font-extrabold inline-flex items-center gap-1.5">
+          <Zap size={14} className="text-cp-lime"/> Apply Boost Cards
+        </h3>
+        <span className="text-[11px]" style={{ color: "var(--cp-text-muted)" }}>
+          <span className="tabular-nums font-bold" style={{ color: "var(--cp-text)" }}>{appliedCards.length}</span>/{cardCap} applied
+        </span>
+      </div>
+      <p className="text-[11px] mb-2" style={{ color: "var(--cp-text-muted)" }}>
+        Each card boosts <b>ONE picked player</b>. Position-locked cards (e.g. a FWD card) can only target that position. Cards multiply that player&apos;s points at settlement.
+      </p>
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-2">
+        {ownedCards.map(uc => {
+          const applied = appliedCards.find(c => c.user_card_id === uc.id);
+          const sel = !!applied;
+          const targeted = applied?.target_player_id ? squad.find(p => p.id === applied.target_player_id) : null;
+          const lockPos = (uc.card?.position || "ANY").toUpperCase();
+          const multiplier = Number(uc.card?.effect_value?.multiplier || 1);
+          const pct = Math.round((multiplier - 1) * 100);
+          const uses = uc.uses_remaining ?? uc.uses_left ?? 0;
+          return (
+            <div key={uc.id} className={`rounded text-xs ${sel ? "ring-1 ring-cp-lime bg-cp-lime/10" : ""}`} style={{ background: sel ? undefined : "var(--cp-surface-2)" }} data-testid={`bt-card-${uc.id}`}>
+              <button
+                onClick={() => onToggle(uc)}
+                disabled={!sel && appliedCards.length >= cardCap}
+                className="px-2 py-1.5 w-full text-left disabled:opacity-40"
+                data-testid={`bt-card-toggle-${uc.id}`}
+              >
+                <div className="flex items-center gap-1.5">
+                  <span className="font-extrabold truncate flex-1">{uc.card?.name}</span>
+                  {lockPos !== "ANY" && (
+                    <span className="cp-pill text-[8px] font-extrabold" style={{ background: POS_COLOR[lockPos] || "#666", color: "#0F1115" }} title={`${lockPos}-only card`}>{lockPos}</span>
+                  )}
+                </div>
+                <div className="text-[10px] opacity-70 mt-0.5">+{pct}% · {uses} use{uses === 1 ? "" : "s"} left</div>
+              </button>
+              {sel && (
+                <button
+                  onClick={() => onRetarget(uc.id)}
+                  className="w-full px-2 py-1 text-[10px] border-t inline-flex items-center justify-between gap-1"
+                  style={{ borderColor: "var(--cp-border)", color: targeted ? "#A3E635" : "#FBBF24" }}
+                  data-testid={`bt-card-target-${uc.id}`}
+                >
+                  <span className="truncate">{targeted ? `→ ${targeted.name}` : "→ Pick target player"}</span>
+                  <span>change</span>
+                </button>
+              )}
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+/** Full-screen target picker for assigning a card to a picked player. */
+function CardTargetPicker({ targetingCard, squad, appliedCards, onCancel, onPick }) {
+  if (!targetingCard) return null;
+  const lockPos = (targetingCard.card?.position || "ANY").toUpperCase();
+  return (
+    <div className="fixed inset-0 z-[200] flex items-center justify-center p-3" style={{ background: "rgba(0,0,0,0.85)" }} data-testid="bt-target-picker">
+      <div className="cp-surface w-full max-w-md max-h-[80vh] overflow-hidden flex flex-col">
+        <div className="px-4 py-3 flex items-center justify-between border-b" style={{ borderColor: "var(--cp-border)" }}>
+          <div>
+            <div className="text-[10px] uppercase tracking-widest text-cp-lime">
+              Boost target {lockPos !== "ANY" ? `\u00b7 ${lockPos} only` : ""}
+            </div>
+            <div className="text-sm font-extrabold">{targetingCard.card?.name}</div>
+          </div>
+          <button onClick={onCancel} className="cp-btn-ghost !p-2" data-testid="bt-target-cancel">\u2715</button>
+        </div>
+        <div className="overflow-y-auto p-2">
+          {squad.length === 0 && (
+            <div className="p-4 text-xs text-center" style={{ color: "var(--cp-text-muted)" }}>Pick players first, then apply cards to them.</div>
+          )}
+          {squad.map(p => {
+            const usedByOther = appliedCards.find(c => c.target_player_id === p.id && c.user_card_id !== targetingCard.id);
+            const posMismatch = lockPos !== "ANY" && (p.position || "").toUpperCase() !== lockPos;
+            const disabled = !!usedByOther || posMismatch;
+            const reasonLabel = posMismatch ? `${lockPos} only` : (usedByOther ? "boosted" : null);
+            return (
+              <button
+                key={p.id}
+                onClick={() => !disabled && onPick(p.id)}
+                disabled={disabled}
+                className="w-full px-2 py-1.5 text-left text-sm rounded hover:bg-white/5 disabled:opacity-30 flex items-center gap-2"
+                data-testid={`bt-target-pick-${p.id}`}
+              >
+                <span className="cp-pill text-[9px] font-bold" style={{ background: "var(--cp-surface-2)", color: POS_COLOR[p.position] }}>{p.position}</span>
+                <span className="flex-1 truncate">{p.name}</span>
+                {reasonLabel && <span className="text-[10px]" style={{ color: posMismatch ? "#FBBF24" : "var(--cp-text-muted)" }}>{reasonLabel}</span>}
+              </button>
+            );
+          })}
         </div>
       </div>
     </div>

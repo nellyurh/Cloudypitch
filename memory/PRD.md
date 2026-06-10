@@ -10,7 +10,14 @@ Global multi-sport livescore + predictions + fantasy platform launching for FIFA
 - Sportmonks (football), API-Sports (other sports), Trybit/CryptoCloud (crypto deposits), PocketFi (NGN), Google AdSense
 
 ## Implemented (rolling)
-### 2026-02-10 (this session)
+### 2026-02-10 (this session — part 2: Legend Cards player-targeting + admin price editor)
+- **Per-player legend-card targeting on main 15-man squad** — main `Build a Team` now mirrors the WC mini-game pattern: each owned card boosts ONE picked player. New `BoostCardsPanel` + `CardTargetPicker` components, persisted via `applied_cards: [{user_card_id, target_player_id}]` on the `FantasySquadIn` payload. Legacy `applied_card_ids` flat list preserved for backward compatibility.
+- **Position lock on every card** — added `position` field (`GK`/`DEF`/`MID`/`FWD`/`ANY`) to all 101 legend cards. Backend validates in BOTH `/api/wc/games/{id}/enter` AND `/api/fantasy/squad`. `compute_card_boost` honors the lock so settled points only fire when the card's `position` matches the targeted player's. Client gates the target picker (grays out non-matching positions with `FWD only` etc.).
+- **50 named Star cards** — replaced "Star Card 1..50" with curated names ("Vidal Iron Lung", "Cavani El Matador", "Bale Wales Wonder", "Pogba Dab", "Hazard Eden", "Kane Captain", "Saka Star Boy", etc.) — each carries the right player name, country code, AND position. One-time in-place migration so existing user_cards inventories stay valid.
+- **Admin card price/position editor** — new `Cards` tab in `/admin` lets admins (a) bulk re-price every card in a tier (surge pricing), or (b) per-row edit price (USD cents) + position lock. Endpoints: `GET /api/admin/cards`, `PATCH /api/admin/cards/{id}`, `POST /api/admin/cards/bulk-price`. Every edit writes an `audit_log` row.
+- **Pitch player-circle badge** — `PitchSlot` (BuildTeam) now renders a tiny gold "×N.NN" multiplier pill at the top-left of the player avatar when a boost card is attached, FUT-style (gold gradient, ring shadow, tooltip showing the card name + %).
+
+### 2026-02-10 (part 1)
 - **Mini-game settlement engine (P0 fix)** — New `/app/backend/wc_settler.py` finalises `wc_games` after their dependent WC matches finish (FT/AET/PEN). Per-entry pipeline: aggregate player stats from `match_events`/`match_lineups` → `compute_player_points` (existing FPL-style engine, GK/DEF/MID/FWD goal weighting, clean-sheets, saves, minutes, MOTM, cards) → captain ×2 (vice ×2 fallback) → applied legend-card boost (cards apply only to their targeted player) → game `points_multiplier`. Writes `points_scored`, `raw_points`, `breakdown_by_player`, `rank_in_game`, `settled_at` on each entry and flips `wc_games.status` → `settled`. Auto background loop (`wc_games_settler_loop`) scans every 5 min; admin endpoints `POST /api/admin/wc/games/{id}/settle` and `POST /api/admin/wc/games/settle-due` for manual triggers. Idempotent, with `force=true` re-settle. Aggregates feed the combined `/api/leaderboard` (`wc_fantasy_points`) and the per-game / overall WC leaderboards automatically.
   - **Test**: `/app/backend/tests/test_wc_settler.py` seeds a synthetic FT match + captain striker with 2 goals → asserts 20 pts (4 × 2 goals + 2 mins) × captain×2, rank 1, game flipped to settled, idempotency holds, aggregation pipeline reflects score. Passes.
 - **Brand logo flash glitch fix (P1)** — `Brand.jsx` now hides itself behind a transparent same-size placeholder until the first `/brand` GET resolves; no more "cp-mark.png + CLOUDYPITCH" fallback flashing for ~200ms before the admin-uploaded logo swaps in. `loaded` flag added to the brand cache; placeholder reserves header layout space so nothing shifts.
@@ -42,8 +49,15 @@ Global multi-sport livescore + predictions + fantasy platform launching for FIFA
 See /app/memory/test_credentials.md
 
 ## Key endpoints added
+- `GET /api/admin/cards?tier=1|2|3` — admin list with edit fields
+- `PATCH /api/admin/cards/{id}` — edit `price_usd_cents`, `position`, `description`
+- `POST /api/admin/cards/bulk-price` — surge re-price every card of a tier
 - `POST /api/admin/wc/games/{id}/settle?force=true|false` — manual single-game settlement
 - `POST /api/admin/wc/games/settle-due` — manual sweep of all settle-able closed games (same job background loop runs)
 - `POST /api/cards/daily-drop` — matchday completion reward (cookie-auth)
 - `POST /api/cards/check-drop` — legacy every-5-actions reward (unchanged)
 - `GET /api/brand` — now returns `brand_favicon_url`
+
+## Key payload changes
+- `POST /api/fantasy/squad` now accepts `applied_cards: [{user_card_id, target_player_id}]` (per-player). Old `applied_card_ids: [...]` flat list still accepted but soft-deprecated.
+- `legend_cards.position` (GK/DEF/MID/FWD/ANY) — validation enforces lock on application.

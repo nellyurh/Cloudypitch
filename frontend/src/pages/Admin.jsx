@@ -18,6 +18,7 @@ const TAB_HINTS = {
   players: "Curated player price overrides. Use this when Sportmonks' auto-pricing makes a star too cheap or a bench player too expensive.",
   ads: "AdSense status + sponsor ads. Disable Google Ads for premium subs is automatic. Add direct sponsor banners for any of 13 placements.",
   settings: "Currency rates (USD↔NGN), brand uploads, site config (which sports show, popup notice), and admin user creation. Every section has its own Save button.",
+  cards: "Legend-card catalog — adjust prices for surge demand, change position locks, or do bulk tier price updates. Every change is audited.",
 };
 
 const StatCard = ({ icon: Icon, label, value }) => (
@@ -88,7 +89,7 @@ export const AdminPanel = () => {
     <div data-testid="admin-panel">
       <h1 className="text-2xl font-extrabold mb-3">Admin Panel</h1>
       <div className="flex gap-1 cp-surface p-1 w-fit mb-3 flex-wrap">
-        {["dashboard", "matches", "users", "ingest", "audit", "pools", "wcconfig", "wcgames", "players", "ads", "settings"].map(t => (
+        {["dashboard", "matches", "users", "ingest", "audit", "pools", "wcconfig", "wcgames", "players", "cards", "ads", "settings"].map(t => (
           <button key={t} onClick={() => setTab(t)} className={`px-3 py-1.5 text-sm rounded transition ${tab === t ? "bg-cp-lime text-cp-forest font-bold" : "hover:bg-white/5"}`} data-testid={`admin-tab-${t}`}>{t.toUpperCase()}</button>
         ))}
       </div>
@@ -403,6 +404,10 @@ export const AdminPanel = () => {
       {tab === "players" && (
         <PlayerPricesTab onMessage={setMsg}/>
       )}
+
+      {tab === "cards" && (
+        <CardPricesTab onMessage={setMsg}/>
+      )}
     </div>
   );
 };
@@ -516,6 +521,162 @@ function PlayerPricesTab({ onMessage }) {
     </div>
   );
 }
+
+/* ──────────────────────────────────────────────────────────────────────── */
+/** CardPricesTab — admin-only legend card price + position-lock editor.
+ *  Surge pricing: when demand spikes (e.g. before a big match), edit the
+ *  price here in cents. Bulk-set all cards in a tier via "Apply tier price".
+ */
+function CardPricesTab({ onMessage }) {
+  const [cards, setCards] = useState([]);
+  const [filter, setFilter] = useState(0); // tier 0 = all
+  const [loading, setLoading] = useState(false);
+  const [bulkPrice, setBulkPrice] = useState({ 1: "", 2: "", 3: "" });
+  const POS_OPTIONS = ["ANY", "GK", "DEF", "MID", "FWD"];
+
+  const load = async () => {
+    setLoading(true);
+    try {
+      const params = filter ? `?tier=${filter}` : "";
+      const { data } = await api.get(`/admin/cards${params}`);
+      setCards(data.cards || []);
+    } catch (e) {
+      onMessage(`✗ ${e?.response?.data?.detail || e.message}`);
+    }
+    setLoading(false);
+  };
+  useEffect(() => { load(); /* eslint-disable-next-line */ }, [filter]);
+
+  const patch = async (id, body) => {
+    try {
+      const { data } = await api.patch(`/admin/cards/${id}`, body);
+      onMessage(`✓ Updated ${data.card.name}`);
+      setCards(cs => cs.map(c => c.id === id ? data.card : c));
+    } catch (e) {
+      onMessage(`✗ ${e?.response?.data?.detail || e.message}`);
+    }
+  };
+
+  const bulkApply = async (tier) => {
+    const cents = parseInt(bulkPrice[tier] || "0", 10);
+    if (!cents || cents < 10) return onMessage("Bulk price must be ≥ 10¢");
+    if (!confirm(`Set every Tier-${tier} card to ${(cents/100).toFixed(2)} USD?`)) return;
+    try {
+      const { data } = await api.post("/admin/cards/bulk-price", { tier, price_usd_cents: cents });
+      onMessage(`✓ Tier ${tier}: ${data.modified} cards re-priced to $${(cents/100).toFixed(2)}`);
+      load();
+    } catch (e) {
+      onMessage(`✗ ${e?.response?.data?.detail || e.message}`);
+    }
+  };
+
+  return (
+    <div className="space-y-3" data-testid="admin-cards">
+      <div className="cp-surface p-3 flex flex-wrap gap-2 items-center">
+        {[{id:0,label:"All"},{id:1,label:"GOAT"},{id:2,label:"Elite"},{id:3,label:"Star"}].map(f => (
+          <button
+            key={f.id}
+            onClick={() => setFilter(f.id)}
+            className={`px-3 py-1.5 rounded text-xs font-bold ${filter === f.id ? "bg-cp-lime text-cp-forest" : "hover:bg-white/5"}`}
+            style={filter !== f.id ? { background: "var(--cp-surface-2)" } : {}}
+            data-testid={`admin-cards-filter-${f.id}`}
+          >{f.label}</button>
+        ))}
+      </div>
+
+      {/* Bulk tier-pricing */}
+      <div className="cp-surface p-3" data-testid="admin-cards-bulk">
+        <h3 className="text-sm font-extrabold mb-2">Bulk re-price by tier</h3>
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
+          {[1,2,3].map(tier => (
+            <div key={tier} className="flex items-center gap-2" data-testid={`admin-cards-bulk-tier-${tier}`}>
+              <span className="text-xs font-bold w-12">Tier {tier}</span>
+              <span className="text-[10px] opacity-60">cents</span>
+              <input
+                type="number" min="10" max="100000"
+                value={bulkPrice[tier]}
+                onChange={e => setBulkPrice(bp => ({...bp, [tier]: e.target.value}))}
+                placeholder="e.g. 250"
+                className="cp-input flex-1 text-xs"
+                data-testid={`admin-cards-bulk-input-${tier}`}
+              />
+              <button
+                onClick={() => bulkApply(tier)}
+                className="cp-btn-primary !py-1 !px-2 text-[10px] font-extrabold"
+                data-testid={`admin-cards-bulk-apply-${tier}`}
+              >Apply</button>
+            </div>
+          ))}
+        </div>
+        <p className="text-[10px] opacity-60 mt-2">Use for surge pricing during high-demand windows (Final week, knockouts). Individual edits below.</p>
+      </div>
+
+      <div className="cp-surface overflow-hidden" data-testid="admin-cards-table">
+        {loading ? (
+          <div className="p-6 text-center text-sm opacity-60">Loading cards…</div>
+        ) : cards.length === 0 ? (
+          <div className="p-6 text-center text-sm opacity-60">No cards.</div>
+        ) : (
+          <ul className="divide-y" style={{ borderColor: "var(--cp-border)" }}>
+            {cards.map(c => {
+              const tierLabel = c.tier === 1 ? "GOAT" : c.tier === 2 ? "Elite" : "Star";
+              const tierColor = c.tier === 1 ? "#FFD27A" : c.tier === 2 ? "#A3E635" : "#F25C1B";
+              const usd = ((c.price_usd_cents || 0) / 100).toFixed(2);
+              return (
+                <li key={c.id} className="flex items-center gap-3 px-3 py-2 flex-wrap" data-testid={`admin-card-row-${c.id}`}>
+                  <span className="text-[10px] font-extrabold uppercase px-1.5 py-0.5 rounded" style={{ background: tierColor, color: "#0F1115", minWidth: 38, textAlign: "center" }}>
+                    {tierLabel}
+                  </span>
+                  <div className="flex-1 min-w-[160px]">
+                    <div className="font-bold truncate">{c.name}</div>
+                    <div className="text-[10px] opacity-60 truncate">{c.player_name} · {c.country_code}</div>
+                  </div>
+                  {/* Position lock */}
+                  <select
+                    defaultValue={c.position || "ANY"}
+                    onChange={e => patch(c.id, { position: e.target.value })}
+                    className="cp-input text-xs"
+                    style={{ maxWidth: 90 }}
+                    data-testid={`admin-card-pos-${c.id}`}
+                  >
+                    {POS_OPTIONS.map(p => <option key={p} value={p}>{p}</option>)}
+                  </select>
+                  {/* Price (cents) */}
+                  <div className="flex items-center gap-1">
+                    <span className="text-[10px] opacity-60">¢</span>
+                    <input
+                      id={`admin-card-price-input-${c.id}`}
+                      type="number" step="10" min="10" max="100000"
+                      defaultValue={c.price_usd_cents}
+                      onKeyDown={e => e.key === "Enter" && patch(c.id, { price_usd_cents: parseInt(e.currentTarget.value, 10) })}
+                      className="cp-input text-xs tabular-nums"
+                      style={{ width: 80 }}
+                      data-testid={`admin-card-price-${c.id}`}
+                    />
+                    <span className="text-[10px] opacity-60 tabular-nums" style={{ minWidth: 38 }}>${usd}</span>
+                  </div>
+                  <button
+                    onClick={() => {
+                      const el = document.getElementById(`admin-card-price-input-${c.id}`);
+                      patch(c.id, { price_usd_cents: parseInt(el.value, 10) });
+                    }}
+                    className="cp-btn-primary !py-1 !px-2 text-[10px] font-extrabold"
+                    data-testid={`admin-card-save-${c.id}`}
+                  >Save</button>
+                </li>
+              );
+            })}
+          </ul>
+        )}
+      </div>
+      <div className="text-[10px] opacity-60">
+        Press <b>Enter</b> in the price field (or <b>Save</b>) to commit. Position locks restrict which players a card can boost. Every change is logged in Audit.
+      </div>
+    </div>
+  );
+}
+
+
 
 /* ──────────────────────────────────────────────────────────────────────── */
 

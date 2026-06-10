@@ -84,7 +84,18 @@ def card_matches(card: dict, context: dict) -> bool:
     """Does the card's effect condition match this prediction context?
     Supports both the spec vocabulary (country_boost/continent_boost/position_boost/role_boost/flat_boost)
     AND the existing seed vocabulary (score_boost/outcome_boost/captain_boost/defense_boost).
+
+    Cards now ALSO carry a `position` lock — when set to GK/DEF/MID/FWD the
+    card only fires on a player of that position. 'ANY' (or missing) means
+    no position lock. The lock applies to all fantasy-scope card uses.
     """
+    # ---- Position lock (applies to all FANTASY cards) ----
+    card_pos = (card.get("position") or "ANY").upper()
+    if context.get("scope") == "fantasy" and card_pos and card_pos != "ANY":
+        ctx_pos = (context.get("position") or "").upper()
+        if ctx_pos != card_pos:
+            return False
+
     etype = card.get("effect_type") or "flat_boost"
     ev = card.get("effect_value") or {}
     card_country = (card.get("country_code") or "").upper()
