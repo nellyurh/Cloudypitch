@@ -59,16 +59,20 @@ async def signup(payload: SignupIn, request: Request, response: Response):
             "referred_spend_usd_cents": 0,
             "status": "pending",  # becomes "active" once they spend
         })
-    # Grant 5 free Star cards (starter pack)
+    # Signup welcome gift: ONE random Star (low-tier) card. Past versions
+    # granted 5 cards which devalued the in-game economy — we now drop a single
+    # card so the user has something to try, while keeping rarity meaningful.
     star_cards = await db.legend_cards.find({"tier": 3}, {"_id": 0}).to_list(length=200)
     import random as _r
-    starter = _r.sample(star_cards, min(5, len(star_cards))) if star_cards else []
+    starter = [_r.choice(star_cards)] if star_cards else []
     for c in starter:
         await db.user_cards.insert_one({
             "id": new_id(), "user_id": user["id"], "card_id": c["id"],
-            "uses_remaining": 5, "uses_left": 5, "total_uses": 0,
+            "uses_remaining": c.get("uses_granted", 5),
+            "uses_left": c.get("uses_granted", 5),
+            "total_uses": 0,
             "acquired_at": utcnow_iso(),
-            "acquired_via": "signup_starter",
+            "acquired_via": "signup_welcome",
         })
     raw = await a.create_session(user["id"], request)
     a.set_session_cookie(response, raw)

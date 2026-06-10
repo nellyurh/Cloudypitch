@@ -33,7 +33,8 @@ function GameCard({ g, onOpen }) {
   const handleClick = () => {
     if (g.status === "open" && !entered) {
       const mode = SQUAD_MODE_FOR_TYPE[g.game_type] || "15";
-      navigate(`/fantasy?mode=${mode}&game_id=${g.id}`);
+      // `/fantasy` is the competition picker; `/build-team` is the squad-build page.
+      navigate(`/build-team?mode=${mode}&game_id=${g.id}`);
     } else {
       onOpen(g);
     }

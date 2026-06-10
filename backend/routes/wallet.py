@@ -26,6 +26,18 @@ class SpendIn(BaseModel):
     notes: str | None = None
 
 
+class WithdrawIn(BaseModel):
+    """User-initiated withdrawal request. No KYC — winners are contacted
+    manually after the tournament with a payout link.
+    """
+    amount_ngn: int = Field(ge=500, le=10_000_000)
+    method: str = Field(pattern="^(bank_ngn|usdt|btc|paypal|wise)$")
+    # Destination is opaque on purpose — admin reads from the audit doc.
+    destination: dict = Field(default_factory=dict)
+    country_code: str | None = None
+    notes: str | None = None
+
+
 async def _ensure_wallet(user_id: str) -> dict:
     db = get_db()
     w = await db.user_wallets.find_one({"user_id": user_id}, {"_id": 0})
@@ -84,8 +96,8 @@ async def spend(body: SpendIn, user: dict = Depends(a.get_current_user)):
     w = await _ensure_wallet(user["id"])
     if (w.get("balance_ngn") or 0) < body.amount_ngn:
         raise HTTPException(status_code=402, detail="Insufficient wallet balance")
-    if body.type == "withdrawal" and not w.get("kyc_verified"):
-        raise HTTPException(status_code=403, detail="KYC verification required for withdrawals")
+    # KYC has been removed for withdrawals — winners are contacted manually
+    # after the tournament, so we don't gate the wallet `spend` flow on it.
     new_balance = (w.get("balance_ngn") or 0) - body.amount_ngn
     await db.user_wallets.update_one(
         {"user_id": user["id"]},
@@ -123,3 +135,68 @@ async def credit_winnings(body: DepositIn, user_id: str, user: dict = Depends(a.
     await db.wallet_transactions.insert_one(tx)
     tx.pop("_id", None)
     return {"ok": True, "balance_ngn": new_balance, "transaction": tx}
+
+
+@router.post("/withdraw")
+async def request_withdrawal(body: WithdrawIn, user: dict = Depends(a.get_current_user)):
+    """User submits a withdrawal request. Funds are escrowed (`balance_ngn`
+    deducted, `pending_withdrawals` incremented) and a row is added to
+    `withdrawal_requests` for an admin to process.
+
+    Open to all countries. No KYC; we contact winners post-tournament.
+    Method options:
+      • `bank_ngn`   — Nigerian local transfer.
+      • `usdt`/`btc` — crypto address.
+      • `paypal`     — PayPal email (most international users).
+      • `wise`       — Wise / bank wire (USD).
+    """
+    db = get_db()
+    w = await _ensure_wallet(user["id"])
+    if (w.get("balance_ngn") or 0) < body.amount_ngn:
+        raise HTTPException(status_code=402, detail="Insufficient wallet balance")
+
+    # Escrow funds — move balance into pending.
+    new_balance = (w.get("balance_ngn") or 0) - body.amount_ngn
+    await db.user_wallets.update_one(
+        {"user_id": user["id"]},
+        {"$inc": {"balance_ngn": -body.amount_ngn, "pending_withdrawals_ngn": body.amount_ngn},
+         "$set": {"updated_at": datetime.now(timezone.utc).isoformat()}},
+    )
+    req_id = new_id()
+    await db.withdrawal_requests.insert_one({
+        "id": req_id,
+        "user_id": user["id"],
+        "amount_ngn": body.amount_ngn,
+        "method": body.method,
+        "destination": body.destination,
+        "country_code": body.country_code or user.get("country_code"),
+        "status": "pending",   # pending → approved → paid (or rejected → refunds)
+        "notes": body.notes,
+        "created_at": datetime.now(timezone.utc).isoformat(),
+    })
+    tx = {
+        "id": new_id(), "user_id": user["id"], "type": "withdrawal",
+        "amount_ngn": -body.amount_ngn, "balance_after": new_balance,
+        "reference": req_id,
+        "metadata": {"method": body.method, "country_code": body.country_code},
+        "created_at": datetime.now(timezone.utc).isoformat(),
+    }
+    await db.wallet_transactions.insert_one(tx)
+    tx.pop("_id", None)
+    return {
+        "ok": True,
+        "request_id": req_id,
+        "balance_ngn": new_balance,
+        "status": "pending",
+        "message": "Your withdrawal is queued. Winners are contacted within 7 days after the tournament finals.",
+    }
+
+
+@router.get("/withdrawals")
+async def my_withdrawals(user: dict = Depends(a.get_current_user)):
+    """List the current user's withdrawal history."""
+    db = get_db()
+    rows = await db.withdrawal_requests.find(
+        {"user_id": user["id"]}, {"_id": 0},
+    ).sort("created_at", -1).limit(50).to_list(length=50)
+    return {"withdrawals": rows}

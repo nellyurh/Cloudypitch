@@ -189,13 +189,25 @@ async def recharge_card(body: RechargeIn, user: dict = Depends(a.get_current_use
 
 
 async def _referrer_credit(db, buyer_user_id: str, amount_cents: int):
-    """When the buyer was referred by someone, increment that referrer's earnings counter."""
+    """When the buyer was referred by someone, increment that referrer's earnings counter.
+
+    Two effects on the referrer:
+      1. USD credit (10% of the spend) — counted in the referrals leaderboard.
+      2. Fantasy leaderboard points — +50 one-time bonus the first time their
+         referred user spends ANY money (activates the referral) so the referrer
+         climbs both the referral AND the main fantasy leaderboards.
+    """
     buyer = await db.users.find_one({"id": buyer_user_id}, {"_id": 0, "referred_by_user_id": 1})
     if not buyer or not buyer.get("referred_by_user_id"):
         return
     referrer_id = buyer["referred_by_user_id"]
     # 10% kickback as referral credit (for leaderboard ranking only — not actual money)
     credit = int(amount_cents * 0.10)
+    existing = await db.referrals.find_one(
+        {"referrer_user_id": referrer_id, "referred_user_id": buyer_user_id},
+        {"_id": 0, "referred_spend_usd_cents": 1},
+    )
+    was_inactive = not existing or (existing.get("referred_spend_usd_cents") or 0) == 0
     await db.referrals.update_one(
         {"referrer_user_id": referrer_id, "referred_user_id": buyer_user_id},
         {
@@ -206,6 +218,27 @@ async def _referrer_credit(db, buyer_user_id: str, amount_cents: int):
                 "joined_at": datetime.now(timezone.utc).isoformat(),
                 "status": "active",
             },
+            "$set": {"status": "active", "activated_at": datetime.now(timezone.utc).isoformat()},
         },
         upsert=True,
     )
+    # First-activation bonus on the main fantasy leaderboard.
+    if was_inactive and amount_cents > 0:
+        REFERRAL_BONUS_POINTS = 50
+        sq = await db.fantasy_squads.find_one({"user_id": referrer_id}, {"_id": 0, "id": 1})
+        if sq:
+            await db.fantasy_squads.update_one(
+                {"id": sq["id"]},
+                {"$inc": {"total_points": REFERRAL_BONUS_POINTS, "referral_bonus_points": REFERRAL_BONUS_POINTS}},
+            )
+        await db.audit_log.insert_one({
+            "id": new_id(),
+            "user_id": referrer_id,
+            "action": "referral_bonus_awarded",
+            "metadata": {
+                "referred_user_id": buyer_user_id,
+                "points": REFERRAL_BONUS_POINTS,
+                "first_spend_usd_cents": amount_cents,
+            },
+            "created_at": datetime.now(timezone.utc).isoformat(),
+        })

@@ -93,26 +93,57 @@ async def create_dynamic_account(body: PocketFiAccountIn, user: dict = Depends(a
     if body.bvn:
         payload["bvn"] = body.bvn
 
-    try:
-        async with httpx.AsyncClient(
-            base_url=POCKETFI_BASE_URL,
-            headers={
-                "Authorization": f"Bearer {POCKETFI_PUBLIC_KEY}",
-                "Content-Type": "application/json",
-                "Accept": "application/json",
-            },
-            timeout=httpx.Timeout(15.0, connect=10.0),
-        ) as client:
-            resp = await client.post("/virtual-accounts/create", json=payload)
-    except httpx.TimeoutException:
-        raise HTTPException(status_code=504, detail="PocketFi timed out — please retry.")
-    except httpx.HTTPError as e:
-        log.warning(f"PocketFi network error: {e}")
-        raise HTTPException(status_code=502, detail="PocketFi network error")
+    # PocketFi has had intermittent 500s on individual banks during the WC ramp-up.
+    # Retry once with a fallback bank when the chosen bank errors so users can
+    # still deposit. Order tuned for highest uptime: kuda → providus → wema → vfd.
+    FALLBACK_BANKS = ["kuda", "providus", "wema", "vfd"]
+    tried_banks = [bank] + [b for b in FALLBACK_BANKS if b != bank and b in ALLOWED_BANKS]
+    last_err: str | None = None
+    resp = None
 
-    if resp.status_code >= 400:
-        log.warning(f"PocketFi {resp.status_code}: {resp.text[:200]}")
+    for try_bank in tried_banks[:3]:  # cap at 3 tries
+        payload["bank"] = try_bank
+        try:
+            async with httpx.AsyncClient(
+                base_url=POCKETFI_BASE_URL,
+                headers={
+                    "Authorization": f"Bearer {POCKETFI_PUBLIC_KEY}",
+                    "Content-Type": "application/json",
+                    "Accept": "application/json",
+                },
+                timeout=httpx.Timeout(15.0, connect=10.0),
+            ) as client:
+                resp = await client.post("/virtual-accounts/create", json=payload)
+        except httpx.TimeoutException:
+            last_err = f"{try_bank}: timeout"
+            log.warning(f"PocketFi timeout on {try_bank}")
+            continue
+        except httpx.HTTPError as e:
+            last_err = f"{try_bank}: {e}"
+            log.warning(f"PocketFi network error on {try_bank}: {e}")
+            continue
+
+        if resp.status_code < 400:
+            break
+        # 5xx → try next bank; 4xx → fail immediately (likely bad input).
+        if resp.status_code >= 500:
+            last_err = f"{try_bank}: upstream {resp.status_code}"
+            log.warning(f"PocketFi {resp.status_code} on {try_bank}: {resp.text[:200]}")
+            continue
+        # 4xx — surface to user
+        log.warning(f"PocketFi {resp.status_code} on {try_bank}: {resp.text[:200]}")
         raise HTTPException(status_code=502, detail=f"PocketFi error: {resp.text[:200]}")
+
+    if resp is None or resp.status_code >= 400:
+        # All banks failed — guide user to crypto fallback.
+        raise HTTPException(
+            status_code=503,
+            detail=(
+                "PocketFi's NGN deposit service is temporarily down. "
+                "Please use the Crypto (Trybit) tab to deposit instead, or try again in a few minutes. "
+                f"(diagnostic: {last_err})"
+            ),
+        )
     data = resp.json() if resp.text else {}
     if not data.get("status"):
         raise HTTPException(status_code=502, detail=f"PocketFi rejected: {data}")

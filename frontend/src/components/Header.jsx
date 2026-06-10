@@ -233,26 +233,27 @@ export const Header = () => {
               <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-cp-muted" />
               <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search teams, leagues…" className="cp-input pl-8 text-sm" data-testid="mobile-search-input"/>
             </form>
-            <Link to="/worldcup" onClick={() => setDrawer(false)} className="cp-btn-ghost justify-start" data-testid="drawer-wc"><Trophy size={14} className="text-cp-lime"/> WC 2026</Link>
-            <Link to="/predictions" onClick={() => setDrawer(false)} className="cp-btn-ghost justify-start" data-testid="drawer-predictions"><Target size={14}/> Predictions</Link>
-            <Link to="/fantasy" onClick={() => setDrawer(false)} className="cp-btn-ghost justify-start" data-testid="drawer-fantasy"><ShieldCheck size={14}/> Fantasy & WC Games</Link>
-            <Link to="/build-team" onClick={() => setDrawer(false)} className="cp-btn-ghost justify-start" data-testid="drawer-build-team"><ShieldCheck size={14}/> Build a Team</Link>
-            <Link to="/my-teams" onClick={() => setDrawer(false)} className="cp-btn-ghost justify-start" data-testid="drawer-my-teams"><ShieldCheck size={14}/> My Teams</Link>
-            <Link to="/cards" onClick={() => setDrawer(false)} className="cp-btn-ghost justify-start" data-testid="drawer-cards"><Crown size={14}/> Legend Cards</Link>
-            <Link to="/leaderboards" onClick={() => setDrawer(false)} className="cp-btn-ghost justify-start" data-testid="drawer-leaderboards"><Trophy size={14}/> Leaderboards</Link>
-            <Link to="/prize-pools" onClick={() => setDrawer(false)} className="cp-btn-ghost justify-start" data-testid="drawer-pools"><Coins size={14}/> Prize Pools</Link>
-            <div className="border-t my-2" style={{ borderColor: "var(--cp-border)" }} />
             {user ? (
               <>
-                <Link to="/profile" onClick={() => setDrawer(false)} className="cp-btn-ghost justify-start" data-testid="drawer-profile"><User size={14}/> Profile</Link>
-                <Link to="/wallet" onClick={() => setDrawer(false)} className="cp-btn-ghost justify-start" data-testid="drawer-wallet"><Coins size={14} className="text-cp-lime"/> Wallet</Link>
-                <Link to="/premium" onClick={() => setDrawer(false)} className="cp-btn-ghost justify-start" data-testid="drawer-premium"><Crown size={14} className="text-cp-lime"/> {user?.is_premium ? "Premium ✓" : "Go Premium"}</Link>
-                <Link to="/referrals" onClick={() => setDrawer(false)} className="cp-btn-ghost justify-start" data-testid="drawer-referrals"><Target size={14} className="text-cp-lime"/> Invite & Earn</Link>
-                {user.role === "admin" && <Link to="/admin" onClick={() => setDrawer(false)} className="cp-btn-ghost justify-start" data-testid="drawer-admin"><ShieldCheck size={14}/> Admin</Link>}
+                {/* When signed in, the full menu lives in /profile — drawer is a quick jump. */}
+                <Link to="/profile" onClick={() => setDrawer(false)} className="cp-btn-primary justify-start gap-2" data-testid="drawer-profile-hub">
+                  <User size={14}/> Open full menu in Profile →
+                </Link>
+                <div className="border-t my-2" style={{ borderColor: "var(--cp-border)" }} />
+                <Link to="/worldcup"    onClick={() => setDrawer(false)} className="cp-btn-ghost justify-start" data-testid="drawer-wc"><Trophy size={14} className="text-cp-lime"/> WC26</Link>
+                <Link to="/fantasy"     onClick={() => setDrawer(false)} className="cp-btn-ghost justify-start" data-testid="drawer-fantasy"><ShieldCheck size={14}/> Fantasy</Link>
+                <Link to="/my-teams"    onClick={() => setDrawer(false)} className="cp-btn-ghost justify-start" data-testid="drawer-my-teams"><ShieldCheck size={14}/> My Teams</Link>
+                <Link to="/wallet"      onClick={() => setDrawer(false)} className="cp-btn-ghost justify-start" data-testid="drawer-wallet"><Coins size={14} className="text-cp-lime"/> Wallet</Link>
                 <button onClick={async () => { await signout(); setDrawer(false); nav("/"); }} className="cp-btn-ghost justify-start" data-testid="drawer-signout"><LogOut size={14}/> Sign out</button>
               </>
             ) : (
               <>
+                <Link to="/worldcup"    onClick={() => setDrawer(false)} className="cp-btn-ghost justify-start" data-testid="drawer-wc"><Trophy size={14} className="text-cp-lime"/> WC26</Link>
+                <Link to="/predictions" onClick={() => setDrawer(false)} className="cp-btn-ghost justify-start" data-testid="drawer-predictions"><Target size={14}/> Predictions</Link>
+                <Link to="/fantasy"     onClick={() => setDrawer(false)} className="cp-btn-ghost justify-start" data-testid="drawer-fantasy"><ShieldCheck size={14}/> Fantasy & WC Games</Link>
+                <Link to="/cards"       onClick={() => setDrawer(false)} className="cp-btn-ghost justify-start" data-testid="drawer-cards"><Crown size={14}/> Legend Cards</Link>
+                <Link to="/leaderboards" onClick={() => setDrawer(false)} className="cp-btn-ghost justify-start" data-testid="drawer-leaderboards"><Trophy size={14}/> Leaderboards</Link>
+                <div className="border-t my-2" style={{ borderColor: "var(--cp-border)" }} />
                 <Link to="/signin" onClick={() => setDrawer(false)} className="cp-btn-ghost justify-start" data-testid="drawer-signin">Sign in</Link>
                 <Link to="/signup" onClick={() => setDrawer(false)} className="cp-btn-primary justify-center" data-testid="drawer-signup">Sign up free</Link>
               </>
