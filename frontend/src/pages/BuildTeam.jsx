@@ -94,22 +94,28 @@ function PlayerPic({ player, size = 56, posColor = "#A3E635" }) {
   );
 }
 
-/** A pitch slot — either populated or an empty "+ add" tile */
+/** A pitch slot — either populated or an empty "+ add" tile.
+ *  Sizes scale on mobile so 7-wide defender rows (5-4-1 / 5-3-2) don't clip. */
 function PitchSlot({ pos, picked, onPick, onTap, isCaptain, isVice, isBench, opponentCode }) {
   if (!picked) {
     return (
       <button
         onClick={() => onPick(pos)}
-        className="flex flex-col items-center min-w-0 w-full max-w-[92px] gap-1 hover:scale-105 transition"
+        className="flex flex-col items-center min-w-0 w-full max-w-[64px] sm:max-w-[92px] gap-1 hover:scale-105 transition"
         data-testid={`pitch-slot-empty-${pos}`}
       >
         <span
-          className="rounded-full flex items-center justify-center text-cp-forest font-extrabold text-xl shadow"
-          style={{ width: 56, height: 56, background: "rgba(255,255,255,0.85)", border: "2px dashed rgba(255,255,255,0.7)" }}
+          className="rounded-full flex items-center justify-center text-cp-forest font-extrabold text-sm sm:text-xl shadow"
+          style={{
+            width: "clamp(36px, 11vw, 56px)",
+            height: "clamp(36px, 11vw, 56px)",
+            background: "rgba(255,255,255,0.85)",
+            border: "2px dashed rgba(255,255,255,0.7)",
+          }}
         >
           +
         </span>
-        <span className="text-[9px] font-bold px-1 rounded text-center" style={{ background: "rgba(0,0,0,0.55)", color: "#fff" }}>
+        <span className="text-[8px] sm:text-[9px] font-bold px-1 rounded text-center" style={{ background: "rgba(0,0,0,0.55)", color: "#fff" }}>
           {pos}
         </span>
       </button>
@@ -117,32 +123,75 @@ function PitchSlot({ pos, picked, onPick, onTap, isCaptain, isVice, isBench, opp
   }
   const lastName = (picked.name || "?").split(" ").slice(-1)[0];
   return (
-    <div className={`flex flex-col items-center min-w-0 max-w-[92px] w-full ${isBench ? "opacity-70" : ""}`} data-testid={`pitch-slot-${picked.id}`}>
+    <div className={`flex flex-col items-center min-w-0 max-w-[64px] sm:max-w-[92px] w-full ${isBench ? "opacity-70" : ""}`} data-testid={`pitch-slot-${picked.id}`}>
       <button
         onClick={() => onTap(picked)}
         className="relative hover:scale-105 transition"
-        title={isCaptain ? "Captain" : isVice ? "Vice-captain" : (isBench ? "On bench — tap to start" : "Tap to bench / remove")}
+        title={isCaptain ? "Captain" : isVice ? "Vice-captain" : (isBench ? "On bench — tap to start" : "Tap for player info / remove")}
       >
-        <PlayerPic player={picked} size={56} posColor={POS_COLOR[pos]} />
+        <ResponsivePlayerPic player={picked} posColor={POS_COLOR[pos]}/>
         {isCaptain && (
-          <span className="absolute -top-1 -right-1 bg-cp-lime text-cp-forest text-[9px] font-extrabold w-5 h-5 rounded-full flex items-center justify-center ring-2 ring-black/40 z-10" data-testid={`captain-${picked.id}`}>C</span>
+          <span className="absolute -top-1 -right-1 bg-cp-lime text-cp-forest text-[8px] sm:text-[9px] font-extrabold w-4 h-4 sm:w-5 sm:h-5 rounded-full flex items-center justify-center ring-2 ring-black/40 z-10" data-testid={`captain-${picked.id}`}>C</span>
         )}
         {isVice && (
-          <span className="absolute -top-1 -right-1 bg-white text-cp-forest text-[9px] font-extrabold w-5 h-5 rounded-full flex items-center justify-center ring-2 ring-black/40 z-10" data-testid={`vice-${picked.id}`}>V</span>
+          <span className="absolute -top-1 -right-1 bg-white text-cp-forest text-[8px] sm:text-[9px] font-extrabold w-4 h-4 sm:w-5 sm:h-5 rounded-full flex items-center justify-center ring-2 ring-black/40 z-10" data-testid={`vice-${picked.id}`}>V</span>
         )}
         {isBench && (
-          <span className="absolute -bottom-1 right-0 bg-amber-400 text-cp-forest text-[8px] font-extrabold px-1 rounded ring-1 ring-black/40 z-10" data-testid={`bench-${picked.id}`}>B</span>
+          <span className="absolute -bottom-1 right-0 bg-amber-400 text-cp-forest text-[7px] sm:text-[8px] font-extrabold px-1 rounded ring-1 ring-black/40 z-10" data-testid={`bench-${picked.id}`}>B</span>
         )}
       </button>
-      <div className="mt-1 w-full max-w-[88px]">
-        <div className="text-[10px] font-extrabold leading-tight px-1 py-0.5 rounded-t truncate text-center" style={{ background: "#3B5BDB", color: "#fff" }}>
+      <div className="mt-1 w-full">
+        <div className="text-[8px] sm:text-[10px] font-extrabold leading-tight px-0.5 py-0.5 rounded-t truncate text-center" style={{ background: "#3B5BDB", color: "#fff" }}>
           {lastName}
         </div>
-        <div className="text-[9px] font-bold leading-tight px-1 py-0.5 rounded-b truncate text-center" style={{ background: "#FFFFFF", color: "#1A1F26" }}>
+        <div className="text-[7px] sm:text-[9px] font-bold leading-tight px-0.5 py-0.5 rounded-b truncate text-center" style={{ background: "#FFFFFF", color: "#1A1F26" }}>
           {opponentCode || fmt(picked.price)}
         </div>
       </div>
     </div>
+  );
+}
+
+/** PlayerPic sized via clamp() so mobile 4-7-DEF rows don't clip. */
+function ResponsivePlayerPic({ player, posColor }) {
+  const initials = (player?.name || "?").split(" ").slice(-1)[0].slice(0, 1).toUpperCase();
+  const photo = player?.photo_url;
+  const flag = flagUrl(player?.country, 80);
+  return (
+    <span
+      className="relative inline-block"
+      style={{ width: "clamp(36px, 11vw, 56px)", height: "clamp(36px, 11vw, 56px)" }}
+    >
+      <span
+        className="absolute inset-0 rounded-full overflow-hidden flex items-center justify-center"
+        style={{
+          background: photo ? "#fff" : posColor,
+          boxShadow: "0 2px 6px rgba(0,0,0,0.25), inset 0 0 0 2px rgba(255,255,255,0.9)",
+        }}
+      >
+        {photo ? (
+          <img src={photo} alt={player?.name || ""} loading="lazy"
+            style={{ width: "100%", height: "100%", objectFit: "cover", objectPosition: "top center" }}
+            onError={(e) => { e.currentTarget.style.display = "none"; }}
+          />
+        ) : (
+          <span className="text-cp-forest font-extrabold text-sm sm:text-xl">{initials}</span>
+        )}
+      </span>
+      {flag && (
+        <img src={flag} alt={player?.country || ""}
+          className="absolute"
+          style={{
+            left: -2, bottom: -2,
+            width: "clamp(14px, 4.2vw, 20px)",
+            height: "clamp(10px, 3vw, 14px)",
+            objectFit: "cover", borderRadius: 3,
+            border: "1.5px solid #fff",
+            boxShadow: "0 1px 3px rgba(0,0,0,0.4)",
+          }}
+        />
+      )}
+    </span>
   );
 }
 

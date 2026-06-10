@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import api from "../lib/api";
 import { useAuth, formatApiErr } from "../lib/auth";
+import { flagUrl } from "../lib/flags";
 import { Trophy, Clock, Users, Sparkles, Lock, Check, AlertTriangle } from "lucide-react";
 
 const POSITIONS = ["GK", "DEF", "MID", "FWD"];
@@ -39,6 +40,25 @@ function GameCard({ g, onOpen }) {
       onOpen(g);
     }
   };
+  // Pull the team flags / names this game involves. Match-mode → 2 teams.
+  // Group/matchday/round → up to ~16 teams; we render the first 4 flags as
+  // a compact strip and a "+N more" pill when there are extras.
+  const countries = (g.eligible_country_names && g.eligible_country_names.length > 0)
+    ? g.eligible_country_names
+    : (g.game_type === "match" && g.match_info)
+      ? [g.match_info.home_team_name, g.match_info.away_team_name].filter(Boolean)
+      : [];
+
+  const headline = (() => {
+    if (g.game_type === "match" && g.match_info?.home_team_name) {
+      return `${g.match_info.home_team_name} vs ${g.match_info.away_team_name}`;
+    }
+    if (g.game_type === "group") return `Group ${g.group_letter || ""}${g.matchday ? ` · MD${g.matchday}` : ""}`;
+    if (g.game_type === "round")  return `${STAGE_LABEL[g.stage] || g.stage} — tournament-wide`;
+    if (g.game_type === "matchday") return `Matchday ${g.matchday}`;
+    return "Mini-game";
+  })();
+
   return (
     <button
       onClick={handleClick}
@@ -53,16 +73,46 @@ function GameCard({ g, onOpen }) {
           {STAGE_LABEL[g.stage] || g.stage}
         </span>
       </div>
-      <div className="text-sm font-bold leading-tight">
-        {g.game_type === "group" ? `Group ${g.group_letter} · MD${g.matchday}` : g.game_type === "round" ? `${STAGE_LABEL[g.stage] || g.stage} – tournament-wide` : "Single match"}
-      </div>
+
+      {/* Team flags / names that this game involves. Match → big two-flag matchup card.
+          Group / matchday / round → compact horizontal flag strip + names. */}
+      {g.game_type === "match" && countries.length === 2 ? (
+        <div className="flex items-center gap-2 py-1">
+          <div className="flex flex-col items-center flex-1 min-w-0">
+            <FlagChip country={countries[0]} size={36}/>
+            <span className="text-[11px] font-extrabold mt-1 truncate w-full text-center">{countries[0]}</span>
+          </div>
+          <span className="text-[10px] font-bold opacity-60">VS</span>
+          <div className="flex flex-col items-center flex-1 min-w-0">
+            <FlagChip country={countries[1]} size={36}/>
+            <span className="text-[11px] font-extrabold mt-1 truncate w-full text-center">{countries[1]}</span>
+          </div>
+        </div>
+      ) : countries.length > 0 ? (
+        <>
+          <div className="text-sm font-bold leading-tight truncate">{headline}</div>
+          <div className="flex items-center gap-1 flex-wrap">
+            {countries.slice(0, 6).map((c) => (
+              <FlagChip key={c} country={c} size={16} title={c}/>
+            ))}
+            {countries.length > 6 && (
+              <span className="text-[10px] font-bold px-1.5 py-0.5 rounded" style={{ background: "var(--cp-surface-2)", color: "var(--cp-text-muted)" }}>
+                +{countries.length - 6}
+              </span>
+            )}
+          </div>
+        </>
+      ) : (
+        <div className="text-sm font-bold leading-tight">{headline}</div>
+      )}
+
       <div className="flex items-center gap-3 text-[11px]" style={{ color: "var(--cp-text-muted)" }}>
         <span className="inline-flex items-center gap-1"><Clock size={11}/>{t.label} {new Date(t.at).toLocaleString([], { weekday: "short", month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })}</span>
         <span className="inline-flex items-center gap-1"><Users size={11}/>{g.total_entries || 0}</span>
       </div>
       <div className="flex items-center justify-between">
         <span className="text-[10px]" style={{ color: "var(--cp-text-muted)" }}>
-          {(g.eligible_team_ids || []).length} teams · {SQUAD_MODE_FOR_TYPE[g.game_type] === "20" ? "20-man · £120m" : "15-man · £100m"}{SQUAD_MODE_FOR_TYPE[g.game_type] === "20" ? " · Bench Boost" : ""}
+          {SQUAD_MODE_FOR_TYPE[g.game_type] === "20" ? "20-man · €120M" : "15-man · €100M"}{SQUAD_MODE_FOR_TYPE[g.game_type] === "20" ? " · Bench Boost" : ""}
         </span>
         {entered ? (
           <span className="cp-pill text-[10px] font-bold inline-flex items-center gap-1" style={{ background: "rgba(163,230,53,0.15)", color: "#A3E635" }}>
@@ -77,6 +127,28 @@ function GameCard({ g, onOpen }) {
         )}
       </div>
     </button>
+  );
+}
+
+/** Small country flag chip — reused on every game card and the Profile menu. */
+function FlagChip({ country, size = 24, title }) {
+  if (!country) return null;
+  const url = flagUrl(country, Math.max(40, size * 2));
+  if (!url) return (
+    <span className="inline-block rounded-full text-[9px] font-bold flex items-center justify-center"
+      style={{ width: size, height: size, background: "var(--cp-surface-2)", color: "var(--cp-text-muted)" }}>
+      {country.slice(0, 2).toUpperCase()}
+    </span>
+  );
+  return (
+    <img src={url} alt={country} title={title || country}
+      style={{
+        width: size, height: Math.round(size * 0.72),
+        objectFit: "cover", borderRadius: 3,
+        border: "1.5px solid rgba(255,255,255,0.7)",
+        boxShadow: "0 1px 2px rgba(0,0,0,0.4)",
+      }}
+    />
   );
 }
 

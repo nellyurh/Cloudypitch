@@ -62,14 +62,14 @@ async def list_fantasy_players(limit: int = 2000, game_id: Optional[str] = None)
 # ── Mini-game eligibility / pick-rule helpers ──────────────────────────────
 
 async def _eligible_countries_for_game(db, g: dict) -> set[str]:
-    """Resolve the country names eligible for `g`. Different game_types pull
-    from different scopes:
-      • `match`    → the 2 teams in `g.match_info` (home/away).
-      • `group`    → the 4 teams in WC group `g.group_letter`.
-      • `matchday` → every team playing on `g.matchday`.
-      • `round`    → every team in `g.round_label` round (currently group-stage
-                     rounds only — pulls union of matchday or group teams).
+    """Resolve the country names eligible for `g`. Prefers the denormalised
+    `eligible_country_names` field when present (set by the backfill script).
+    Falls back to live joins on `match_info`, `wc2026_groups`, etc.
     """
+    # Fast path — denormalised field (populated by backfill_wc_games_match_info).
+    if g.get("eligible_country_names"):
+        return set(g["eligible_country_names"])
+
     gt = g.get("game_type")
     out: set[str] = set()
 

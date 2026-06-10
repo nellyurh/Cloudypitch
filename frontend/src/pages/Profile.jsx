@@ -60,28 +60,33 @@ export const Profile = () => {
 
   return (
     <div className="max-w-4xl mx-auto pb-10" data-testid="profile-page">
-      {/* Identity card + top-right sign out */}
-      <div className="cp-surface p-5 flex items-center gap-4 flex-wrap">
-        <div className="cp-logo-circle" style={{ width: 56, height: 56, fontSize: 24 }}>
-          {(user.display_name || user.email).slice(0,1).toUpperCase()}
-        </div>
-        <div className="flex-1 min-w-0">
-          <h1 className="text-xl font-extrabold">{user.display_name}</h1>
-          <div className="text-sm" style={{ color: "var(--cp-text-muted)" }}>{user.email}</div>
-          <div className="text-[10px] uppercase tracking-widest mt-1" style={{ color: "var(--cp-text-muted)" }}>
-            {user.country_code} · {user.role}
-            {user.referral_code && <> · <span className="font-bold text-cp-lime">REF · {user.referral_code}</span></>}
-          </div>
-        </div>
+      {/* Identity card + top-right sign out (absolute on small screens so it
+          never wraps under the avatar). */}
+      <div className="cp-surface p-5 relative">
         <button
           onClick={handleSignout}
           disabled={signingOut}
-          className="flex items-center gap-1.5 rounded px-3 py-2 text-xs font-extrabold disabled:opacity-50"
+          className="absolute top-3 right-3 flex items-center gap-1.5 rounded px-2 py-1.5 text-[10px] sm:text-xs font-extrabold disabled:opacity-50"
           style={{ background: "var(--cp-surface-2)", color: "#FF6B7A", border: "1px solid var(--cp-border)" }}
           data-testid="profile-signout"
         >
-          <LogOut size={14}/> {signingOut ? "Signing out…" : "Sign out"}
+          <LogOut size={12}/> <span className="hidden sm:inline">{signingOut ? "Signing out…" : "Sign out"}</span>
         </button>
+        <div className="flex items-center gap-4 pr-16 sm:pr-24">
+          <div className="cp-logo-circle shrink-0" style={{ width: 56, height: 56, fontSize: 24 }}>
+            {(user.display_name || user.email).slice(0,1).toUpperCase()}
+          </div>
+          <div className="flex-1 min-w-0">
+            <h1 className="text-lg sm:text-xl font-extrabold truncate">{user.display_name}</h1>
+            <div className="text-xs sm:text-sm truncate" style={{ color: "var(--cp-text-muted)" }}>{user.email}</div>
+            <div className="text-[10px] uppercase tracking-widest mt-1 flex items-center gap-1.5 flex-wrap" style={{ color: "var(--cp-text-muted)" }}>
+              <span>{user.country_code}</span>
+              <span>·</span>
+              <span>{user.role}</span>
+              {user.referral_code && <span className="font-bold text-cp-lime">· REF · {user.referral_code}</span>}
+            </div>
+          </div>
+        </div>
       </div>
 
       {/* Stat grid */}
