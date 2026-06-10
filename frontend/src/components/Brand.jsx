@@ -2,7 +2,9 @@ import React, { useEffect, useState } from "react";
 import api from "../lib/api";
 
 // Global brand asset cache — loaded once on app boot, mutated by Admin.
-let _brand = { mark: "/cp-mark.png", markUploaded: false, logo: null, logoDark: null, wordmark: null, favicon: null };
+// `loaded` is false until the first `/brand` GET completes; components render
+// a placeholder during that window to avoid the fallback-logo flash.
+let _brand = { mark: "/cp-mark.png", markUploaded: false, logo: null, logoDark: null, wordmark: null, favicon: null, loaded: false };
 const _subs = new Set();
 function _emit() { _subs.forEach(fn => fn(_brand)); _applyFavicon(); }
 
@@ -35,9 +37,14 @@ export async function refreshBrand() {
       logoDark: data.brand_logo_dark_url || null,
       wordmark: data.brand_wordmark_url || null,
       favicon: data.brand_favicon_url || null,
+      loaded: true,
     };
     _emit();
-  } catch (_) {}
+  } catch (_) {
+    // Even on error, mark as loaded so we stop hiding the brand forever.
+    _brand = { ..._brand, loaded: true };
+    _emit();
+  }
 }
 
 function _detectDark() {
@@ -56,7 +63,11 @@ function useBrand() {
   useEffect(() => {
     const fn = (next) => setB({ ...next });
     _subs.add(fn);
-    if (!_brand.logo && !_brand.wordmark) refreshBrand();
+    // Always kick off a refresh on first mount until the cache is populated —
+    // earlier we only refreshed when no logo/wordmark was cached, which meant
+    // first-paint always showed the placeholder mark before swapping in the
+    // real admin-uploaded logo.
+    if (!_brand.loaded) refreshBrand();
     // Watch for theme changes
     const mq = window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)");
     const onTheme = () => setIsDark(_detectDark());
@@ -80,6 +91,42 @@ function useBrand() {
  */
 export const Brand = ({ size = 30, variant = "logo", className = "" }) => {
   const b = useBrand();
+
+  // Render an invisible placeholder of the same approximate footprint while
+  // the first `/brand` fetch is in flight. This prevents the fallback mark
+  // (cp-mark.png + CLOUDYPITCH text) from flashing for ~200ms before the
+  // admin-uploaded logo swaps in. Once `loaded=true`, we render normally.
+  if (!b.loaded && variant === "logo") {
+    const desktopH = Math.max(size * 2.2, 80);
+    return (
+      <span
+        className={`cp-brand-img ${className}`}
+        aria-hidden="true"
+        style={{ display: "inline-block", height: desktopH, width: desktopH * 2.6, visibility: "hidden" }}
+        data-testid="cp-brand-placeholder"
+      />
+    );
+  }
+  if (!b.loaded && variant === "mark") {
+    return (
+      <span
+        className={`cp-brand-mark ${className}`}
+        aria-hidden="true"
+        style={{ width: size, height: size, visibility: "hidden" }}
+        data-testid="cp-brand-mark-placeholder"
+      />
+    );
+  }
+  if (!b.loaded && variant === "text") {
+    return (
+      <span
+        className={className}
+        aria-hidden="true"
+        style={{ display: "inline-block", height: size * 0.55, width: size * 4, visibility: "hidden" }}
+        data-testid="cp-brand-text-placeholder"
+      />
+    );
+  }
 
   // If a combined logo upload exists, use it as a single image (preserves the
   // shipped design exactly as the admin uploaded it — no text appended).

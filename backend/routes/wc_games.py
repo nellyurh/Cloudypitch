@@ -459,3 +459,38 @@ async def admin_open_all_games(admin: dict = Depends(a.require_admin)):
     })
     total = await db.wc_games.count_documents({"status": "open"})
     return {"ok": True, "modified": res.modified_count, "matched": res.matched_count, "now_open_total": total}
+
+
+# ---------- Settlement ----------
+@admin_router.post("/games/{game_id}/settle")
+async def admin_settle_game(
+    game_id: str,
+    force: bool = False,
+    admin: dict = Depends(a.require_admin),
+):
+    """Manually settle a single WC mini-game. Pass `?force=true` to override
+    safety checks (already-settled / matches-not-finished).
+    """
+    from wc_settler import settle_wc_game
+    res = await settle_wc_game(game_id, force=force)
+    await get_db().audit_log.insert_one({
+        "id": new_id(), "user_id": admin["id"], "email": admin.get("email"),
+        "action": "wc_game_settle_manual",
+        "metadata": {"game_id": game_id, "force": force, "result": res},
+        "created_at": _now_iso(),
+    })
+    return res
+
+
+@admin_router.post("/games/settle-due")
+async def admin_settle_due(admin: dict = Depends(a.require_admin)):
+    """Scan all closed/settling games and settle any whose dependent matches
+    are finished. Same job the background loop runs every 5 minutes."""
+    from wc_settler import settle_due_wc_games
+    res = await settle_due_wc_games(limit=200)
+    await get_db().audit_log.insert_one({
+        "id": new_id(), "user_id": admin["id"], "email": admin.get("email"),
+        "action": "wc_games_settle_due_manual",
+        "metadata": res, "created_at": _now_iso(),
+    })
+    return res

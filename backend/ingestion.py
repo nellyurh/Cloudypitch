@@ -2240,6 +2240,22 @@ async def start_background_jobs():
                 log.warning(f"wc-games state tick: {e}")
             await asyncio.sleep(300)
 
+    async def wc_games_settler_loop():
+        """Auto-settle closed WC mini-games whose dependent matches are all FT.
+        Runs every 5 minutes after a short boot delay so user entries get
+        their points + the leaderboards refresh without admin intervention.
+        """
+        from wc_settler import settle_due_wc_games
+        await asyncio.sleep(240)
+        while True:
+            try:
+                res = await settle_due_wc_games(limit=50)
+                if res.get("settled"):
+                    log.info(f"wc-games settler: settled {len(res['settled'])} games")
+            except Exception as e:
+                log.warning(f"wc-games settler: {e}")
+            await asyncio.sleep(300)
+
     async def live_poller():
         while True:
             if "football" in await _enabled_sports():
@@ -2312,3 +2328,4 @@ async def start_background_jobs():
     asyncio.create_task(wc2026_poller())
     asyncio.create_task(wc_games_generator_loop())
     asyncio.create_task(wc_games_state_loop())
+    asyncio.create_task(wc_games_settler_loop())
