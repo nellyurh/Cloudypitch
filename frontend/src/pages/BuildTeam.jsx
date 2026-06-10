@@ -199,21 +199,21 @@ function ResponsivePlayerPic({ player, posColor }) {
 export default function BuildTeam() {
   const { user } = useAuth();
   const [searchParams] = useSearchParams();
-  // ?mode=15 (default, 15 players £100m) | ?mode=20 (20 players £120m for >2-team games)
-  const urlMode = searchParams.get("mode");
+  // Main 15-man WC squad lives at /build-team (no game_id). 20-man mode ONLY
+  // applies to mini-games with >2 teams (group / matchday / round). When a
+  // game_id is present we trust gameRules; otherwise we hard-lock to 15.
   const gameId = searchParams.get("game_id");                  // mini-game scope
-  const [autoMode, setAutoMode] = useState(null); // adopted from saved squad if URL has no ?mode=
   const [gameRules, setGameRules] = useState(null); // {total, budget, max_per_country, slots, ...}
   const [gameTitle, setGameTitle] = useState(null);
-  const mode = gameRules ? String(gameRules.total) : (urlMode === "20" || urlMode === "15" ? urlMode : (autoMode || "15"));
+  const mode = gameRules ? String(gameRules.total) : "15";
   const profile = gameRules
     ? { total: gameRules.total, budget: gameRules.budget, slots: gameRules.slots }
-    : SQUAD_PROFILES[mode] || SQUAD_PROFILES["15"];
+    : SQUAD_PROFILES["15"];
   const POS_LIMIT = profile.slots;
   const BUDGET = profile.budget;
   // Per-team cap (max players from one country). Main 15-man: 2 (anti-stacking).
   // Mini-games carry their own cap from `gameRules.max_per_country`.
-  const MAX_PER_COUNTRY = gameRules?.max_per_country ?? (mode === "15" ? 2 : 3);
+  const MAX_PER_COUNTRY = gameRules?.max_per_country ?? 2;
   const [players, setPlayers] = useState([]);
   const [squad, setSquad] = useState([]);
   const [view, setView] = useState("pitch");
@@ -293,10 +293,13 @@ export default function BuildTeam() {
         const { data } = await api.get(url);
         const sq = gameId ? (data?.game?.my_entry) : (data?.squad);
         if (sq?.players) {
-          if (!urlMode && !gameId && sq.mode && (sq.mode === "15" || sq.mode === "20")) {
-            setAutoMode(sq.mode);
+          // Main squad is hard-locked to 15-man — trim any legacy 20-man rows
+          // so old over-stuffed squads still render cleanly.
+          let picks = sq.players;
+          if (!gameId && picks.length > 15) {
+            picks = picks.slice(0, 15);
           }
-          const hydrated = sq.players.map(sp => ({
+          const hydrated = picks.map(sp => ({
             ...players.find(p => p.id === sp.player_id),
             ...sp,
             id: sp.player_id,
