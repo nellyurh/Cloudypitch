@@ -722,6 +722,8 @@ export default function BuildTeam() {
           allPlayers={players}
           alreadyPickedIds={new Set(squad.map(p => p.id))}
           counts={counts}
+          countryCounts={countryCounts}
+          maxPerCountry={MAX_PER_COUNTRY}
           remaining={remaining}
           onClose={() => setPickerPos(null)}
           onAdd={addPlayer}
@@ -1019,7 +1021,7 @@ function TransferModal({ count, transfersInfo, busy, cur, onClose, onChoice }) {
   );
 }
 
-function PlayerPicker({ position, allPlayers, alreadyPickedIds, counts, remaining, onClose, onAdd, posLimit }) {
+function PlayerPicker({ position, allPlayers, alreadyPickedIds, counts, countryCounts = {}, maxPerCountry = 99, remaining, onClose, onAdd, posLimit }) {
   const [search, setSearch] = useState("");
   const [teamFilter, setTeamFilter] = useState("ALL");
   const [sortBy, setSortBy] = useState("price");
@@ -1029,6 +1031,9 @@ function PlayerPicker({ position, allPlayers, alreadyPickedIds, counts, remainin
     const set = new Set(allPlayers.filter(p => p.position === position).map(p => p.team_name).filter(Boolean));
     return ["ALL", ...Array.from(set).sort()];
   }, [allPlayers, position]);
+
+  // Pre-compute per-country slot counters so each row can render a "3/5" chip.
+  const countriesInUse = Object.entries(countryCounts).filter(([_, n]) => n > 0);
 
   const list = useMemo(() => {
     const q = search.toLowerCase();
@@ -1057,6 +1062,36 @@ function PlayerPicker({ position, allPlayers, alreadyPickedIds, counts, remainin
           <span className="text-xs opacity-60 ml-auto">Bank {fmt(remaining)}</span>
           <button onClick={onClose} className="cp-btn-ghost !p-2 hidden md:inline-flex" data-testid="picker-close"><X size={16}/></button>
         </div>
+
+        {/* Country tally strip — live "Portugal 3/5" chips for every country
+            already on the squad. Helps users see who's still picking room. */}
+        {countriesInUse.length > 0 && (
+          <div className="px-3 pt-2 flex flex-wrap gap-1.5" data-testid="picker-country-tally">
+            {countriesInUse.map(([c, n]) => {
+              const atCap = n >= maxPerCountry;
+              return (
+                <span
+                  key={c}
+                  className="inline-flex items-center gap-1 text-[10px] font-extrabold px-1.5 py-0.5 rounded"
+                  style={{
+                    background: atCap ? "rgba(255, 107, 122, 0.18)" : "var(--cp-surface-2)",
+                    color: atCap ? "#FF6B7A" : "var(--cp-text-muted)",
+                    border: "1px solid " + (atCap ? "rgba(255, 107, 122, 0.4)" : "var(--cp-border)"),
+                  }}
+                  data-testid={`country-chip-${c.replace(/\s+/g, "-")}`}
+                  title={atCap ? `${c} is at the ${maxPerCountry}-player cap` : ""}
+                >
+                  {flagUrl(c, 32) && (
+                    <img src={flagUrl(c, 32)} alt="" style={{ width: 14, height: 10, objectFit: "cover", borderRadius: 2 }}/>
+                  )}
+                  <span className="truncate max-w-[80px]">{c}</span>
+                  <span className="tabular-nums">{n}/{maxPerCountry}</span>
+                </span>
+              );
+            })}
+          </div>
+        )}
+
         <div className="p-3 flex gap-2 shrink-0">
           <div className="relative flex-1">
             <Search size={12} className="absolute left-2 top-1/2 -translate-y-1/2 opacity-50"/>
@@ -1072,7 +1107,7 @@ function PlayerPicker({ position, allPlayers, alreadyPickedIds, counts, remainin
             {teamOptions.map(t => <option key={t} value={t}>{t === "ALL" ? "All teams" : t}</option>)}
           </select>
           <select value={sortBy} onChange={e => setSortBy(e.target.value)} className="cp-input text-xs max-w-[110px]" data-testid="picker-sort">
-            <option value="price">£ High → Low</option>
+            <option value="price">€ High → Low</option>
             <option value="name">Name A–Z</option>
           </select>
         </div>
@@ -1086,7 +1121,9 @@ function PlayerPicker({ position, allPlayers, alreadyPickedIds, counts, remainin
             <ul className="divide-y" style={{ borderColor: "var(--cp-border)" }}>
               {list.map(p => {
                 const tooExpensive = p.price > remaining;
-                const disabled = limitReached || tooExpensive;
+                const countryFull = (countryCounts[p.country] || 0) >= maxPerCountry;
+                const disabled = limitReached || tooExpensive || countryFull;
+                const tallyNow = countryCounts[p.country] || 0;
                 return (
                   <li
                     key={p.id}
@@ -1096,7 +1133,23 @@ function PlayerPicker({ position, allPlayers, alreadyPickedIds, counts, remainin
                     <PlayerPic player={p} size={36} posColor={POS_COLOR[position]}/>
                     <div className="flex-1 min-w-0">
                       <div className="font-bold truncate">{p.name}</div>
-                      <div className="text-[11px] opacity-60 truncate">{p.team_name}{p.shirt_number ? ` · #${p.shirt_number}` : ""}</div>
+                      <div className="text-[11px] opacity-60 truncate flex items-center gap-1.5">
+                        <span>{p.team_name}{p.shirt_number ? ` · #${p.shirt_number}` : ""}</span>
+                        {/* Per-row country counter — appears once a player from
+                            this country has been picked, so users see "3/5"
+                            before they tap to add. */}
+                        {tallyNow > 0 && (
+                          <span className="font-extrabold tabular-nums px-1 rounded"
+                            style={{
+                              background: countryFull ? "rgba(255,107,122,0.18)" : "rgba(163,230,53,0.12)",
+                              color: countryFull ? "#FF6B7A" : "#A3E635",
+                            }}
+                            data-testid={`row-country-tally-${p.id}`}
+                          >
+                            {tallyNow}/{maxPerCountry}
+                          </span>
+                        )}
+                      </div>
                     </div>
                     <div className="font-extrabold text-cp-lime tabular-nums">{fmt(p.price)}</div>
                     <button
@@ -1105,7 +1158,7 @@ function PlayerPicker({ position, allPlayers, alreadyPickedIds, counts, remainin
                       className="rounded px-2.5 py-1.5 text-xs font-extrabold disabled:cursor-not-allowed"
                       style={{ background: disabled ? "var(--cp-surface-2)" : "var(--cp-lime)", color: "var(--cp-forest)" }}
                       data-testid={`picker-add-${p.id}`}
-                      title={tooExpensive ? "Over budget" : limitReached ? "Position full" : "Add"}
+                      title={countryFull ? `${p.country} is at the ${maxPerCountry}-player cap` : tooExpensive ? "Over budget" : limitReached ? "Position full" : "Add"}
                     >
                       <CheckCircle2 size={14}/>
                     </button>

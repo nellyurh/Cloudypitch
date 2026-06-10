@@ -88,7 +88,21 @@ SOFASCORE_PRICES: list[tuple[str, float]] = [
 
 
 def _normalise(s: str) -> str:
-    return re.sub(r"[^a-zà-ÿ]", "", s.lower())
+    # Normalise away combining accents + non-letter chars so "Pulišić" matches
+    # "Pulisic" in the DB.
+    import unicodedata
+    s = unicodedata.normalize("NFKD", s)
+    s = "".join(ch for ch in s if not unicodedata.combining(ch))
+    return re.sub(r"[^a-z]", "", s.lower())
+
+
+# Sofascore listing → real DB surname when they differ.
+SURNAME_ALIASES = {
+    "Casemiro":  "Casimiro",   # legal name on Sportmonks
+    "Bono":      "Bounou",     # Yassine Bounou
+    "Guardiol":  "Gvardiol",
+    "Kadioglu":  "Kadıoğlu",
+}
 
 
 async def main() -> None:
@@ -97,7 +111,9 @@ async def main() -> None:
     updated, ambiguous, missed = 0, 0, []
 
     for surname, price in SOFASCORE_PRICES:
-        key = _normalise(surname)
+        # Apply known sportsmonks → sofascore aliases (e.g. Casemiro→Casimiro)
+        lookup_surname = SURNAME_ALIASES.get(surname, surname)
+        key = _normalise(lookup_surname)
         # Match by surname suffix on `name`. Sportmonks often uses "L. Yamal"
         # or "Lamine Yamal" so we match where any token endswith the key.
         cursor = db.players.find(
