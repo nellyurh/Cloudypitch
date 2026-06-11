@@ -92,7 +92,20 @@ async def unified_leaderboard(scope: str = "global", limit: int = 100):
     wc = await db.wc_game_entries.aggregate(wc_pipeline).to_list(length=5000)
     wc_by = {w["_id"]: w["wc_pts"] for w in wc}
 
+    # Hard requirement: only show users who actually HAVE a squad (main 15-man
+    # OR at least one WC mini-game entry). Users who only signed up but never
+    # built a team shouldn't pollute the leaderboard with 0-point rows.
+    squad_user_ids = set()
+    main_squads = await db.fantasy_squads.find({}, {"_id": 0, "user_id": 1}).to_list(length=10000)
+    for s in main_squads:
+        if s.get("user_id"): squad_user_ids.add(s["user_id"])
+    wc_entries_users = await db.wc_game_entries.find({}, {"_id": 0, "user_id": 1}).to_list(length=10000)
+    for e in wc_entries_users:
+        if e.get("user_id"): squad_user_ids.add(e["user_id"])
+
     user_ids = list(set(pred_by) | set(fan_by) | set(wc_by))
+    # Apply the squad-presence filter
+    user_ids = [uid for uid in user_ids if uid in squad_user_ids]
     if not user_ids:
         return await _empty_with_pool(db)
     rows = await db.users.find(

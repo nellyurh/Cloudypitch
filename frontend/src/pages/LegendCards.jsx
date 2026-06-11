@@ -226,9 +226,17 @@ function HistoryTab({ user }) {
                   → <b style={{ color: "var(--cp-text)" }}>{tp.name || "—"}</b>
                   {tp.team_name ? <span className="opacity-70"> · {tp.team_name}</span> : null}
                 </div>
+                {r.source === "main_squad" && r.squad_name && (
+                  <div className="text-[10px] opacity-60">in {r.squad_name}</div>
+                )}
+                {r.points_scored != null && (
+                  <div className="text-[10px] text-cp-lime font-bold">+{r.points_scored} pts · rank #{r.rank_in_game || "—"}</div>
+                )}
               </div>
               <div className="text-right shrink-0">
-                <div className="text-[11px] cp-pill" style={{ background: "var(--cp-surface-2)", color: "var(--cp-text-muted)" }}>{STAGE_LABEL[g.stage] || g.stage}</div>
+                <div className="text-[10px] cp-pill" style={{ background: "var(--cp-surface-2)", color: r.source === "main_squad" ? "#A3E635" : "var(--cp-text-muted)" }}>
+                  {r.source === "main_squad" ? "Main squad" : (STAGE_LABEL[g.stage] || g.stage || "WC")}
+                </div>
                 <div className="text-[10px] mt-1 tabular-nums" style={{ color: "var(--cp-text-muted)" }}>{r.created_at?.slice(0, 10)}</div>
               </div>
             </li>

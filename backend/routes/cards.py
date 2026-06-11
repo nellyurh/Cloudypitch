@@ -118,31 +118,125 @@ async def my_cards(user: dict = Depends(a.get_current_user)):
 @router.get("/me/history")
 async def my_card_usage_history(user: dict = Depends(a.get_current_user), limit: int = 100):
     """List every card the user has spent — with the game it was used in and the targeted player.
-    Joined: card_uses ← legend_cards ← wc_games ← players (target)."""
+
+    Pulls from THREE sources so nothing is silently missed:
+      1. Legacy `card_uses` collection (older predictions flow).
+      2. New per-player applications in `wc_game_entries.cards_used`
+         (the WC mini-game flow used by `/api/wc/games/{id}/enter`).
+      3. Main 15-man squad cards in `fantasy_squads.applied_cards`.
+
+    Each entry is normalised so the frontend renders one consistent row.
+    """
     db = get_db()
-    rows = await db.card_uses.find(
+
+    # 1) Legacy card_uses rows
+    legacy = await db.card_uses.find(
         {"user_id": user["id"]}, {"_id": 0},
     ).sort("created_at", -1).limit(limit).to_list(length=limit)
-    if not rows:
-        return {"history": []}
-    card_ids = list({r["card_id"] for r in rows if r.get("card_id")})
-    game_ids = list({r["wc_game_id"] for r in rows if r.get("wc_game_id")})
-    player_ids = list({r["target_player_id"] for r in rows if r.get("target_player_id")})
-    cards = await db.legend_cards.find({"id": {"$in": card_ids}}, {"_id": 0}).to_list(length=200)
-    games = await db.wc_games.find({"id": {"$in": game_ids}}, {"_id": 0}).to_list(length=200)
-    players = await db.players.find({"id": {"$in": player_ids}}, {"_id": 0, "id": 1, "name": 1, "team_name": 1, "team_logo": 1, "position": 1}).to_list(length=200)
+
+    # 2) wc_game_entries with cards_used[]
+    wc_entries = await db.wc_game_entries.find(
+        {"user_id": user["id"], "cards_used": {"$exists": True, "$ne": []}},
+        {"_id": 0, "id": 1, "wc_game_id": 1, "cards_used": 1,
+         "created_at": 1, "updated_at": 1, "settled_at": 1,
+         "points_scored": 1, "rank_in_game": 1},
+    ).sort("updated_at", -1).limit(limit).to_list(length=limit)
+
+    # 3) fantasy_squads with applied_cards[]
+    squads = await db.fantasy_squads.find(
+        {"user_id": user["id"], "applied_cards": {"$exists": True, "$ne": []}},
+        {"_id": 0, "id": 1, "applied_cards": 1, "squad_name": 1,
+         "updated_at": 1, "total_points": 1, "competition_id": 1},
+    ).sort("updated_at", -1).limit(limit).to_list(length=limit)
+
+    # Collect ids for batch joins
+    card_ids: set[str] = set()
+    game_ids: set[str] = set()
+    player_ids: set[str] = set()
+    uc_ids: set[str] = set()
+    for r in legacy:
+        if r.get("card_id"): card_ids.add(r["card_id"])
+        if r.get("wc_game_id"): game_ids.add(r["wc_game_id"])
+        if r.get("target_player_id"): player_ids.add(r["target_player_id"])
+    for e in wc_entries:
+        game_ids.add(e["wc_game_id"])
+        for cu in e.get("cards_used", []):
+            if cu.get("user_card_id"): uc_ids.add(cu["user_card_id"])
+            if cu.get("target_player_id"): player_ids.add(cu["target_player_id"])
+    for s in squads:
+        for cu in s.get("applied_cards", []):
+            if cu.get("user_card_id"): uc_ids.add(cu["user_card_id"])
+            if cu.get("target_player_id"): player_ids.add(cu["target_player_id"])
+
+    # Resolve user_card_id → card_id
+    if uc_ids:
+        uc_rows = await db.user_cards.find(
+            {"id": {"$in": list(uc_ids)}}, {"_id": 0, "id": 1, "card_id": 1},
+        ).to_list(length=len(uc_ids))
+        uc_to_card = {r["id"]: r["card_id"] for r in uc_rows}
+        for cid in uc_to_card.values():
+            card_ids.add(cid)
+    else:
+        uc_to_card = {}
+
+    cards = await db.legend_cards.find({"id": {"$in": list(card_ids)}}, {"_id": 0}).to_list(length=200) if card_ids else []
+    games = await db.wc_games.find({"id": {"$in": list(game_ids)}}, {"_id": 0}).to_list(length=200) if game_ids else []
+    players = await db.players.find(
+        {"id": {"$in": list(player_ids)}},
+        {"_id": 0, "id": 1, "name": 1, "team_name": 1, "team_logo": 1, "position": 1, "photo_url": 1},
+    ).to_list(length=400) if player_ids else []
     by_card = {c["id"]: c for c in cards}
     by_game = {g["id"]: g for g in games}
     by_player = {p["id"]: p for p in players}
-    out = []
-    for r in rows:
+
+    out: list[dict] = []
+    # Source 1
+    for r in legacy:
         out.append({
             **r,
+            "source": "legacy",
             "card": by_card.get(r.get("card_id")),
             "game": by_game.get(r.get("wc_game_id")),
             "target_player": by_player.get(r.get("target_player_id")),
         })
-    return {"history": out}
+    # Source 2 — WC mini-game entries
+    for e in wc_entries:
+        for cu in e.get("cards_used", []):
+            card_id = uc_to_card.get(cu.get("user_card_id"))
+            out.append({
+                "id": f"wc_{e['id']}_{cu.get('user_card_id')}",
+                "source": "wc_game",
+                "user_card_id": cu.get("user_card_id"),
+                "card_id": card_id,
+                "wc_game_id": e["wc_game_id"],
+                "target_player_id": cu.get("target_player_id"),
+                "created_at": e.get("updated_at") or e.get("created_at"),
+                "settled_at": e.get("settled_at"),
+                "points_scored": e.get("points_scored"),
+                "rank_in_game": e.get("rank_in_game"),
+                "card": by_card.get(card_id) if card_id else None,
+                "game": by_game.get(e["wc_game_id"]),
+                "target_player": by_player.get(cu.get("target_player_id")),
+            })
+    # Source 3 — main 15-man squad
+    for s in squads:
+        for cu in s.get("applied_cards", []):
+            card_id = uc_to_card.get(cu.get("user_card_id"))
+            out.append({
+                "id": f"sq_{s['id']}_{cu.get('user_card_id')}",
+                "source": "main_squad",
+                "user_card_id": cu.get("user_card_id"),
+                "card_id": card_id,
+                "squad_id": s["id"],
+                "squad_name": s.get("squad_name"),
+                "target_player_id": cu.get("target_player_id"),
+                "created_at": s.get("updated_at"),
+                "card": by_card.get(card_id) if card_id else None,
+                "target_player": by_player.get(cu.get("target_player_id")),
+            })
+    # Sort newest first
+    out.sort(key=lambda r: r.get("created_at") or "", reverse=True)
+    return {"history": out[:limit]}
 
 
 async def _purchase_card_impl(db, user: dict, card_id: str, quantity: int, payment_reference: str | None):

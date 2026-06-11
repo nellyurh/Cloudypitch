@@ -654,7 +654,7 @@ export default function BuildTeam() {
   };
 
   return (
-    <div className="max-w-[1400px] mx-auto p-3 md:p-5" data-testid="build-team-page">
+    <div className="max-w-[1400px] mx-auto p-3 md:p-5 pb-44 lg:pb-5" data-testid="build-team-page">
       {/* Scope banner — clarifies that mini-game squads are independent of the main 15-man. */}
       {gameId && (
         <div

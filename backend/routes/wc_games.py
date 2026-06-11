@@ -285,6 +285,101 @@ async def game_leaderboard(game_id: str, limit: int = 50):
     return {"leaderboard": out}
 
 
+@router.get("/games/{game_id}/entries")
+async def public_game_entries(game_id: str, limit: int = 200):
+    """Transparency view: ONCE a game is `settled`, every entry's lineup +
+    applied cards become publicly visible (alongside the score they got).
+    Before settlement → returns `{visible: false}` so players can't copy
+    each other's strategies.
+
+    Renders enough player + card metadata for the client to build the
+    Sofascore-style team-display sheet without further round-trips.
+    """
+    db = get_db()
+    g = await db.wc_games.find_one({"id": game_id}, {"_id": 0})
+    if not g:
+        raise HTTPException(404, "Game not found")
+    if g.get("status") != "settled":
+        return {"visible": False, "reason": "Game not yet settled — entries hidden until match results are final.",
+                "game": {"id": g["id"], "status": g.get("status"),
+                         "closes_at": g.get("closes_at"),
+                         "settled_at": g.get("settled_at")}}
+
+    rows = await db.wc_game_entries.find(
+        {"wc_game_id": game_id, "settled_at": {"$ne": None}}, {"_id": 0},
+    ).sort("points_scored", -1).limit(limit).to_list(length=limit)
+    if not rows:
+        return {"visible": True, "entries": [], "game": g}
+
+    # Bulk-resolve players + cards + users for display
+    player_ids: set[str] = set()
+    uc_ids: set[str] = set()
+    user_ids: set[str] = set()
+    for r in rows:
+        user_ids.add(r["user_id"])
+        for p in r.get("player_picks", []) or []:
+            if p.get("player_id"): player_ids.add(p["player_id"])
+        for cu in r.get("cards_used", []) or []:
+            if cu.get("user_card_id"): uc_ids.add(cu["user_card_id"])
+            if cu.get("target_player_id"): player_ids.add(cu["target_player_id"])
+
+    players = await db.players.find(
+        {"id": {"$in": list(player_ids)}},
+        {"_id": 0, "id": 1, "name": 1, "team_name": 1, "team_logo": 1, "country": 1,
+         "country_code": 1, "position": 1, "photo_url": 1},
+    ).to_list(length=2000) if player_ids else []
+    by_player = {p["id"]: p for p in players}
+
+    uc_rows = await db.user_cards.find(
+        {"id": {"$in": list(uc_ids)}}, {"_id": 0, "id": 1, "card_id": 1},
+    ).to_list(length=500) if uc_ids else []
+    uc_to_card = {r["id"]: r["card_id"] for r in uc_rows}
+    legend_ids = list({r["card_id"] for r in uc_rows if r.get("card_id")})
+    legends = await db.legend_cards.find(
+        {"id": {"$in": legend_ids}},
+        {"_id": 0, "id": 1, "name": 1, "tier": 1, "position": 1,
+         "effect_type": 1, "effect_value": 1, "player_name": 1, "country_code": 1},
+    ).to_list(length=200) if legend_ids else []
+    by_legend = {l["id"]: l for l in legends}
+
+    users = await db.users.find(
+        {"id": {"$in": list(user_ids)}},
+        {"_id": 0, "id": 1, "display_name": 1, "country_code": 1, "is_premium": 1},
+    ).to_list(length=500) if user_ids else []
+    by_user = {u["id"]: u for u in users}
+
+    out = []
+    for i, r in enumerate(rows, 1):
+        u = by_user.get(r["user_id"], {})
+        cards_resolved = []
+        for cu in r.get("cards_used", []) or []:
+            card_id = uc_to_card.get(cu.get("user_card_id"))
+            cards_resolved.append({
+                "target_player_id": cu.get("target_player_id"),
+                "target_player": by_player.get(cu.get("target_player_id")),
+                "card": by_legend.get(card_id),
+            })
+        out.append({
+            "rank": r.get("rank_in_game") or i,
+            "user_id": r["user_id"],
+            "display_name": u.get("display_name") or "Player",
+            "country_code": u.get("country_code") or "—",
+            "is_premium": bool(u.get("is_premium")),
+            "points_scored": r.get("points_scored", 0),
+            "captain_player_id": r.get("captain_player_id"),
+            "vice_captain_player_id": r.get("vice_captain_player_id"),
+            "captain": by_player.get(r.get("captain_player_id")),
+            "vice_captain": by_player.get(r.get("vice_captain_player_id")),
+            "players": [
+                {**(by_player.get(p["player_id"]) or {"id": p["player_id"], "name": "—"}),
+                 "position_in_squad": p.get("position")}
+                for p in (r.get("player_picks") or [])
+            ],
+            "cards_applied": cards_resolved,
+        })
+    return {"visible": True, "game": g, "entries": out}
+
+
 @router.get("/user/entries")
 async def my_entries(user: dict = Depends(a.get_current_user), limit: int = 100):
     db = get_db()
