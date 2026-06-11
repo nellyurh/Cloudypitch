@@ -68,8 +68,8 @@ async def signup(payload: SignupIn, request: Request, response: Response):
     for c in starter:
         await db.user_cards.insert_one({
             "id": new_id(), "user_id": user["id"], "card_id": c["id"],
-            "uses_remaining": c.get("uses_granted", 5),
-            "uses_left": c.get("uses_granted", 5),
+            "uses_remaining": 1,
+            "uses_left": 1,
             "total_uses": 0,
             "acquired_at": utcnow_iso(),
             "acquired_via": "signup_welcome",

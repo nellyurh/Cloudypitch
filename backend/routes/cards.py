@@ -16,8 +16,8 @@ router = APIRouter(prefix="/api/cards", tags=["cards"])
 
 TIER_PRICE_USD_CENTS = {1: 200, 2: 100, 3: 50}  # $2, $1, $0.50
 RECHARGE_PRICE_USD_CENTS = 20                    # $0.20
-STARTER_USES = 5
-RECHARGE_USES = 5
+STARTER_USES = 1                                 # one card = one use (single-use)
+RECHARGE_USES = 1                                # recharge adds +1 use
 POOL_CONTRIBUTION_RATIO = 0.50  # 50% of revenue → prize pool
 WC_PRIZE_POOL_ID = "pool-cloudypitch-unified"
 
@@ -129,7 +129,7 @@ async def my_card_usage_history(user: dict = Depends(a.get_current_user), limit:
 
 async def _purchase_card_impl(db, user: dict, card_id: str, quantity: int, payment_reference: str | None):
     """Shared purchase implementation. Supports `quantity` ≥ 1 — each copy
-    adds STARTER_USES uses to the user's collection (5 uses per copy)."""
+    grants STARTER_USES (currently 1) use to the user's collection."""
     if quantity < 1 or quantity > 25:
         raise HTTPException(status_code=400, detail="quantity must be between 1 and 25")
     card = await db.legend_cards.find_one({"id": card_id}, {"_id": 0})

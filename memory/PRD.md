@@ -10,7 +10,19 @@ Global multi-sport livescore + predictions + fantasy platform launching for FIFA
 - Sportmonks (football), API-Sports (other sports), Trybit/CryptoCloud (crypto deposits), PocketFi (NGN), Google AdSense
 
 ## Implemented (rolling)
-### 2026-02-10 (this session — part 2: Legend Cards player-targeting + admin price editor)
+### 2026-02-10 (this session — part 3: single-use cards + full-loop simulation proof)
+- **Cards are now SINGLE-USE** — `STARTER_USES = 1`, `RECHARGE_USES = 1`. Updated everywhere uses are granted (auth_routes signup welcome, ads.py rewarded video, payments.py card_purchase / card_recharge webhook, card_drops.py daily-drop fallback). Frontend strings ("+5 uses for $0.20 recharge" → "+1 use", "Watch ad → +5 card uses" → "+1 card use"). Each card = one use only; users buy / earn fresh copies for repeat boosts.
+- **Per-player card boost actually fires in fantasy** — fixed `card_matches` so the new per-player targeting model is honored: in fantasy scope, once the position lock passes, the card always fires (legacy country/continent checks were a relic of the prediction flow and were silently blocking 99% of cards from boosting their explicit target). `captain_boost` / `defense_boost` still gated by role/position; everything else opens up. Prediction-scope rules unchanged.
+- **Full-loop simulation test (`tests/test_simulation_full_loop.py`)** — proves the entire chain works end-to-end without faith. Seeds 2 synthetic teams (Alpha 15-man / Beta 15-man), 1 finished match (Alpha 3-0 Beta with captain FWD scoring 2 + star MID scoring 1), 3 users (A: FWD card "Pelé Spirit" on captain FWD · B: MID card "Maradona Hand" on star MID · C: control, no cards), runs the settler, asserts:
+  - USER A (97 pts · rank 1) > USER C (77 pts) — proves FWD card boosted captain ×2 + ×2.0 (delta = 20 pts, exactly the card uplift)
+  - USER B (93 pts · rank 2) > USER C — proves MID card boosted scorer
+  - `breakdown_by_player` captain row shows `base_points=10, multiplier=2, card_boost=1.0, points=40` for A vs `card_boost=0.0, points=20` for C — captain × card stacking confirmed
+  - `wc_games.status` flipped to `settled`, `settled_entry_count=3`
+  - Leaderboard aggregation pipeline returns the correct A > B > C ranking
+  - `STARTER_USES = 1` asserted (single-use enforced in code)
+  Run: `python /app/backend/tests/test_simulation_full_loop.py` — all 7 phases green.
+
+### 2026-02-10 (part 2 — Legend Cards: player-targeting + admin price editor)
 - **Per-player legend-card targeting on main 15-man squad** — main `Build a Team` now mirrors the WC mini-game pattern: each owned card boosts ONE picked player. New `BoostCardsPanel` + `CardTargetPicker` components, persisted via `applied_cards: [{user_card_id, target_player_id}]` on the `FantasySquadIn` payload. Legacy `applied_card_ids` flat list preserved for backward compatibility.
 - **Position lock on every card** — added `position` field (`GK`/`DEF`/`MID`/`FWD`/`ANY`) to all 101 legend cards. Backend validates in BOTH `/api/wc/games/{id}/enter` AND `/api/fantasy/squad`. `compute_card_boost` honors the lock so settled points only fire when the card's `position` matches the targeted player's. Client gates the target picker (grays out non-matching positions with `FWD only` etc.).
 - **50 named Star cards** — replaced "Star Card 1..50" with curated names ("Vidal Iron Lung", "Cavani El Matador", "Bale Wales Wonder", "Pogba Dab", "Hazard Eden", "Kane Captain", "Saka Star Boy", etc.) — each carries the right player name, country code, AND position. One-time in-place migration so existing user_cards inventories stay valid.

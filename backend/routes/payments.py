@@ -157,12 +157,12 @@ async def _fulfill(intent: dict, paystack_data: dict):
         card_id = intent.get("target_id")
         existing = await db.user_cards.find_one({"user_id": user_id, "card_id": card_id})
         if existing:
-            await db.user_cards.update_one({"id": existing["id"]}, {"$inc": {"uses_remaining": 5, "uses_left": 5}})
+            await db.user_cards.update_one({"id": existing["id"]}, {"$inc": {"uses_remaining": 1, "uses_left": 1}})
         else:
             uc_id = new_id()
             await db.user_cards.insert_one({
                 "id": uc_id, "user_id": user_id, "card_id": card_id,
-                "uses_remaining": 5, "uses_left": 5, "total_uses": 0,
+                "uses_remaining": 1, "uses_left": 1, "total_uses": 0,
                 "acquired_via": "purchase", "purchase_reference": intent["id"],
                 "acquired_at": datetime.now(timezone.utc).isoformat(),
             })
@@ -175,7 +175,7 @@ async def _fulfill(intent: dict, paystack_data: dict):
     elif purpose == "card_recharge":
         await db.user_cards.update_one(
             {"id": intent.get("target_id"), "user_id": user_id},
-            {"$inc": {"uses_remaining": 5, "uses_left": 5}},
+            {"$inc": {"uses_remaining": 1, "uses_left": 1}},
         )
         await db.card_transactions.insert_one({
             "id": new_id(), "user_id": user_id, "user_card_id": intent.get("target_id"),

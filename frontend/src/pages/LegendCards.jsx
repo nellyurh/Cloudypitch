@@ -68,7 +68,7 @@ function BuyCardModal({ card, onClose }) {
     setBusy(true); setMsg(""); setErr("");
     try {
       const { data } = await api.post(`/cards/${card.id}/purchase`, { quantity: qty });
-      setMsg(`✓ +${data.uses_granted || (5 * qty)} uses added to your wallet.`);
+      setMsg(`✓ +${data.uses_granted || qty} use${(data.uses_granted || qty) === 1 ? "" : "s"} added to your wallet.`);
       setTimeout(onClose, 1400);
     } catch (e) {
       setErr(e?.response?.data?.detail || e.message);
@@ -98,7 +98,7 @@ function BuyCardModal({ card, onClose }) {
               <span className="font-extrabold tabular-nums w-8 text-center" data-testid="buy-qty">{qty}</span>
               <button onClick={() => setQty(q => Math.min(10, q + 1))} disabled={busy} className="cp-btn-ghost !p-1.5" data-testid="buy-qty-plus">+</button>
             </div>
-            <div className="text-[11px] opacity-70">+{(card.uses_granted || 5) * qty} uses · ${(unitUsdCents / 100).toFixed(2)} ea.</div>
+            <div className="text-[11px] opacity-70">+{qty} use{qty === 1 ? "" : "s"} · ${(unitUsdCents / 100).toFixed(2)} ea.</div>
             {wallet && (
               <div className="text-[11px] flex items-center gap-1.5" style={{ color: "var(--cp-text-muted)" }}>
                 <Wallet size={11}/> Balance: ${((wallet.balance_usd_cents || 0) / 100).toFixed(2)}
@@ -153,7 +153,7 @@ function MyCardsTab({ user }) {
                 <span className="text-[11px] font-bold tabular-nums" style={{ color: uses === 0 ? "#FF3D52" : "#A3E635" }}>{uses} uses left</span>
               </div>
               <div className="font-extrabold text-sm mt-2">{c.name}</div>
-              <div className="text-[11px] mt-1" style={{ color: "var(--cp-text-muted)" }}>{o.total_uses || 0} times used · +5 uses for $0.20 recharge</div>
+              <div className="text-[11px] mt-1" style={{ color: "var(--cp-text-muted)" }}>{o.total_uses || 0} times used · +1 use for $0.20 recharge</div>
             </div>
           </div>
         );

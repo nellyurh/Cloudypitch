@@ -51,7 +51,7 @@ export const RewardedVideoButton = ({ rewardType = "card_uses" }) => {
         data-testid="rewarded-start"
       >
         <Gift size={14} className="text-cp-lime"/>
-        {rewardType === "card_uses" ? "Watch ad → +5 card uses" : "Watch ad → +50 bonus points"}
+        {rewardType === "card_uses" ? "Watch ad → +1 card use" : "Watch ad → +50 bonus points"}
       </button>
       {phase === "done" && (
         <div className="text-xs mt-2 inline-flex items-center gap-1 text-cp-lime" data-testid="rewarded-success">

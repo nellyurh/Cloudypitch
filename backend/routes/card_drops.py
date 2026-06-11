@@ -79,7 +79,7 @@ async def _grant_card(user_id: str, tier: int, source: str) -> dict | None:
     if not cards:
         return None
     pick = random.choice(cards)
-    uses = pick.get("uses_granted", 5)
+    uses = pick.get("uses_granted", 1)
     existing = await db.user_cards.find_one({"user_id": user_id, "card_id": pick["id"]}, {"_id": 0})
     if existing:
         await db.user_cards.update_one(

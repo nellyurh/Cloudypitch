@@ -251,10 +251,10 @@ async def claim_reward(body: RewardClaimIn, user: dict = Depends(a.get_current_u
             raise HTTPException(status_code=400, detail="No cards to top up")
         await db.user_cards.update_one(
             {"id": uc["id"]},
-            {"$inc": {"uses_remaining": 5, "uses_left": 5}},
+            {"$inc": {"uses_remaining": 1, "uses_left": 1}},
         )
         payload["user_card_id"] = uc["id"]
-        payload["uses_added"] = 5
+        payload["uses_added"] = 1
     else:
         # Add +50 bonus prediction points via a synthetic settled "prediction" row
         bonus_doc = {

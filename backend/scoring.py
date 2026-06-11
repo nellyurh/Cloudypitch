@@ -91,7 +91,8 @@ def card_matches(card: dict, context: dict) -> bool:
     """
     # ---- Position lock (applies to all FANTASY cards) ----
     card_pos = (card.get("position") or "ANY").upper()
-    if context.get("scope") == "fantasy" and card_pos and card_pos != "ANY":
+    is_fantasy = context.get("scope") == "fantasy"
+    if is_fantasy and card_pos and card_pos != "ANY":
         ctx_pos = (context.get("position") or "").upper()
         if ctx_pos != card_pos:
             return False
@@ -99,6 +100,20 @@ def card_matches(card: dict, context: dict) -> bool:
     etype = card.get("effect_type") or "flat_boost"
     ev = card.get("effect_value") or {}
     card_country = (card.get("country_code") or "").upper()
+
+    # ---- Per-player application override (FANTASY only) ----
+    # The new model: when a card is explicitly attached to ONE picked player,
+    # the position lock + the user's choice ARE the constraints. Legacy
+    # country/continent gates only apply in PREDICTION scope (broad effects).
+    # In fantasy scope, once position passes, the card always fires.
+    if is_fantasy:
+        if etype == "captain_boost":
+            return context.get("role") == "captain"
+        if etype == "defense_boost":
+            return (context.get("position") or "").upper() in ("GK", "DEF")
+        # score_boost / outcome_boost / flat_boost / country_boost / continent_boost
+        # → all fire in fantasy once position lock passes.
+        return True
 
     if etype == "flat_boost":
         return True
@@ -116,8 +131,8 @@ def card_matches(card: dict, context: dict) -> bool:
         return context.get("scope") == "fantasy" and context.get("position") == ev.get("position")
     if etype == "role_boost":
         return context.get("scope") == "fantasy" and context.get("role") == (ev.get("role") or "").lower()
-    # ---- Legacy effect_type vocabulary (existing seeds) ----
-    # These all fire when the prediction/squad involves the card's COUNTRY
+    # ---- Legacy effect_type vocabulary (PREDICTION scope only) ----
+    # These all fire when the prediction involves the card's COUNTRY
     if etype in ("score_boost", "outcome_boost"):
         if not card_country:
             return True  # generic boost if no country tag
@@ -125,9 +140,9 @@ def card_matches(card: dict, context: dict) -> bool:
         away_c = (context.get("away_country") or "").upper()
         return card_country in (home_c, away_c)
     if etype == "captain_boost":
-        return context.get("scope") == "fantasy" and context.get("role") == "captain"
+        return False  # only valid in fantasy scope
     if etype == "defense_boost":
-        return context.get("scope") == "fantasy" and context.get("position") in ("GK", "DEF")
+        return False  # only valid in fantasy scope
     return False
 
 
