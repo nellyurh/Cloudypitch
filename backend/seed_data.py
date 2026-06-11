@@ -437,6 +437,29 @@ async def seed_all():
             {"$setOnInsert": set_on_insert, "$set": set_always},
             upsert=True,
         )
+        # ---- SELF-HEAL the base if it was corrupted (issue: previous
+        # `_contribute_to_pool` versions stored card revenue into
+        # `amount_usd_cents` instead of `cards_cut_usd_cents`, so existing
+        # production pools may have `amount_usd_cents` BELOW the seeded
+        # value). Restore the seeded base whenever the live value is lower,
+        # and log the correction to `audit_log` so it's traceable.
+        seeded_base = p.get("amount_usd_cents") or 0
+        live = await db.prize_pools.find_one({"id": p["id"]}, {"_id": 0, "amount_usd_cents": 1})
+        if live and seeded_base and int(live.get("amount_usd_cents") or 0) < seeded_base:
+            old = int(live.get("amount_usd_cents") or 0)
+            await db.prize_pools.update_one(
+                {"id": p["id"]},
+                {"$set": {"amount_usd_cents": seeded_base,
+                          "self_healed_at": utcnow_iso()}},
+            )
+            await db.audit_log.insert_one({
+                "id": new_id(), "user_id": "system", "email": "system@cloudypitch",
+                "action": "prize_pool_self_heal",
+                "metadata": {"pool_id": p["id"], "old_amount_usd_cents": old,
+                             "new_amount_usd_cents": seeded_base,
+                             "reason": "amount_usd_cents below seeded base — corruption from legacy contribution path"},
+                "created_at": utcnow_iso(),
+            })
     # WC groups (one doc per group)
     for g in WC2026_GROUPS:
         await db.wc2026_groups.update_one(

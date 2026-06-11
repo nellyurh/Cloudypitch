@@ -200,6 +200,13 @@ function PrizePoolCard({ pool, isReferrals }) {
 }
 
 function PrizeBreakdown({ pool }) {
+  // On phones the 7-tier grid is too tall, so collapse it behind a tap.
+  // Default-open on ≥sm so desktop users see it at a glance; default-closed
+  // on phones so the leaderboard stays the focus.
+  const [open, setOpen] = React.useState(() => {
+    if (typeof window === "undefined") return true;
+    return window.innerWidth >= 640;
+  });
   const base = pool.base_usd_cents || 0;
   const cardsCut = pool.cards_cut_usd_cents || 0;
   // Mirror backend compute_prize_split for the headline tiers.
@@ -227,14 +234,33 @@ function PrizeBreakdown({ pool }) {
   ];
   return (
     <div className="cp-surface p-3" data-testid="lb-breakdown">
-      <div className="flex items-center justify-between mb-2">
-        <div className="text-[10px] uppercase tracking-widest" style={{ color: "var(--cp-text-muted)" }}>Prize Distribution</div>
-        <div className="text-[9px] flex items-center gap-2" style={{ color: "var(--cp-text-muted)" }}>
-          <span className="inline-flex items-center gap-1"><span className="inline-block w-2 h-2 rounded-full" style={{background: "#A3E635"}}/>Base</span>
-          {cardsCut > 0 && <span className="inline-flex items-center gap-1"><span className="inline-block w-2 h-2 rounded-full" style={{background: "#F5A623"}}/>Cards bonus</span>}
+      <button
+        onClick={() => setOpen(o => !o)}
+        className="w-full flex items-center justify-between mb-2"
+        data-testid="lb-breakdown-toggle"
+        aria-expanded={open}
+      >
+        <div className="text-[10px] uppercase tracking-widest text-left" style={{ color: "var(--cp-text-muted)" }}>Prize Distribution</div>
+        <div className="flex items-center gap-3">
+          <div className="text-[9px] hidden sm:flex items-center gap-2" style={{ color: "var(--cp-text-muted)" }}>
+            <span className="inline-flex items-center gap-1"><span className="inline-block w-2 h-2 rounded-full" style={{background: "#A3E635"}}/>Base</span>
+            {cardsCut > 0 && <span className="inline-flex items-center gap-1"><span className="inline-block w-2 h-2 rounded-full" style={{background: "#F5A623"}}/>Cards bonus</span>}
+          </div>
+          <span className="text-cp-lime text-base leading-none" aria-hidden="true">{open ? "▾" : "▸"}</span>
         </div>
-      </div>
-      <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-2">
+      </button>
+      {!open && (
+        <div className="text-[10px] sm:hidden" style={{ color: "var(--cp-text-muted)" }}>
+          Tap to see 1st–100th payouts (Base + Cards bonus split).
+        </div>
+      )}
+      {open && (
+        <>
+          <div className="text-[9px] flex sm:hidden items-center gap-2 mb-2" style={{ color: "var(--cp-text-muted)" }}>
+            <span className="inline-flex items-center gap-1"><span className="inline-block w-2 h-2 rounded-full" style={{background: "#A3E635"}}/>Base</span>
+            {cardsCut > 0 && <span className="inline-flex items-center gap-1"><span className="inline-block w-2 h-2 rounded-full" style={{background: "#F5A623"}}/>Cards bonus</span>}
+          </div>
+          <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-2">
         {tiers.map(t => {
           const total = t.base + t.bonus;
           return (
@@ -264,7 +290,9 @@ function PrizeBreakdown({ pool }) {
             </div>
           );
         })}
-      </div>
+          </div>
+        </>
+      )}
     </div>
   );
 }

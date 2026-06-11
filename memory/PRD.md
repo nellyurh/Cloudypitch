@@ -10,7 +10,11 @@ Global multi-sport livescore + predictions + fantasy platform launching for FIFA
 - Sportmonks (football), API-Sports (other sports), Trybit/CryptoCloud (crypto deposits), PocketFi (NGN), Google AdSense
 
 ## Implemented (rolling)
-### 2026-02-10 (this session — part 7: NGN/USD wallet conversion + seed fix)
+### 2026-02-10 (this session — part 8: prize-pool self-heal + mobile dropdown)
+- **🚨 Prize-pool self-heal on every boot** — Previous fixes only restored the seeded base when the doc was INSERTED. Production already had a row with `amount_usd_cents=200` (corrupted by legacy `_contribute_to_pool` that wrote card revenue into the base) so the upsert touched only display fields, never the corruption. Now `seed_prize_pools()` runs an integrity check after each upsert: if `live.amount_usd_cents < seeded_base`, force-set to `seeded_base` and write an `audit_log` row tagged `prize_pool_self_heal` with old/new values. **Verified**: deliberately corrupted the pool to $2.00 → restarted backend → leaderboard immediately shows BASE = $2,500.00 again. No more $0.93/$0.53 tiny payouts.
+- **Mobile dropdown for prize distribution** — On phones the 7-tier grid pushed the leaderboard far below the fold and added 400px of scroll. Now `PrizeBreakdown` opens a collapsible `<details>`-style panel — closed by default on <640px viewports (`PRIZE DISTRIBUTION ▸` with helper text "Tap to see 1st–100th payouts"), open by default on desktop. Toggle button has `aria-expanded` for accessibility and a `lb-breakdown-toggle` testid.
+
+### 2026-02-10 (part 7 — NGN/USD wallet conversion + seed fix)
 - **🚨 NGN → USD wallet conversion** — User deposited ₦100 (settlement ₦99) but UI showed `$0.99` because `fmtUsd(balance_ngn)` was treating the NGN amount as USD cents (divide-by-100 fallacy). Now:
   - **Backend webhook** (`/api/webhooks/pocketfi`) reads `app_settings.id='currency'.ngn_per_usd` (defaults to 1,400) and mirrors every NGN credit into `users.wallet_balance_usd_cents` so the same deposit funds both the NGN side AND the USD card-purchase wallet without a separate convert step.
   - **`GET /api/wallet/me`** now returns `wallet_balance_usd_cents` alongside the existing `wallet` doc.
