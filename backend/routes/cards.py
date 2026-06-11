@@ -129,7 +129,12 @@ async def my_card_usage_history(user: dict = Depends(a.get_current_user), limit:
 
 async def _purchase_card_impl(db, user: dict, card_id: str, quantity: int, payment_reference: str | None):
     """Shared purchase implementation. Supports `quantity` ≥ 1 — each copy
-    grants STARTER_USES (currently 1) use to the user's collection."""
+    grants STARTER_USES (currently 1) use to the user's collection.
+
+    Charges the buyer's USD wallet (users.wallet_balance_usd_cents). If they
+    don't have enough → 402 with a friendly message telling them how short
+    they are. 50% of the spend flows to the WC prize pool.
+    """
     if quantity < 1 or quantity > 25:
         raise HTTPException(status_code=400, detail="quantity must be between 1 and 25")
     card = await db.legend_cards.find_one({"id": card_id}, {"_id": 0})
@@ -138,6 +143,30 @@ async def _purchase_card_impl(db, user: dict, card_id: str, quantity: int, payme
     unit_cents = card.get("price_usd_cents") or TIER_PRICE_USD_CENTS.get(card.get("tier"), 50)
     total_cents = unit_cents * quantity
     uses_granted = STARTER_USES * quantity
+
+    # ---- Wallet balance check ----
+    udoc = await db.users.find_one({"id": user["id"]}, {"_id": 0})
+    bal = int((udoc or {}).get("wallet_balance_usd_cents") or 0)
+    if bal < total_cents:
+        short = total_cents - bal
+        raise HTTPException(
+            status_code=402,
+            detail=(
+                f"Insufficient wallet balance. Card costs ${total_cents/100:.2f}, "
+                f"you have ${bal/100:.2f} (short by ${short/100:.2f}). "
+                "Top up your wallet to buy this card."
+            ),
+        )
+
+    # ---- Atomic debit. Re-read to guard against a race / double-click. ----
+    debit = await db.users.update_one(
+        {"id": user["id"], "wallet_balance_usd_cents": {"$gte": total_cents}},
+        {"$inc": {"wallet_balance_usd_cents": -total_cents}},
+    )
+    if debit.modified_count != 1:
+        # Someone (another tab? race?) drained the balance between the check
+        # above and this debit. Refuse cleanly so no free card is granted.
+        raise HTTPException(status_code=402, detail="Insufficient wallet balance.")
 
     existing = await db.user_cards.find_one({"user_id": user["id"], "card_id": card_id})
     if existing:
@@ -166,12 +195,15 @@ async def _purchase_card_impl(db, user: dict, card_id: str, quantity: int, payme
     })
     await _contribute_to_pool(db, total_cents, user["id"], "card_purchase", payment_reference)
     await _referrer_credit(db, user["id"], total_cents)
+    # Re-read fresh wallet balance to surface to the client.
+    fresh = await db.users.find_one({"id": user["id"]}, {"_id": 0, "wallet_balance_usd_cents": 1})
     return {
         "ok": True,
         "user_card_id": uc_id,
         "quantity": quantity,
         "uses_granted": uses_granted,
         "amount_usd_cents": total_cents,
+        "wallet_balance_usd_cents": int((fresh or {}).get("wallet_balance_usd_cents") or 0),
     }
 
 

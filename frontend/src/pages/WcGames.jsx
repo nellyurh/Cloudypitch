@@ -333,7 +333,7 @@ function GameEntryView({ game, onClose, onSaved }) {
                             <span className="cp-pill text-[8px] font-extrabold" style={{ background: POS_COLOR[lockPos] || "#666", color: "#0F1115" }} title={`${lockPos}-only card`}>{lockPos}</span>
                           )}
                         </div>
-                        <div className="text-[10px] opacity-70">+{Math.round(((uc.card?.effect_value?.multiplier || 1) - 1) * 100)}% · {uc.uses_remaining ?? uc.uses_left} uses left</div>
+                        <div className="text-[10px] opacity-70">+{Math.round(((uc.card?.effect_value?.multiplier || 1) - 1) * 100)}%{((uc.uses_remaining ?? uc.uses_left ?? 0) > 1) ? ` · ×${uc.uses_remaining ?? uc.uses_left} owned` : ""}</div>
                       </button>
                       {sel && (
                         <button

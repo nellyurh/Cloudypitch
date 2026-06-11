@@ -13,6 +13,28 @@ const TIER_META = {
   3: { label: "Star", color: "#F25C1B", icon: Star },
 };
 
+// Responsive card-art size hook — phones get smaller cards so the 2-col grid
+// fits cleanly inside ~360-414px viewports without the FUT art bleeding past
+// its column. Recalculates on resize so landscape rotation Just Works.
+function useResponsiveCardSize() {
+  const calc = () => {
+    if (typeof window === "undefined") return 220;
+    const w = window.innerWidth;
+    if (w < 380) return 130;     // small phones: 2 cols × ~150px gutters
+    if (w < 480) return 150;     // standard phones
+    if (w < 640) return 170;     // large phones
+    if (w < 768) return 190;     // sm breakpoint
+    return 220;                  // md+ desktop
+  };
+  const [size, setSize] = React.useState(calc);
+  React.useEffect(() => {
+    const onR = () => setSize(calc());
+    window.addEventListener("resize", onR);
+    return () => window.removeEventListener("resize", onR);
+  }, []);
+  return size;
+}
+
 const STAGE_LABEL = {
   any: "Match", group_md1: "Group MD1", group_md2: "Group MD2", group_md3: "Group MD3",
   r32: "R32", r16: "R16", qf: "QF", sf: "SF", finals: "Finals",
@@ -22,6 +44,7 @@ function CatalogTab() {
   const [cards, setCards] = useState([]);
   const [filter, setFilter] = useState(0);
   const [buyTarget, setBuyTarget] = useState(null); // card being bought
+  const cardSize = useResponsiveCardSize();
   useEffect(() => { (async () => { try { const { data } = await api.get("/cards"); setCards(data.cards || []); } catch (_e) { /* ignore */ } })(); }, []);
   const visible = filter ? cards.filter(c => c.tier === filter) : cards;
   return (
@@ -31,12 +54,12 @@ function CatalogTab() {
           <button key={f.id} onClick={() => setFilter(f.id)} className={`px-3 py-1.5 rounded text-xs font-bold ${filter === f.id ? "bg-cp-lime text-cp-forest" : "cp-surface hover:bg-white/5"}`} data-testid={`tier-filter-${f.id}`}>{f.label}</button>
         ))}
       </div>
-      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4">
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3 sm:gap-4 justify-items-center">
         {visible.map(c => {
           const tierArt = TIER_ART[c.tier] || "epic";
           return (
             <div key={c.id} className="cursor-pointer hover:scale-[1.02] transition-transform" data-testid={`card-${c.id}`} onClick={() => setBuyTarget(c)}>
-              <LegendCardArt tier={tierArt} title={c.name?.toUpperCase()} size={220} data-testid={`card-art-${c.id}`}/>
+              <LegendCardArt tier={tierArt} title={c.name?.toUpperCase()} size={cardSize} data-testid={`card-art-${c.id}`}/>
             </div>
           );
         })}
@@ -68,7 +91,7 @@ function BuyCardModal({ card, onClose }) {
     setBusy(true); setMsg(""); setErr("");
     try {
       const { data } = await api.post(`/cards/${card.id}/purchase`, { quantity: qty });
-      setMsg(`✓ +${data.uses_granted || qty} use${(data.uses_granted || qty) === 1 ? "" : "s"} added to your wallet.`);
+      setMsg(`✓ ${qty} card${qty === 1 ? "" : "s"} added to your collection.`);
       setTimeout(onClose, 1400);
     } catch (e) {
       setErr(e?.response?.data?.detail || e.message);
@@ -84,8 +107,9 @@ function BuyCardModal({ card, onClose }) {
           <h2 className="font-extrabold">Unlock {card.name}</h2>
           <button onClick={onClose} disabled={busy} className="ml-auto cp-btn-ghost !p-2 disabled:opacity-40" data-testid="buy-modal-close"><X size={14}/></button>
         </div>
-        <div className="p-4 grid grid-cols-[140px_1fr] gap-4">
-          <LegendCardArt tier={tierArt} title={card.name?.toUpperCase()} size={140}/>
+        <div className="p-3 sm:p-4 grid grid-cols-[100px_1fr] sm:grid-cols-[140px_1fr] gap-3 sm:gap-4">
+          <LegendCardArt tier={tierArt} title={card.name?.toUpperCase()} size={100} className="sm:hidden"/>
+          <LegendCardArt tier={tierArt} title={card.name?.toUpperCase()} size={140} className="hidden sm:block"/>
           <div className="space-y-3">
             <div>
               <div className="text-[11px] opacity-60 uppercase tracking-widest">Card</div>
@@ -98,7 +122,7 @@ function BuyCardModal({ card, onClose }) {
               <span className="font-extrabold tabular-nums w-8 text-center" data-testid="buy-qty">{qty}</span>
               <button onClick={() => setQty(q => Math.min(10, q + 1))} disabled={busy} className="cp-btn-ghost !p-1.5" data-testid="buy-qty-plus">+</button>
             </div>
-            <div className="text-[11px] opacity-70">+{qty} use{qty === 1 ? "" : "s"} · ${(unitUsdCents / 100).toFixed(2)} ea.</div>
+            <div className="text-[11px] opacity-70">{qty} card{qty === 1 ? "" : "s"} · ${(unitUsdCents / 100).toFixed(2)} each · one use each</div>
             {wallet && (
               <div className="text-[11px] flex items-center gap-1.5" style={{ color: "var(--cp-text-muted)" }}>
                 <Wallet size={11}/> Balance: ${((wallet.balance_usd_cents || 0) / 100).toFixed(2)}
@@ -138,22 +162,26 @@ function MyCardsTab({ user }) {
   );
   return (
     <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3" data-testid="my-cards-grid">
-      {owned.map(o => {
+      {owned.filter(o => (o.uses_remaining ?? o.uses_left ?? 0) >= 1).map(o => {
         const c = o.card || {};
         const meta = TIER_META[c.tier] || TIER_META[3];
         const Icon = meta.icon;
-        const uses = o.uses_remaining ?? o.uses_left ?? 0;
+        const qty = o.uses_remaining ?? o.uses_left ?? 0;
         return (
           <div key={o.id} className="cp-surface overflow-hidden" style={{ background: meta.bg }} data-testid={`owned-${o.id}`}>
             <div className="p-3">
-              <div className="flex items-center justify-between">
+              <div className="flex items-center justify-between gap-2">
                 <span className="cp-pill" style={{ background: meta.color, color: c.tier === 2 ? "#fff" : "#064E3B" }}>
                   <Icon size={10} className="mr-0.5"/> {meta.label}
                 </span>
-                <span className="text-[11px] font-bold tabular-nums" style={{ color: uses === 0 ? "#FF3D52" : "#A3E635" }}>{uses} uses left</span>
+                {qty > 1 && (
+                  <span className="text-[10px] font-extrabold tabular-nums px-1.5 py-0.5 rounded" style={{ background: "rgba(255,255,255,0.08)", color: "#A3E635" }} title="You own this card multiple times — one use each">
+                    x{qty}
+                  </span>
+                )}
               </div>
-              <div className="font-extrabold text-sm mt-2">{c.name}</div>
-              <div className="text-[11px] mt-1" style={{ color: "var(--cp-text-muted)" }}>{o.total_uses || 0} times used · +1 use for $0.20 recharge</div>
+              <div className="font-extrabold text-sm mt-2 truncate">{c.name}</div>
+              <div className="text-[10px] mt-0.5 opacity-70 truncate">{c.player_name}</div>
             </div>
           </div>
         );

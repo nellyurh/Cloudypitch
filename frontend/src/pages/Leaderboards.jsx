@@ -56,15 +56,15 @@ export const Leaderboards = () => {
   return (
     <div data-testid="leaderboards-page" className="space-y-3">
       <div className="flex items-center justify-between gap-3 flex-wrap">
-        <h1 className="text-2xl font-extrabold">Leaderboards</h1>
-        <div className="flex gap-1 cp-surface p-1" data-testid="lb-tabs">
+        <h1 className="text-xl sm:text-2xl font-extrabold">Leaderboards</h1>
+        <div className="flex gap-1 cp-surface p-1 overflow-x-auto max-w-full no-scrollbar" data-testid="lb-tabs">
           {TABS.map(t => {
             const Icon = t.icon;
             return (
               <button
                 key={t.k}
                 onClick={() => setTab(t.k)}
-                className={`px-3 py-1.5 text-sm rounded transition flex items-center gap-1.5 ${tab === t.k ? "bg-cp-lime text-cp-forest font-bold" : "hover:bg-white/5"}`}
+                className={`px-2.5 sm:px-3 py-1.5 text-xs sm:text-sm rounded transition flex items-center gap-1.5 shrink-0 ${tab === t.k ? "bg-cp-lime text-cp-forest font-bold" : "hover:bg-white/5"}`}
                 data-testid={`lb-tab-${t.k}`}
               >
                 <Icon size={12}/> {t.l}
@@ -202,44 +202,68 @@ function PrizePoolCard({ pool, isReferrals }) {
 function PrizeBreakdown({ pool }) {
   const base = pool.base_usd_cents || 0;
   const cardsCut = pool.cards_cut_usd_cents || 0;
-  // Mirror backend compute_prize_split for the headline tiers
+  // Mirror backend compute_prize_split for the headline tiers.
+  // Each tier carries TWO numbers: the original base distribution and the
+  // live bonus from card revenue. The user explicitly asked to surface
+  // both so the original payout structure they configured is always
+  // visible alongside any prize-pool growth.
   const BASE_REF = 250000;
   const f = base / BASE_REF;
-  const top4 = [100000 * f, 50000 * f, 30000 * f, 20000 * f];
-  const remBase = Math.max(0, base - top4.reduce((a, b) => a + b, 0));
-  const pos5_20 = remBase / 16;
+  const base_top4 = [100000 * f, 50000 * f, 30000 * f, 20000 * f];
+  const base_rem = Math.max(0, base - base_top4.reduce((a, b) => a + b, 0));
+  const base_pos5_20 = base_rem / 16;
   const cc_top4 = (cardsCut / 4) / 4;
   const cc_5_15 = (cardsCut / 4) / 11;
   const cc_16_100 = (cardsCut / 2) / 85;
 
   const tiers = [
-    { rank: "1st",    amt: top4[0] + cc_top4 },
-    { rank: "2nd",    amt: top4[1] + cc_top4 },
-    { rank: "3rd",    amt: top4[2] + cc_top4 },
-    { rank: "4th",    amt: top4[3] + cc_top4 },
-    { rank: "5–15",   amt: pos5_20 + cc_5_15,  perPos: true },
-    { rank: "16–20",  amt: pos5_20 + cc_16_100, perPos: true },
-    { rank: "21–100", amt: cc_16_100,           perPos: true, conditional: cardsCut === 0 },
+    { rank: "1st",    base: base_top4[0], bonus: cc_top4 },
+    { rank: "2nd",    base: base_top4[1], bonus: cc_top4 },
+    { rank: "3rd",    base: base_top4[2], bonus: cc_top4 },
+    { rank: "4th",    base: base_top4[3], bonus: cc_top4 },
+    { rank: "5–15",   base: base_pos5_20, bonus: cc_5_15,  perPos: true },
+    { rank: "16–20",  base: base_pos5_20, bonus: cc_16_100, perPos: true },
+    { rank: "21–100", base: 0,            bonus: cc_16_100, perPos: true, conditional: cardsCut === 0 },
   ];
   return (
     <div className="cp-surface p-3" data-testid="lb-breakdown">
-      <div className="text-[10px] uppercase tracking-widest mb-2" style={{ color: "var(--cp-text-muted)" }}>Prize Distribution</div>
+      <div className="flex items-center justify-between mb-2">
+        <div className="text-[10px] uppercase tracking-widest" style={{ color: "var(--cp-text-muted)" }}>Prize Distribution</div>
+        <div className="text-[9px] flex items-center gap-2" style={{ color: "var(--cp-text-muted)" }}>
+          <span className="inline-flex items-center gap-1"><span className="inline-block w-2 h-2 rounded-full" style={{background: "#A3E635"}}/>Base</span>
+          {cardsCut > 0 && <span className="inline-flex items-center gap-1"><span className="inline-block w-2 h-2 rounded-full" style={{background: "#F5A623"}}/>Cards bonus</span>}
+        </div>
+      </div>
       <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-2">
-        {tiers.map(t => (
-          <div
-            key={t.rank}
-            className={`rounded p-2 text-center ${t.conditional ? "opacity-50" : ""}`}
-            style={{ background: "var(--cp-surface-2)" }}
-            data-testid={`lb-tier-${t.rank}`}
-          >
-            <div className="text-[10px] font-bold" style={{ color: "var(--cp-text-muted)" }}>{t.rank}</div>
-            <div className="text-sm font-extrabold text-cp-lime tabular-nums">
-              {USD(Math.round(t.amt))}
+        {tiers.map(t => {
+          const total = t.base + t.bonus;
+          return (
+            <div
+              key={t.rank}
+              className={`rounded p-2 text-center ${t.conditional ? "opacity-50" : ""}`}
+              style={{ background: "var(--cp-surface-2)" }}
+              data-testid={`lb-tier-${t.rank}`}
+            >
+              <div className="text-[10px] font-bold" style={{ color: "var(--cp-text-muted)" }}>{t.rank}</div>
+              <div className="text-sm font-extrabold text-cp-lime tabular-nums" data-testid={`lb-tier-amt-${t.rank}`}>
+                {USD(Math.round(total))}
+              </div>
+              {t.base > 0 && (
+                <div className="text-[9px] opacity-70 tabular-nums">
+                  <span style={{ color: "#A3E635" }}>{USD(Math.round(t.base))}</span>
+                  {t.bonus > 0 && (
+                    <>
+                      <span className="opacity-50"> + </span>
+                      <span style={{ color: "#F5A623" }}>{USD(Math.round(t.bonus))}</span>
+                    </>
+                  )}
+                </div>
+              )}
+              {t.perPos && <div className="text-[9px] opacity-60">per position</div>}
+              {t.conditional && <div className="text-[9px] opacity-60">unlocks via cards</div>}
             </div>
-            {t.perPos && <div className="text-[9px] opacity-60">per position</div>}
-            {t.conditional && <div className="text-[9px] opacity-60">unlocks via cards</div>}
-          </div>
-        ))}
+          );
+        })}
       </div>
     </div>
   );

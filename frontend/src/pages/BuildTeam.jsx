@@ -1340,7 +1340,7 @@ function BoostCardsPanel({ ownedCards, appliedCards, cardCap, squad, onToggle, o
                     <span className="cp-pill text-[8px] font-extrabold" style={{ background: POS_COLOR[lockPos] || "#666", color: "#0F1115" }} title={`${lockPos}-only card`}>{lockPos}</span>
                   )}
                 </div>
-                <div className="text-[10px] opacity-70 mt-0.5">+{pct}% · {uses} use{uses === 1 ? "" : "s"} left</div>
+                <div className="text-[10px] opacity-70 mt-0.5">+{pct}%{uses > 1 ? ` · ×${uses} owned` : ""}</div>
               </button>
               {sel && (
                 <button
