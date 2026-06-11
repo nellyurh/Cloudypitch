@@ -102,7 +102,7 @@ export const RightRail = () => {
           </div>
         </div>
         <div className="p-3">
-          <Countdown to="2026-06-11T18:00:00+00:00" />
+          <Countdown to="2026-06-11T19:00:00+00:00" />
           <Link to="/worldcup" className="cp-btn-primary w-full mt-3 justify-center" data-testid="wc-cta">
             <Trophy size={14} /> Explore WC Hub
           </Link>

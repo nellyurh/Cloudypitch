@@ -439,7 +439,7 @@ export const WorldCupHub = () => {
   const matches = data?.matches || [];
   const groups = data?.groups || [];
   const news = data?.news || [];
-  const startsAt = data?.starts_at || "2026-06-11T18:00:00+00:00";
+  const startsAt = data?.starts_at || "2026-06-11T19:00:00+00:00";
 
   return (
     <div data-testid="worldcup-hub" className="space-y-3">

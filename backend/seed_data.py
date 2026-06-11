@@ -267,7 +267,7 @@ ALL_CARDS = GOAT_CARDS + ELITE_CARDS + STAR_CARDS
 WC2026_COMPETITION = {
     "id": "fantasy-wc2026",
     "name": "FIFA World Cup 2026 Fantasy",
-    "starts_at": "2026-06-11T18:00:00+00:00",
+    "starts_at": "2026-06-11T19:00:00+00:00",
     "ends_at": "2026-07-19T22:00:00+00:00",
     "budget_total": 100.0,
     "squad_size": 15,
@@ -318,7 +318,7 @@ PRIZE_POOLS = [
             {"rank_min": 4, "rank_max": 10, "pct": 3},
             {"rank_min": 11, "rank_max": 100, "pct": 0.1},
         ],
-        "starts_at": "2026-06-11T18:00:00+00:00",
+        "starts_at": "2026-06-11T19:00:00+00:00",
         "ends_at": "2026-07-19T22:00:00+00:00",
         "status": "upcoming",
         "image_url": "https://images.unsplash.com/photo-1705593973313-75de7bf95b56?crop=entropy&cs=srgb&fm=jpg&ixid=M3w3NTY2NjZ8MHwxfHNlYXJjaHwxfHxmb290YmFsbCUyMHN0YWRpdW0lMjBjcm93ZHxlbnwwfHx8fDE3Nzk5MTk4MTF8MA&ixlib=rb-4.1.0&q=85",

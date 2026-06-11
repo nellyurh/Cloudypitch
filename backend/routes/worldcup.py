@@ -10,7 +10,7 @@ from wc_legends import PAST_TOURNAMENTS
 
 router = APIRouter(prefix="/api/worldcup", tags=["worldcup"])
 
-WC2026_START = "2026-06-11T18:00:00+00:00"
+WC2026_START = "2026-06-11T19:00:00+00:00"  # 8 PM Lagos kickoff (UTC+1)
 WC2026_WINDOW_FROM = "2026-06-01T00:00:00+00:00"
 WC2026_WINDOW_TO   = "2026-07-31T00:00:00+00:00"
 

@@ -288,7 +288,7 @@ const GroupTicker = () => {
     return () => { cancelled = true; clearInterval(t); };
   }, []);
   if (!groups.length) return null;
-  const KICKOFF = new Date("2026-06-11T16:00:00Z").getTime();
+  const KICKOFF = new Date("2026-06-11T19:00:00Z").getTime();
   const ms = Math.max(0, KICKOFF - now);
   const d = Math.floor(ms / 86400000);
   const h = Math.floor((ms % 86400000) / 3600000);
