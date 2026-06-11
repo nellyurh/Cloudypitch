@@ -23,20 +23,38 @@ WC_PRIZE_POOL_ID = "pool-cloudypitch-unified"
 
 
 async def _contribute_to_pool(db, amount_cents: int, user_id: str, source: str, reference: str | None):
-    """Move 50% of amount_cents into the UNIFIED prize pool (cards_cut_usd_cents),
-    log a contribution row."""
+    """Move 50% of `amount_cents` into the UNIFIED prize pool as `cards_cut`.
+
+    Critical: the BASE pool (`amount_usd_cents`) is FIXED at the value the
+    admin seeded — it represents the company-backed guaranteed prize and
+    must never be incremented by card revenue (doing so would conflate the
+    two and break the leaderboard's "base vs bonus" split). Only the
+    `cards_cut_usd_cents` field grows with each contribution.
+    """
     contribution = int(amount_cents * POOL_CONTRIBUTION_RATIO)
     if contribution <= 0:
         return
+    # Use upsert here only so the pool exists; the base amount is set when
+    # the doc is first inserted (by seed or by this $setOnInsert fallback).
     await db.prize_pools.update_one(
         {"id": WC_PRIZE_POOL_ID},
         {
             "$inc": {
-                "amount_usd_cents": contribution,
                 "cards_cut_usd_cents": contribution,
                 "amount_total_ngn": int(contribution * 16),
             },
             "$set": {"updated_at": datetime.now(timezone.utc).isoformat()},
+            # If the pool doc was somehow lost (DB reset, partial migration),
+            # restore the seeded base so the leaderboard never shows $0.00.
+            "$setOnInsert": {
+                "id": WC_PRIZE_POOL_ID,
+                "kind": "fantasy_predictions_unified",
+                "amount_usd_cents": 250_000,
+                "currency": "USD",
+                "status": "live",
+                "title": "Cloudy Pitch Grand Prize Pool",
+                "created_at": datetime.now(timezone.utc).isoformat(),
+            },
         },
         upsert=True,
     )

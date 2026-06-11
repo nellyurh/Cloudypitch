@@ -425,8 +425,13 @@ async def seed_all():
             {"id": p["id"]},
             {
                 "$setOnInsert": {**p, "created_at": utcnow_iso()},
-                # Update safe metadata only (id, label, type) — leave amount_usd_cents alone.
-                "$set": {k: v for k, v in p.items() if k not in ("amount_usd_cents", "id", "created_at")},
+                # Only update SAFE display metadata. Never touch:
+                #   - `kind` / `competition_id` / `id` / `currency` (immutable
+                #     classification fields — MongoDB rejects `$set` if any of
+                #     these collide with `$setOnInsert`)
+                #   - `amount_usd_cents` / `amount_total_ngn` (running totals
+                #     that grow over time — wiping them would reset the pool)
+                "$set": {k: v for k, v in p.items() if k in ("title", "status", "image_url", "payout_structure", "starts_at", "ends_at")},
             },
             upsert=True,
         )

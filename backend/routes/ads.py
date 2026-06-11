@@ -225,12 +225,15 @@ async def track_click(placement_id: str, user: dict = Depends(a.get_optional_use
 
 
 class RewardClaimIn(BaseModel):
-    reward_type: str = Field(pattern="^(card_uses|prediction_points)$")
+    # Accept both legacy `card_uses` and the new `free_card` value so older
+    # clients keep working until they hot-reload the JS bundle.
+    reward_type: str = Field(pattern="^(card_uses|free_card|prediction_points)$")
 
 
 @router.post("/reward/claim")
 async def claim_reward(body: RewardClaimIn, user: dict = Depends(a.get_current_user)):
-    """Rate-limited: 1 reward claim per 60 seconds. Grants +5 card uses or +50 prediction points."""
+    """Rate-limited: 1 reward claim per 60 seconds. Grants ONE free random
+    Star-tier (3) legend card, or +50 prediction points."""
     db = get_db()
     # Rate limit
     last = await db.ad_rewards.find_one(
@@ -242,18 +245,38 @@ async def claim_reward(body: RewardClaimIn, user: dict = Depends(a.get_current_u
             raise HTTPException(status_code=429, detail="Wait 60s between rewards")
 
     payload: dict = {"reward_type": body.reward_type}
-    if body.reward_type == "card_uses":
-        # Add +5 uses to user's first owned card (or top up most-used)
-        uc = await db.user_cards.find_one(
-            {"user_id": user["id"]}, sort=[("uses_remaining", 1)],
+    if body.reward_type in ("card_uses", "free_card"):
+        # Single-use card economy: a "card use" doesn't exist as a concept
+        # any more — instead, the ad reward grants ONE FREE random Star-tier
+        # card. The user adds a fresh boost-card to their inventory.
+        import random
+        star_cards = await db.legend_cards.find(
+            {"tier": 3}, {"_id": 0, "id": 1, "name": 1},
+        ).to_list(length=200)
+        if not star_cards:
+            raise HTTPException(status_code=503, detail="No reward cards available")
+        gift = random.choice(star_cards)
+        existing = await db.user_cards.find_one(
+            {"user_id": user["id"], "card_id": gift["id"]},
         )
-        if not uc:
-            raise HTTPException(status_code=400, detail="No cards to top up")
-        await db.user_cards.update_one(
-            {"id": uc["id"]},
-            {"$inc": {"uses_remaining": 1, "uses_left": 1}},
-        )
-        payload["user_card_id"] = uc["id"]
+        if existing:
+            await db.user_cards.update_one(
+                {"id": existing["id"]},
+                {"$inc": {"uses_remaining": 1, "uses_left": 1}},
+            )
+            uc_id = existing["id"]
+        else:
+            uc_id = new_id()
+            await db.user_cards.insert_one({
+                "id": uc_id, "user_id": user["id"], "card_id": gift["id"],
+                "uses_remaining": 1, "uses_left": 1, "total_uses": 0,
+                "acquired_via": "ad_reward",
+                "acquired_at": datetime.now(timezone.utc).isoformat(),
+            })
+        payload["user_card_id"] = uc_id
+        payload["card_id"] = gift["id"]
+        payload["card_name"] = gift.get("name")
+        # Keep `uses_added` for the legacy frontend that reads it
         payload["uses_added"] = 1
     else:
         # Add +50 bonus prediction points via a synthetic settled "prediction" row

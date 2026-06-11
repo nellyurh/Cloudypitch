@@ -3,12 +3,16 @@ import api from "../lib/api";
 import { Gift, AlertTriangle, Check } from "lucide-react";
 
 /**
- * RewardedVideoButton — opt-in. User watches a sponsor ad → claim +5 card uses or +50 prediction points.
- * Backend rate-limits to 1 reward per 60 seconds per user.
+ * RewardedVideoButton — opt-in. User watches a sponsor ad → claim ONE free
+ * random Star-tier legend card, or +50 prediction points. Backend
+ * rate-limits to 1 reward per 60 seconds per user.
  */
-export const RewardedVideoButton = ({ rewardType = "card_uses" }) => {
+export const RewardedVideoButton = ({ rewardType = "free_card" }) => {
   const [phase, setPhase] = useState("idle"); // idle | watching | claiming | done | error
   const [msg, setMsg] = useState("");
+
+  // Backwards compat — older callers still pass `card_uses`; treat as free_card.
+  const isCardReward = rewardType === "free_card" || rewardType === "card_uses";
 
   const start = async () => {
     setPhase("watching");
@@ -17,10 +21,14 @@ export const RewardedVideoButton = ({ rewardType = "card_uses" }) => {
     setTimeout(async () => {
       setPhase("claiming");
       try {
-        const { data } = await api.post("/ads/reward/claim", { reward_type: rewardType });
+        const { data } = await api.post("/ads/reward/claim", { reward_type: isCardReward ? "free_card" : rewardType });
         setPhase("done");
-        if (rewardType === "card_uses") setMsg(`+${data.reward.uses_added} uses added to your top card`);
-        else setMsg(`+${data.reward.points_added} bonus points`);
+        if (isCardReward) {
+          const cn = data.reward.card_name || "a random Star card";
+          setMsg(`+1 ${cn} added to your cards`);
+        } else {
+          setMsg(`+${data.reward.points_added} bonus points`);
+        }
       } catch (e) {
         setPhase("error");
         setMsg(e?.response?.data?.detail || "Reward unavailable");
@@ -51,7 +59,7 @@ export const RewardedVideoButton = ({ rewardType = "card_uses" }) => {
         data-testid="rewarded-start"
       >
         <Gift size={14} className="text-cp-lime"/>
-        {rewardType === "card_uses" ? "Watch ad → +1 card use" : "Watch ad → +50 bonus points"}
+        {isCardReward ? "Watch ad → +1 FREE Star card" : "Watch ad → +50 bonus points"}
       </button>
       {phase === "done" && (
         <div className="text-xs mt-2 inline-flex items-center gap-1 text-cp-lime" data-testid="rewarded-success">

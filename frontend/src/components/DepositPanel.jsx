@@ -222,6 +222,32 @@ const NotConfigured = ({ label, envVars }) => (
 
 const formatNgn = (n) => `₦${Number(n || 0).toLocaleString()}`;
 
+// PocketFi's API ships bank labels in a variety of shapes ("KudaDymanic",
+// "kuda-dynamic", "kuda_dymanic"). This normalises them into clean display
+// names without rewriting the source of truth (so wallet matching still
+// works server-side).
+const BANK_NAME_FIXES = {
+  kuda: "Kuda Microfinance Bank",
+  kudadynamic: "Kuda Dynamic",
+  kudadymanic: "Kuda Dynamic",
+  ninepsb: "9 Payment Service Bank",
+  "9psb": "9 Payment Service Bank",
+  paga: "Paga",
+  palmpay: "PalmPay",
+  saveheaven: "SaveHaven",
+};
+function sanitizeBankName(raw) {
+  if (!raw) return "—";
+  const key = String(raw).toLowerCase().replace(/[\s_-]+/g, "");
+  if (BANK_NAME_FIXES[key]) return BANK_NAME_FIXES[key];
+  // Generic prettifier: title-case + insert spaces between camelCase words
+  return String(raw)
+    .replace(/([a-z])([A-Z])/g, "$1 $2")
+    .replace(/[_-]+/g, " ")
+    .replace(/\bdymanic\b/gi, "Dynamic")
+    .replace(/\b\w/g, c => c.toUpperCase());
+}
+
 const NgnInstructions = ({ deposit, onCancel }) => {
   const [copied, setCopied] = useState(null);
   const copy = (val, key) => {
@@ -234,7 +260,7 @@ const NgnInstructions = ({ deposit, onCancel }) => {
         <div key={i} className="rounded p-3 grid grid-cols-3 gap-2 items-center" style={{ background: "var(--cp-surface)", border: "1px solid var(--cp-border)" }} data-testid={`ngn-bank-${i}`}>
           <div>
             <div className="text-[10px] uppercase tracking-widest" style={{ color: "var(--cp-text-muted)" }}>Bank</div>
-            <div className="text-xs font-bold capitalize">{b.bankName}</div>
+            <div className="text-xs font-bold">{sanitizeBankName(b.bankName)}</div>
           </div>
           <div className="col-span-1">
             <div className="text-[10px] uppercase tracking-widest" style={{ color: "var(--cp-text-muted)" }}>Account number</div>
