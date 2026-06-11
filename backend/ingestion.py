@@ -2139,7 +2139,11 @@ async def generate_wc_games() -> int:
 
 
 async def tick_wc_game_states() -> int:
-    """State machine: upcoming→open when opens_at arrives; open→closed when closes_at hits.
+    """State machine: upcoming→open when opens_at arrives; open→closed when
+    closes_at hits. ALSO enforces the integrity rule for multi-match games
+    (round, group, matchday): the game MUST be closed at the earliest 30
+    minutes BEFORE the first kickoff in the round — otherwise late entrants
+    could pick a team that already played and copy its known result.
     Returns the number of state transitions."""
     db = get_db()
     now_iso = utcnow_iso()
@@ -2154,6 +2158,52 @@ async def tick_wc_game_states() -> int:
         {"$set": {"status": "closed"}},
     )
     transitions += r2.modified_count or 0
+
+    # ---- Integrity sweep: force-close multi-match games whose first
+    # contributing match is < 30 min away. We scan only the still-open ones
+    # to keep the query cheap; matches collection is indexed on scheduled_at.
+    from datetime import datetime, timedelta, timezone
+    now_dt = datetime.now(timezone.utc)
+    cutoff_lo = now_dt - timedelta(hours=2)
+    cutoff_hi_round = now_dt + timedelta(hours=96)
+    open_multi = await db.wc_games.find(
+        {"status": {"$in": ["upcoming", "open"]},
+         "game_type": {"$in": ["round", "group", "matchday"]}},
+        {"_id": 0, "id": 1, "game_type": 1, "eligible_team_ids": 1, "closes_at": 1},
+    ).to_list(length=500)
+    for g in open_multi:
+        team_ids = list(g.get("eligible_team_ids") or [])
+        if not team_ids:
+            continue
+        q = {
+            "is_world_cup": True,
+            "scheduled_at": {"$gte": cutoff_lo.isoformat(),
+                             "$lte": cutoff_hi_round.isoformat()},
+        }
+        if g["game_type"] in ("group", "matchday"):
+            q["home_team_id"] = {"$in": team_ids}
+            q["away_team_id"] = {"$in": team_ids}
+        else:
+            q["$or"] = [
+                {"home_team_id": {"$in": team_ids}},
+                {"away_team_id": {"$in": team_ids}},
+            ]
+        first = await db.matches.find(q, {"_id": 0, "scheduled_at": 1}).sort("scheduled_at", 1).limit(1).to_list(length=1)
+        if not first:
+            continue
+        try:
+            ko = datetime.fromisoformat(first[0]["scheduled_at"].replace("Z", "+00:00"))
+        except Exception:
+            continue
+        deadline = ko - timedelta(minutes=30)
+        if now_dt >= deadline:
+            res = await db.wc_games.update_one(
+                {"id": g["id"], "status": {"$in": ["upcoming", "open"]}},
+                {"$set": {"status": "closed",
+                          "closes_at": deadline.isoformat(),
+                          "auto_closed_reason": "first_match_within_30min"}},
+            )
+            transitions += res.modified_count or 0
     return transitions
 
 

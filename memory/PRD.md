@@ -10,7 +10,11 @@ Global multi-sport livescore + predictions + fantasy platform launching for FIFA
 - Sportmonks (football), API-Sports (other sports), Trybit/CryptoCloud (crypto deposits), PocketFi (NGN), Google AdSense
 
 ## Implemented (rolling)
-### 2026-02-10 (this session — part 11: My Teams mini-game card fix)
+### 2026-02-11 (this session — Group player pool + auto-close verification)
+- **🚨 Group MD mini-games only showing 2 of 4 teams' players** — `/api/fantasy/players?game_id=...` filtered by `country` name, but the denormalised `eligible_country_names` used FIFA spellings (`Czechia`, `South Korea`) while the player rows used Sportmonks spellings (`Czech Republic`, `Korea Republic`). Result: Group A MD1 showed only Mexico + South Africa (52 players) instead of all 4 teams (118). Fixed `list_fantasy_players` in `/app/backend/routes/fantasy.py` to prefer `eligible_team_ids` (exact ID match) and fall back to country names only when team IDs aren't available. Verified all 12 group games × 3 matchdays now return 4 teams of players.
+- **Verified locked-team filter + 30-min auto-close** from previous handoff — `/api/wc/games/{id}` correctly removes players from teams whose match has already kicked off, and `enter_game()` rejects picks from locked teams with a clear error. `tick_wc_game_states()` force-closes multi-match games once their first contributing match is within 30 min. Added regression tests at `/app/backend/tests/test_round_autoclose.py` and `/app/backend/tests/test_group_player_pool.py` — both pass.
+
+### 2026-02-10 (part 11: My Teams mini-game card fix)
 - **🚨 My Teams mini-game card showing 0/15 + "Match · Any"** — Two bugs in `/api/fantasy/my-teams`:
   1. `len(r.get("players", []))` — wc_game_entries store the lineup in `player_picks`, NOT `players`. So `player_count` was ALWAYS 0 for every mini-game entry. Fixed.
   2. The label builder didn't read the match teams for `game_type=match` games — it concatenated `Match · Any` (the literal `stage` field) instead of fetching the matches row and showing the real team names. Fixed: for single-match games we now join `matches` by `match_id` and surface `home_team_name vs away_team_name` as the title, plus a `match_info` block with logos + kickoff + status + score for the frontend to render the matchup ribbon.

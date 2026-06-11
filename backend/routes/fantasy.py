@@ -29,7 +29,25 @@ async def list_fantasy_players(limit: int = 2000, game_id: Optional[str] = None)
         g = await db.wc_games.find_one({"id": game_id}, {"_id": 0})
         if not g:
             raise HTTPException(status_code=404, detail="Game not found")
+        # Prefer `eligible_team_ids` (exact team IDs) over country-name string
+        # matching, since FIFA / Sportmonks naming drifts (e.g. "Czechia" vs
+        # "Czech Republic", "South Korea" vs "Korea Republic") and would drop
+        # half the squad pool on a group game.
+        team_ids = list(g.get("eligible_team_ids") or [])
         countries = await _eligible_countries_for_game(db, g)
+        if team_ids:
+            q = {"team_id": {"$in": team_ids}}
+            players = await db.players.find(q, {"_id": 0}).sort("name", 1).limit(limit).to_list(length=limit)
+            # Backstop: if team_id pool is empty (e.g. round games where IDs
+            # aren't denormalised), fall back to country-name match.
+            if not players and countries:
+                players = await db.players.find(
+                    {"is_wc_2026": True, "country": {"$in": list(countries)}},
+                    {"_id": 0},
+                ).sort("name", 1).limit(limit).to_list(length=limit)
+            return {"players": players, "source": "wc2026_filtered",
+                    "team_ids": team_ids, "countries": list(countries),
+                    "rules": _pick_rules_for_game(g)}
         if countries:
             players = await db.players.find(
                 {"is_wc_2026": True, "country": {"$in": list(countries)}},
