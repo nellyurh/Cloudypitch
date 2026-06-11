@@ -345,6 +345,15 @@ async def pocketfi_webhook(request: Request):
 
     credit_amount = int(float(settlement_amount if settlement_amount is not None else gross_amount))
 
+    # Read the current NGN→USD exchange rate from app_settings.id='currency'.
+    # We mirror the NGN credit into the user's USD wallet (rounded down to the
+    # cent) so they can buy USD-priced legend cards / play USD mini-games from
+    # the same balance without needing a separate "convert" step. Default rate
+    # falls back to 1400 NGN/USD (matches server.py default).
+    currency_doc = await db.app_settings.find_one({"id": "currency"}, {"_id": 0}) or {}
+    ngn_per_usd = float(currency_doc.get("ngn_per_usd") or 1400)
+    usd_cents_credit = int((credit_amount / ngn_per_usd) * 100)
+
     # Credit the user's wallet (NGN)
     now = datetime.now(timezone.utc).isoformat()
     res = await db.user_wallets.update_one(
@@ -360,6 +369,13 @@ async def pocketfi_webhook(request: Request):
         await db.user_wallets.update_one(
             {"_id": res.upserted_id},
             {"$set": {"id": new_id(), "user_id": deposit["user_id"], "total_won": 0, "total_spent": 0, "kyc_verified": False, "bank_account": None}},
+        )
+
+    # Also mirror into the USD wallet (used by card purchases + USD mini-games).
+    if usd_cents_credit > 0:
+        await db.users.update_one(
+            {"id": deposit["user_id"]},
+            {"$inc": {"wallet_balance_usd_cents": usd_cents_credit}},
         )
 
     wallet = await db.user_wallets.find_one({"user_id": deposit["user_id"]}, {"_id": 0})

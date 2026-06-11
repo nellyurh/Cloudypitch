@@ -20,6 +20,7 @@ const tx_label = {
 export const WalletPage = () => {
   const { user } = useAuth();
   const [wallet, setWallet] = useState(null);
+  const [walletUsdCents, setWalletUsdCents] = useState(0);
   const [txs, setTxs] = useState([]);
   const [compliance, setCompliance] = useState(null);
   const [amount, setAmount] = useState(500);  // $5.00 default deposit (stored as cents)
@@ -29,7 +30,14 @@ export const WalletPage = () => {
   const [msg, setMsg] = useState("");
   const [kycOpen, setKycOpen] = useState(false);
   const [kycStatus, setKycStatus] = useState(null);
-  const fmtUsd = (cents) => `$${((cents || 0) / 100).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  // `balance_ngn` is a WHOLE NGN amount (e.g. 99 = ₦99). It was previously
+  // being passed through `fmtUsd` which divides by 100 — turning ₦99 into
+  // a misleading "$0.99". Fixed: render NGN as NGN, with a small USD
+  // equivalent shown below using the live exchange rate.
+  const fmtNgn = (ngn) => `₦${Number(ngn || 0).toLocaleString(undefined, { maximumFractionDigits: 0 })}`;
+  const fmtUsdCents = (cents) => `$${((cents || 0) / 100).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  // Keep legacy alias name so the older deposit-status toast still works.
+  const fmtUsd = fmtUsdCents;
 
   const load = async () => {
     try {
@@ -40,6 +48,7 @@ export const WalletPage = () => {
         api.get("/auth-extras/kyc/me").catch(() => ({ data: { kyc: null } })),
       ]);
       setWallet(w.data.wallet);
+      setWalletUsdCents(w.data.wallet_balance_usd_cents || 0);
       setTxs(t.data.transactions || []);
       setCompliance(c.data.profile);
       setKycStatus(k.data.kyc?.status || null);
@@ -132,23 +141,28 @@ export const WalletPage = () => {
         <div className="cp-surface p-5" data-testid="wallet-balance">
           <div className="flex items-center gap-3">
             <WalletIcon size={28} className="text-cp-lime"/>
-            <div>
+            <div className="flex-1">
               <div className="text-[10px] uppercase tracking-widest" style={{ color: "var(--cp-text-muted)" }}>Wallet Balance</div>
-              <div className="text-3xl font-extrabold tabular-nums text-cp-lime">{fmtUsd(wallet.balance_ngn || 0)}</div>
+              <div className="text-3xl font-extrabold tabular-nums text-cp-lime" data-testid="wallet-balance-ngn">{fmtNgn(wallet.balance_ngn || 0)}</div>
+              {walletUsdCents > 0 && (
+                <div className="text-[11px] mt-0.5 tabular-nums" style={{ color: "var(--cp-text-muted)" }} data-testid="wallet-balance-usd">
+                  ≈ {fmtUsdCents(walletUsdCents)} <span className="opacity-60">· spendable on cards & mini-games</span>
+                </div>
+              )}
             </div>
           </div>
           <div className="grid grid-cols-3 gap-3 mt-5 text-center">
             <div>
               <div className="text-[10px] uppercase tracking-widest" style={{ color: "var(--cp-text-muted)" }}>Deposited</div>
-              <div className="text-base font-bold tabular-nums">{fmtUsd(wallet.total_deposited || 0)}</div>
+              <div className="text-base font-bold tabular-nums" data-testid="wallet-deposited">{fmtNgn(wallet.total_deposited || 0)}</div>
             </div>
             <div>
               <div className="text-[10px] uppercase tracking-widest" style={{ color: "var(--cp-text-muted)" }}>Won</div>
-              <div className="text-base font-bold text-cp-lime tabular-nums">{fmtUsd(wallet.total_won || 0)}</div>
+              <div className="text-base font-bold text-cp-lime tabular-nums" data-testid="wallet-won">{fmtNgn(wallet.total_won || 0)}</div>
             </div>
             <div>
               <div className="text-[10px] uppercase tracking-widest" style={{ color: "var(--cp-text-muted)" }}>Spent</div>
-              <div className="text-base font-bold tabular-nums">{fmtUsd(wallet.total_spent || 0)}</div>
+              <div className="text-base font-bold tabular-nums" data-testid="wallet-spent">{fmtNgn(wallet.total_spent || 0)}</div>
             </div>
           </div>
         </div>

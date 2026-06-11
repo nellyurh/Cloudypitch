@@ -421,18 +421,20 @@ async def seed_all():
     # Prize pools — IMPORTANT: only set the amount on FIRST insert, otherwise
     # admin edits get clobbered every time the server boots.
     for p in PRIZE_POOLS:
+        # Critical: MongoDB rejects an upsert where the same field appears in
+        # BOTH `$setOnInsert` and `$set` (that includes `**p` spreading every
+        # field). So we explicitly split the payload:
+        #   IMMUTABLE_FIELDS → only `$setOnInsert` (set once, never changed)
+        #   MUTABLE_FIELDS   → only `$set` (display copy that admins can
+        #                       reseed without losing running totals)
+        IMMUTABLE = ("id", "kind", "competition_id", "currency", "amount_usd_cents", "amount_total_ngn")
+        MUTABLE   = ("title", "status", "image_url", "payout_structure", "starts_at", "ends_at")
+        set_on_insert = {k: p[k] for k in IMMUTABLE if k in p}
+        set_on_insert["created_at"] = utcnow_iso()
+        set_always = {k: p[k] for k in MUTABLE if k in p}
         await db.prize_pools.update_one(
             {"id": p["id"]},
-            {
-                "$setOnInsert": {**p, "created_at": utcnow_iso()},
-                # Only update SAFE display metadata. Never touch:
-                #   - `kind` / `competition_id` / `id` / `currency` (immutable
-                #     classification fields — MongoDB rejects `$set` if any of
-                #     these collide with `$setOnInsert`)
-                #   - `amount_usd_cents` / `amount_total_ngn` (running totals
-                #     that grow over time — wiping them would reset the pool)
-                "$set": {k: v for k, v in p.items() if k in ("title", "status", "image_url", "payout_structure", "starts_at", "ends_at")},
-            },
+            {"$setOnInsert": set_on_insert, "$set": set_always},
             upsert=True,
         )
     # WC groups (one doc per group)

@@ -414,6 +414,11 @@ async def admin_credit_ngn(payload: dict, user: dict = Depends(a.require_admin))
                 "message": "This reference was already credited; no change."}
 
     now = utcnow_iso()
+    # Compute USD equivalent so the mirror to wallet_balance_usd_cents lines
+    # up with what the auto webhook would have done.
+    currency_doc = await get_db().app_settings.find_one({"id": "currency"}, {"_id": 0}) or {}
+    ngn_per_usd = float(currency_doc.get("ngn_per_usd") or 1400)
+    usd_cents_credit = int((amount / ngn_per_usd) * 100)
     res = await db.user_wallets.update_one(
         {"user_id": target_user["id"]},
         {
@@ -427,6 +432,11 @@ async def admin_credit_ngn(payload: dict, user: dict = Depends(a.require_admin))
             {"_id": res.upserted_id},
             {"$set": {"id": __import__("uuid").uuid4().hex, "user_id": target_user["id"],
                       "total_won": 0, "total_spent": 0, "kyc_verified": False, "bank_account": None}},
+        )
+    if usd_cents_credit > 0:
+        await db.users.update_one(
+            {"id": target_user["id"]},
+            {"$inc": {"wallet_balance_usd_cents": usd_cents_credit}},
         )
     wallet = await db.user_wallets.find_one({"user_id": target_user["id"]}, {"_id": 0})
     new_balance = (wallet or {}).get("balance_ngn", amount)
@@ -458,3 +468,56 @@ async def admin_credit_ngn(payload: dict, user: dict = Depends(a.require_admin))
     return {"ok": True, "transaction_id": tx_id, "user_id": target_user["id"],
             "email": target_user.get("email"),
             "amount_credited_ngn": amount, "new_balance_ngn": new_balance}
+
+
+@router.post("/wallet/backfill-usd")
+async def admin_backfill_usd_wallet(payload: dict, user: dict = Depends(a.require_admin)):
+    """One-time migration: convert every user's existing `balance_ngn` into a
+    `users.wallet_balance_usd_cents` credit at the current exchange rate.
+
+    Useful AFTER deploying the NGN→USD mirror so users who deposited before
+    the fix get their USD spendable balance topped up.
+
+    Body: { dry_run: bool, user_id?: str }
+      - dry_run=true returns the diff without writing
+      - user_id (optional) restricts to a single user; omit to backfill all
+    """
+    db = get_db()
+    dry = bool(payload.get("dry_run", True))
+    currency_doc = await db.app_settings.find_one({"id": "currency"}, {"_id": 0}) or {}
+    ngn_per_usd = float(currency_doc.get("ngn_per_usd") or 1400)
+
+    q = {}
+    if payload.get("user_id"):
+        q["user_id"] = payload["user_id"]
+    wallets = await db.user_wallets.find(q, {"_id": 0}).to_list(length=10000)
+    plan = []
+    for w in wallets:
+        ngn = int(w.get("balance_ngn") or 0)
+        if ngn <= 0:
+            continue
+        target_cents = int((ngn / ngn_per_usd) * 100)
+        # Read the user's current USD balance so we only top up the delta
+        udoc = await db.users.find_one({"id": w["user_id"]}, {"_id": 0, "wallet_balance_usd_cents": 1}) or {}
+        existing = int(udoc.get("wallet_balance_usd_cents") or 0)
+        delta = max(0, target_cents - existing)
+        if delta <= 0:
+            continue
+        plan.append({"user_id": w["user_id"], "ngn": ngn,
+                     "existing_usd_cents": existing,
+                     "target_usd_cents": target_cents,
+                     "delta_usd_cents": delta})
+    if not dry:
+        for row in plan:
+            await db.users.update_one(
+                {"id": row["user_id"]},
+                {"$inc": {"wallet_balance_usd_cents": row["delta_usd_cents"]}},
+            )
+        await db.audit_log.insert_one({
+            "id": __import__("uuid").uuid4().hex, "user_id": user["id"], "email": user.get("email"),
+            "action": "wallet_backfill_usd",
+            "metadata": {"users_updated": len(plan), "ngn_per_usd": ngn_per_usd},
+            "created_at": utcnow_iso(),
+        })
+    return {"ok": True, "dry_run": dry, "ngn_per_usd": ngn_per_usd,
+            "users_affected": len(plan), "plan": plan[:50]}

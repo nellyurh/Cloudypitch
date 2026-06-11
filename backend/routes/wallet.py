@@ -55,7 +55,17 @@ async def _ensure_wallet(user_id: str) -> dict:
 
 @router.get("/me")
 async def my_wallet(user: dict = Depends(a.get_current_user)):
-    return {"wallet": await _ensure_wallet(user["id"])}
+    """Returns BOTH the NGN wallet (`user_wallets.balance_ngn` + totals) AND
+    the USD spend wallet (`users.wallet_balance_usd_cents`). NGN deposits via
+    PocketFi auto-mirror into the USD side at the current exchange rate so a
+    single deposit funds both currencies."""
+    wallet = await _ensure_wallet(user["id"])
+    # Pull the latest USD balance directly from the users doc.
+    udoc = await get_db().users.find_one({"id": user["id"]}, {"_id": 0, "wallet_balance_usd_cents": 1}) or {}
+    return {
+        "wallet": wallet,
+        "wallet_balance_usd_cents": int(udoc.get("wallet_balance_usd_cents") or 0),
+    }
 
 
 @router.get("/transactions")

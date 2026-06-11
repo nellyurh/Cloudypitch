@@ -10,7 +10,15 @@ Global multi-sport livescore + predictions + fantasy platform launching for FIFA
 - Sportmonks (football), API-Sports (other sports), Trybit/CryptoCloud (crypto deposits), PocketFi (NGN), Google AdSense
 
 ## Implemented (rolling)
-### 2026-02-10 (this session — part 6: prize-pool restoration + UX cleanup)
+### 2026-02-10 (this session — part 7: NGN/USD wallet conversion + seed fix)
+- **🚨 NGN → USD wallet conversion** — User deposited ₦100 (settlement ₦99) but UI showed `$0.99` because `fmtUsd(balance_ngn)` was treating the NGN amount as USD cents (divide-by-100 fallacy). Now:
+  - **Backend webhook** (`/api/webhooks/pocketfi`) reads `app_settings.id='currency'.ngn_per_usd` (defaults to 1,400) and mirrors every NGN credit into `users.wallet_balance_usd_cents` so the same deposit funds both the NGN side AND the USD card-purchase wallet without a separate convert step.
+  - **`GET /api/wallet/me`** now returns `wallet_balance_usd_cents` alongside the existing `wallet` doc.
+  - **Frontend** renders the headline as `₦5,000` (real NGN) with a small `≈ $3.57 · spendable on cards & mini-games` under it. Deposited / Won / Spent all switched to `fmtNgn`. Manual admin credit (`POST /api/admin/wallet/credit-ngn`) gets the same NGN→USD mirror.
+  - **One-time backfill endpoint** `POST /api/admin/wallet/backfill-usd` (with `dry_run` flag) walks every existing `user_wallets.balance_ngn` and tops up `users.wallet_balance_usd_cents` so users who deposited BEFORE this fix get their USD spendable balance properly credited. Verified: admin's ₦5,000 → +357 cents → $3.57 spendable.
+- **🚨 Prize-pool seed conflict (round 2)** — Previous fix for "kind conflict" was incomplete because `**p` still spread overlapping fields (`title` etc.) into `$setOnInsert` while `$set` also held them. Now the upsert payload is explicitly split: `$setOnInsert` carries only IMMUTABLE fields (`id`, `kind`, `competition_id`, `currency`, `amount_usd_cents`, `amount_total_ngn`), `$set` carries only MUTABLE display fields (`title`, `status`, `image_url`, `payout_structure`, `starts_at`, `ends_at`). Zero overlap → no more conflict, base $2,502 stays seeded across reboots.
+
+### 2026-02-10 (part 6 — prize-pool restoration + UX cleanup)
 - **🚨 Prize pool BASE was being silently corrupted ($2,502 → $2.00)** — Two compounding bugs found:
   1. `seed_data.py` did `$set: {k:v for k,v in p.items() if k not in (amount_usd_cents, id, created_at)}` which left `kind` in the `$set` — MongoDB rejects the upsert with `"Updating the path 'kind' would create a conflict at 'kind'"` because the same field is in `$setOnInsert`. So the seeded base never actually got into the pool — every boot logged the warning and the pool stayed at whatever `_contribute_to_pool` had written (usually $0 or just $2 from a couple card purchases). Fixed: `$set` now whitelists only display fields (`title`, `status`, `image_url`, `payout_structure`, `starts_at`, `ends_at`).
   2. `_contribute_to_pool` was incrementing BOTH `amount_usd_cents` (the base) AND `cards_cut_usd_cents` (the bonus) — conflating the two. Base must stay fixed at the admin-configured value; only `cards_cut` grows. Fixed: `_contribute_to_pool` now only `$inc`s `cards_cut_usd_cents` and ships a `$setOnInsert` floor of `amount_usd_cents=250_000` so a missing-pool recovery still shows the correct base.
