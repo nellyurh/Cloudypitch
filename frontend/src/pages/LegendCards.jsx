@@ -34,14 +34,9 @@ function CatalogTab() {
       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4">
         {visible.map(c => {
           const tierArt = TIER_ART[c.tier] || "epic";
-          const priceUsd = ((c.price_usd_cents || 0) / 100).toFixed(2);
           return (
             <div key={c.id} className="cursor-pointer hover:scale-[1.02] transition-transform" data-testid={`card-${c.id}`} onClick={() => setBuyTarget(c)}>
               <LegendCardArt tier={tierArt} title={c.name?.toUpperCase()} size={220} data-testid={`card-art-${c.id}`}/>
-              <div className="mt-2 px-1 text-center">
-                <div className="text-[11px] font-bold truncate">{c.player_name}</div>
-                <div className="text-[11px] tabular-nums text-cp-lime mt-0.5">${priceUsd}</div>
-              </div>
             </div>
           );
         })}

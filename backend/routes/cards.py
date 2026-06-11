@@ -52,7 +52,8 @@ async def _contribute_to_pool(db, amount_cents: int, user_id: str, source: str, 
 
 
 class PurchaseIn(BaseModel):
-    card_id: str
+    card_id: str | None = None  # optional when card_id is in the URL path
+    quantity: int = 1
     payment_reference: str | None = None
 
 
@@ -126,43 +127,68 @@ async def my_card_usage_history(user: dict = Depends(a.get_current_user), limit:
     return {"history": out}
 
 
-@router.post("/purchase")
-async def purchase_card(body: PurchaseIn, user: dict = Depends(a.get_current_user)):
-    """Create a user_card row after a successful Paystack txn (or via wallet).
-    Contributes 50% of price to the WC prize pool."""
-    db = get_db()
-    card = await db.legend_cards.find_one({"id": body.card_id}, {"_id": 0})
+async def _purchase_card_impl(db, user: dict, card_id: str, quantity: int, payment_reference: str | None):
+    """Shared purchase implementation. Supports `quantity` ≥ 1 — each copy
+    adds STARTER_USES uses to the user's collection (5 uses per copy)."""
+    if quantity < 1 or quantity > 25:
+        raise HTTPException(status_code=400, detail="quantity must be between 1 and 25")
+    card = await db.legend_cards.find_one({"id": card_id}, {"_id": 0})
     if not card:
         raise HTTPException(status_code=404, detail="Card not found")
-    price_cents = card.get("price_usd_cents") or TIER_PRICE_USD_CENTS.get(card.get("tier"), 50)
-    existing = await db.user_cards.find_one({"user_id": user["id"], "card_id": body.card_id})
+    unit_cents = card.get("price_usd_cents") or TIER_PRICE_USD_CENTS.get(card.get("tier"), 50)
+    total_cents = unit_cents * quantity
+    uses_granted = STARTER_USES * quantity
+
+    existing = await db.user_cards.find_one({"user_id": user["id"], "card_id": card_id})
     if existing:
         await db.user_cards.update_one(
             {"id": existing["id"]},
-            {"$inc": {"uses_remaining": STARTER_USES, "uses_left": STARTER_USES}},
+            {"$inc": {"uses_remaining": uses_granted, "uses_left": uses_granted}},
         )
         uc_id = existing["id"]
     else:
         uc_id = new_id()
         await db.user_cards.insert_one({
-            "id": uc_id, "user_id": user["id"], "card_id": body.card_id,
-            "uses_remaining": STARTER_USES, "uses_left": STARTER_USES,
+            "id": uc_id, "user_id": user["id"], "card_id": card_id,
+            "uses_remaining": uses_granted, "uses_left": uses_granted,
             "total_uses": 0,
             "acquired_via": "purchase",
-            "purchase_reference": body.payment_reference,
+            "purchase_reference": payment_reference,
             "acquired_at": datetime.now(timezone.utc).isoformat(),
         })
     await db.card_transactions.insert_one({
-        "id": new_id(), "user_id": user["id"], "card_id": body.card_id,
+        "id": new_id(), "user_id": user["id"], "card_id": card_id,
         "user_card_id": uc_id, "type": "purchase",
-        "amount_usd_cents": price_cents,
-        "reference": body.payment_reference,
+        "quantity": quantity,
+        "amount_usd_cents": total_cents,
+        "reference": payment_reference,
         "created_at": datetime.now(timezone.utc).isoformat(),
     })
-    await _contribute_to_pool(db, price_cents, user["id"], "card_purchase", body.payment_reference)
-    # Referral credit: if buyer was referred, give the referrer a credit
-    await _referrer_credit(db, user["id"], price_cents)
-    return {"ok": True, "user_card_id": uc_id, "amount_usd_cents": price_cents}
+    await _contribute_to_pool(db, total_cents, user["id"], "card_purchase", payment_reference)
+    await _referrer_credit(db, user["id"], total_cents)
+    return {
+        "ok": True,
+        "user_card_id": uc_id,
+        "quantity": quantity,
+        "uses_granted": uses_granted,
+        "amount_usd_cents": total_cents,
+    }
+
+
+@router.post("/purchase")
+async def purchase_card(body: PurchaseIn, user: dict = Depends(a.get_current_user)):
+    """Create/top-up a user_card after a successful payment. Body must include
+    `card_id`; `quantity` defaults to 1. 50% of revenue → WC prize pool."""
+    if not body.card_id:
+        raise HTTPException(status_code=400, detail="card_id is required")
+    return await _purchase_card_impl(get_db(), user, body.card_id, body.quantity, body.payment_reference)
+
+
+@router.post("/{card_id}/purchase")
+async def purchase_card_by_path(card_id: str, body: PurchaseIn, user: dict = Depends(a.get_current_user)):
+    """Same as POST /purchase but the card_id is in the URL path —
+    matches the existing frontend call signature `/api/cards/{id}/purchase`."""
+    return await _purchase_card_impl(get_db(), user, card_id, body.quantity, body.payment_reference)
 
 
 @router.post("/recharge")
