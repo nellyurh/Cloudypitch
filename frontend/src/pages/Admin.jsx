@@ -19,6 +19,7 @@ const TAB_HINTS = {
   ads: "AdSense status + sponsor ads. Disable Google Ads for premium subs is automatic. Add direct sponsor banners for any of 13 placements.",
   settings: "Currency rates (USD↔NGN), brand uploads, site config (which sports show, popup notice), and admin user creation. Every section has its own Save button.",
   cards: "Legend-card catalog — adjust prices for surge demand, change position locks, or do bulk tier price updates. Every change is audited.",
+  payments: "PocketFi webhook failures (signature mismatches) and manual NGN wallet credits for stuck deposits. Use sparingly — every action is audited.",
 };
 
 const StatCard = ({ icon: Icon, label, value }) => (
@@ -89,7 +90,7 @@ export const AdminPanel = () => {
     <div data-testid="admin-panel">
       <h1 className="text-2xl font-extrabold mb-3">Admin Panel</h1>
       <div className="flex gap-1 cp-surface p-1 w-fit mb-3 flex-wrap">
-        {["dashboard", "matches", "users", "ingest", "audit", "pools", "wcconfig", "wcgames", "players", "cards", "ads", "settings"].map(t => (
+        {["dashboard", "matches", "users", "ingest", "audit", "pools", "wcconfig", "wcgames", "players", "cards", "payments", "ads", "settings"].map(t => (
           <button key={t} onClick={() => setTab(t)} className={`px-3 py-1.5 text-sm rounded transition ${tab === t ? "bg-cp-lime text-cp-forest font-bold" : "hover:bg-white/5"}`} data-testid={`admin-tab-${t}`}>{t.toUpperCase()}</button>
         ))}
       </div>
@@ -407,6 +408,10 @@ export const AdminPanel = () => {
 
       {tab === "cards" && (
         <CardPricesTab onMessage={setMsg}/>
+      )}
+
+      {tab === "payments" && (
+        <PaymentsAdminTab onMessage={setMsg}/>
       )}
     </div>
   );
@@ -1079,3 +1084,145 @@ function CreateAdminForm({ onMessage }) {
 }
 
 export default AdminPanel;
+
+
+/* ──────────────────────────────────────────────────────────────────────── */
+/** PaymentsAdminTab — view PocketFi webhook deliveries that failed signature
+ *  verification, and manually credit a user's NGN wallet when a deposit was
+ *  confirmed in PocketFi's dashboard but didn't reach the wallet because of
+ *  a header/algorithm mismatch. Every manual credit is audited and idempotent
+ *  on the PocketFi reference.
+ */
+function PaymentsAdminTab({ onMessage }) {
+  const [failures, setFailures] = useState([]);
+  const [loadingF, setLoadingF] = useState(false);
+  const [form, setForm] = useState({ email: "", amount_ngn: "", reference: "", reason: "" });
+  const [submitting, setSubmitting] = useState(false);
+
+  const loadFailures = async () => {
+    setLoadingF(true);
+    try {
+      const { data } = await api.get("/admin/webhooks/pocketfi/failures?limit=20");
+      setFailures(data.failures || []);
+    } catch (e) { onMessage(`✗ ${e?.response?.data?.detail || e.message}`); }
+    setLoadingF(false);
+  };
+  useEffect(() => { loadFailures(); /* eslint-disable-next-line */ }, []);
+
+  const submitCredit = async (e) => {
+    e.preventDefault();
+    if (!form.email || !form.amount_ngn || !form.reference || !form.reason) {
+      onMessage("✗ All fields required."); return;
+    }
+    if (!confirm(`Credit ₦${form.amount_ngn} to ${form.email}?\nReference: ${form.reference}`)) return;
+    setSubmitting(true);
+    try {
+      const { data } = await api.post("/admin/wallet/credit-ngn", {
+        email: form.email,
+        amount_ngn: parseInt(form.amount_ngn, 10),
+        reference: form.reference,
+        reason: form.reason,
+      });
+      if (data.duplicate) {
+        onMessage(`⚠ Already credited (idempotent) — tx ${data.transaction_id}`);
+      } else {
+        onMessage(`✓ Credited ₦${data.amount_credited_ngn} to ${data.email} · new balance ₦${data.new_balance_ngn}`);
+        setForm({ email: "", amount_ngn: "", reference: "", reason: "" });
+      }
+    } catch (err) {
+      onMessage(`✗ ${err?.response?.data?.detail || err.message}`);
+    }
+    setSubmitting(false);
+  };
+
+  const prefillFromFailure = (f) => {
+    let body = {};
+    try { body = JSON.parse(f.raw_body); } catch (_) { /* ignore */ }
+    setForm({
+      email: body?.customer?.email || "",
+      amount_ngn: String(body?.order?.amount || ""),
+      reference: body?.transaction?.reference || "",
+      reason: `Webhook ${f.reason} — verified deposit manually from PocketFi dashboard`,
+    });
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  };
+
+  return (
+    <div className="space-y-3" data-testid="admin-payments">
+      <div className="cp-surface p-3" data-testid="admin-pf-credit">
+        <h3 className="text-sm font-extrabold mb-2">Manual NGN credit (stuck deposits)</h3>
+        <p className="text-[11px] mb-3" style={{ color: "var(--cp-text-muted)" }}>
+          Use this when a user's PocketFi deposit reflects in their dashboard but didn't credit our wallet
+          (usually a webhook signature mismatch). Idempotent on <b>Reference</b> — re-submitting the same
+          reference will not double-credit.
+        </p>
+        <form onSubmit={submitCredit} className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+          <input className="cp-input text-sm" placeholder="User email (e.g. nelsonurhie49@gmail.com)"
+                 value={form.email} onChange={e => setForm(f => ({...f, email: e.target.value}))}
+                 data-testid="admin-pf-credit-email"/>
+          <input className="cp-input text-sm tabular-nums" placeholder="Amount NGN (e.g. 99)" inputMode="numeric"
+                 value={form.amount_ngn} onChange={e => setForm(f => ({...f, amount_ngn: e.target.value}))}
+                 data-testid="admin-pf-credit-amount"/>
+          <input className="cp-input text-sm font-mono" placeholder="Reference (e.g. PFI|260611857730)"
+                 value={form.reference} onChange={e => setForm(f => ({...f, reference: e.target.value}))}
+                 data-testid="admin-pf-credit-ref"/>
+          <input className="cp-input text-sm" placeholder="Reason (audit log)"
+                 value={form.reason} onChange={e => setForm(f => ({...f, reason: e.target.value}))}
+                 data-testid="admin-pf-credit-reason"/>
+          <button type="submit" disabled={submitting}
+                  className="cp-btn-primary text-sm font-extrabold sm:col-span-2 disabled:opacity-50"
+                  data-testid="admin-pf-credit-submit">
+            {submitting ? "Crediting…" : "Credit NGN"}
+          </button>
+        </form>
+      </div>
+
+      <div className="cp-surface" data-testid="admin-pf-failures">
+        <div className="px-3 py-2 flex items-center justify-between border-b" style={{ borderColor: "var(--cp-border)" }}>
+          <h3 className="text-sm font-extrabold">PocketFi webhook failures (last 20)</h3>
+          <button onClick={loadFailures} className="cp-btn-ghost !p-1.5 text-[10px]" data-testid="admin-pf-failures-reload">↻ Reload</button>
+        </div>
+        {loadingF ? (
+          <div className="p-6 text-center text-sm opacity-60">Loading…</div>
+        ) : failures.length === 0 ? (
+          <div className="p-6 text-center text-sm opacity-60">No failures — webhooks are clean.</div>
+        ) : (
+          <ul className="divide-y" style={{ borderColor: "var(--cp-border)" }}>
+            {failures.map(f => {
+              let body = {};
+              try { body = JSON.parse(f.raw_body); } catch (_) { /* ignore */ }
+              const ref = body?.transaction?.reference;
+              const amt = body?.order?.amount;
+              const email = body?.customer?.email;
+              // Show only signature-ish headers (signature, hmac, hub, etc.)
+              const sigHdrs = Object.entries(f.headers || {})
+                .filter(([k]) => /sign|hmac|hub|verify/i.test(k));
+              return (
+                <li key={f.id} className="px-3 py-2 text-xs space-y-1" data-testid={`admin-pf-fail-${f.id}`}>
+                  <div className="flex items-center justify-between gap-2 flex-wrap">
+                    <div><span className="opacity-60">Ref:</span> <code className="font-mono">{ref || "—"}</code></div>
+                    <div className="tabular-nums">₦{amt ?? "—"} · {email || "—"}</div>
+                    <div className="opacity-60">{f.received_at?.slice(0, 19).replace("T", " ")}</div>
+                  </div>
+                  {sigHdrs.length > 0 ? (
+                    <div className="text-[10px] opacity-80">
+                      <b>Signature headers observed:</b>
+                      {sigHdrs.map(([k, v]) => (
+                        <div key={k} className="font-mono break-all">{k}: {String(v).slice(0, 80)}{String(v).length > 80 ? "…" : ""}</div>
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="text-[10px] opacity-60">No signature-like header observed (PocketFi sent none).</div>
+                  )}
+                  <button onClick={() => prefillFromFailure(f)} className="cp-btn-ghost !py-1 !px-2 text-[10px] font-extrabold" data-testid={`admin-pf-prefill-${f.id}`}>
+                    → Pre-fill manual credit form
+                  </button>
+                </li>
+              );
+            })}
+          </ul>
+        )}
+      </div>
+    </div>
+  );
+}

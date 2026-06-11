@@ -356,3 +356,105 @@ async def admin_bulk_set_card_price(payload: dict, user: dict = Depends(a.requir
         "created_at": utcnow_iso(),
     })
     return {"ok": True, "tier": tier, "modified": res.modified_count}
+
+
+
+# ---------- PocketFi webhook failures + manual NGN credit ----------
+@router.get("/webhooks/pocketfi/failures")
+async def admin_list_pocketfi_failures(
+    user: dict = Depends(a.require_admin), limit: int = 50,
+):
+    """List recent webhook deliveries that FAILED signature verification.
+    Used to identify which header name + algorithm PocketFi is actually
+    sending so we can tighten the verifier in code.
+    """
+    db = get_db()
+    rows = await db.pocketfi_webhook_failures.find(
+        {}, {"_id": 0},
+    ).sort("received_at", -1).limit(max(1, min(limit, 200))).to_list(length=200)
+    return {"failures": rows, "count": len(rows)}
+
+
+@router.post("/wallet/credit-ngn")
+async def admin_credit_ngn(payload: dict, user: dict = Depends(a.require_admin)):
+    """Manually credit a user's NGN wallet for a stuck PocketFi deposit.
+
+    Body:
+      { user_id?: str, email?: str, amount_ngn: int (≥1),
+        reference: str, reason: str (required), settlement_amount?: int }
+
+    Idempotent on `reference` — re-running with the same reference returns
+    the existing transaction (no double credit). Every call is audited.
+    """
+    db = get_db()
+    amount = int(payload.get("amount_ngn") or 0)
+    ref = (payload.get("reference") or "").strip()
+    reason = (payload.get("reason") or "").strip()
+    if amount < 1:
+        raise HTTPException(400, "amount_ngn must be ≥ 1")
+    if not ref:
+        raise HTTPException(400, "reference is required (use the PocketFi transaction reference)")
+    if not reason:
+        raise HTTPException(400, "reason is required for audit (e.g. 'Webhook failed signature — verified deposit manually')")
+
+    target_user = None
+    if payload.get("user_id"):
+        target_user = await db.users.find_one({"id": payload["user_id"]}, {"_id": 0})
+    elif payload.get("email"):
+        target_user = await db.users.find_one(
+            {"email": str(payload["email"]).strip().lower()}, {"_id": 0},
+        )
+    if not target_user:
+        raise HTTPException(404, "User not found (provide user_id or email).")
+
+    # Idempotency — refuse a second credit for the same reference.
+    existing = await db.wallet_transactions.find_one({"reference": ref, "type": "deposit"})
+    if existing:
+        return {"ok": True, "duplicate": True, "transaction_id": existing.get("id"),
+                "message": "This reference was already credited; no change."}
+
+    now = utcnow_iso()
+    res = await db.user_wallets.update_one(
+        {"user_id": target_user["id"]},
+        {
+            "$inc": {"balance_ngn": amount, "total_deposited": amount},
+            "$set": {"updated_at": now},
+        },
+        upsert=True,
+    )
+    if res.upserted_id:
+        await db.user_wallets.update_one(
+            {"_id": res.upserted_id},
+            {"$set": {"id": __import__("uuid").uuid4().hex, "user_id": target_user["id"],
+                      "total_won": 0, "total_spent": 0, "kyc_verified": False, "bank_account": None}},
+        )
+    wallet = await db.user_wallets.find_one({"user_id": target_user["id"]}, {"_id": 0})
+    new_balance = (wallet or {}).get("balance_ngn", amount)
+
+    tx_id = __import__("uuid").uuid4().hex
+    await db.wallet_transactions.insert_one({
+        "id": tx_id, "user_id": target_user["id"], "type": "deposit",
+        "amount_ngn": amount, "balance_after": new_balance,
+        "reference": ref, "provider": "manual_admin",
+        "gross_amount": payload.get("settlement_amount") or amount,
+        "fee": 0, "description": f"Manual credit by admin: {reason}",
+        "created_at": now,
+    })
+    # Mark the matching pending deposit (if any) as credited
+    await db.ngn_deposits.update_one(
+        {"payment_reference": ref, "status": "pending"},
+        {"$set": {"status": "credited", "credited_amount_ngn": amount,
+                  "transaction_reference": ref, "credited_at": now,
+                  "credited_by": user["id"], "credited_reason": reason}},
+    )
+    await db.audit_log.insert_one({
+        "id": __import__("uuid").uuid4().hex, "user_id": user["id"], "email": user.get("email"),
+        "action": "wallet_credit_ngn_manual",
+        "metadata": {"target_user_id": target_user["id"], "target_email": target_user.get("email"),
+                     "amount_ngn": amount, "reference": ref, "reason": reason,
+                     "new_balance_ngn": new_balance, "transaction_id": tx_id},
+        "created_at": now,
+    })
+    return {"ok": True, "transaction_id": tx_id, "user_id": target_user["id"],
+            "email": target_user.get("email"),
+            "amount_credited_ngn": amount, "new_balance_ngn": new_balance}

@@ -201,35 +201,90 @@ async def get_deposit(deposit_id: str, user: dict = Depends(a.get_current_user))
 # ───────────────────────────── Webhook ─────────────────────────────
 
 
-def _verify_pocketfi_signature(secret: str, raw_body: bytes, given: str) -> bool:
-    """HMAC-SHA512 over the raw request body, compared in constant time."""
-    expected = hmac.new(secret.encode("utf-8"), raw_body, hashlib.sha512).hexdigest()
-    return hmac.compare_digest(expected, given)
+# Common header names + algorithms used by Nigerian payment providers. PocketFi's
+# exact spec is not documented publicly — we therefore try EVERY common variant.
+# If ANY combination matches, the webhook is authentic. If NONE match, we reject
+# with 400 and persist the failed delivery (with all headers redacted-safe) to
+# `pocketfi_webhook_failures` so admins can identify the real header name and
+# tighten this list in the future.
+_CANDIDATE_HEADER_NAMES = (
+    "Pocketfi-Signature", "X-Pocketfi-Signature", "X-PocketFi-Signature",
+    "pocketfi-signature", "x-pocketfi-signature",
+    "X-Signature", "Signature", "X-Webhook-Signature", "Webhook-Signature",
+    "X-Hub-Signature", "X-Hub-Signature-256", "X-Hub-Signature-512",
+    "HTTP_POCKETFI_SIGNATURE",
+)
+_CANDIDATE_ALGOS = (
+    ("sha512", hashlib.sha512),
+    ("sha256", hashlib.sha256),
+)
+
+
+def _verify_pocketfi_signature(secret: str, raw_body: bytes, headers) -> tuple[bool, str, str, str]:
+    """Try every (header, algorithm, encoding) combination. Returns
+    (verified, header_name, algo_name, encoding) for the match — or
+    (False, "", "", "") if nothing matched. Constant-time digest comparison.
+    """
+    import base64
+    secret_b = secret.encode("utf-8")
+    for hdr in _CANDIDATE_HEADER_NAMES:
+        raw_sig = headers.get(hdr) or headers.get(hdr.lower())
+        if not raw_sig:
+            continue
+        # Strip common provider prefixes like `sha512=` / `sha256=`
+        candidate_digests: list[str] = []
+        s = raw_sig.strip()
+        for pfx in ("sha512=", "sha256=", "sha1=", "v1=", "v1,"):
+            if s.lower().startswith(pfx):
+                candidate_digests.append(s[len(pfx):])
+                break
+        candidate_digests.append(s)  # also try the raw value as-is
+
+        for algo_name, h in _CANDIDATE_ALGOS:
+            mac = hmac.new(secret_b, raw_body, h)
+            expected_hex = mac.hexdigest()
+            expected_b64 = base64.b64encode(mac.digest()).decode("ascii")
+            for cand in candidate_digests:
+                if hmac.compare_digest(expected_hex, cand):
+                    return True, hdr, algo_name, "hex"
+                if hmac.compare_digest(expected_b64, cand):
+                    return True, hdr, algo_name, "base64"
+    return False, "", "", ""
 
 
 @webhook_router.post("")
 async def pocketfi_webhook(request: Request):
     """Receive payment notifications from PocketFi and credit the user's wallet.
 
-    Per docs:
-      - Signature is HMAC-SHA512 of the raw body using your Secret Key
-      - Header: HTTP_POCKETFI_SIGNATURE
-      - Payload: {order:{amount,settlement_amount,fee,description}, transaction:{reference}}
+    Tries every common HMAC header/algo/encoding combination (PocketFi's exact
+    spec isn't public). On verification failure → 400 + payload persisted to
+    `pocketfi_webhook_failures` so we can post-mortem from the admin panel.
     """
     if not POCKETFI_SECRET_KEY:
         raise HTTPException(status_code=503, detail="PocketFi webhook secret not configured.")
 
     raw = await request.body()
-    # Header names are case-insensitive in FastAPI; PocketFi uses HTTP_POCKETFI_SIGNATURE
-    signature = (
-        request.headers.get("HTTP_POCKETFI_SIGNATURE")
-        or request.headers.get("Pocketfi-Signature")
-        or request.headers.get("pocketfi-signature")
-        or ""
+
+    verified, hdr_used, algo_used, enc_used = _verify_pocketfi_signature(
+        POCKETFI_SECRET_KEY, raw, request.headers,
     )
-    if not signature or not _verify_pocketfi_signature(POCKETFI_SECRET_KEY, raw, signature):
-        log.warning("PocketFi webhook: invalid signature")
+    if not verified:
+        log.warning("PocketFi webhook: invalid signature — no candidate combination matched")
+        # Persist a failure record so an admin can replay manually if needed.
+        # We DO NOT credit any wallet here — the security gate stays closed.
+        try:
+            await get_db().pocketfi_webhook_failures.insert_one({
+                "id": new_id(),
+                "received_at": datetime.now(timezone.utc).isoformat(),
+                "raw_body": raw.decode("utf-8", errors="replace"),
+                "headers": {k: v for k, v in request.headers.items()
+                            if "cookie" not in k.lower() and "authorization" not in k.lower()},
+                "reason": "invalid_signature_all_candidates",
+            })
+        except Exception as e:
+            log.warning(f"PocketFi webhook: could not persist failure: {e}")
         raise HTTPException(status_code=400, detail="Invalid signature")
+    log.info(f"PocketFi webhook verified via header={hdr_used} algo={algo_used} enc={enc_used}")
 
     try:
         payload = await request.json()
