@@ -69,8 +69,18 @@ export const COUNTRY_CODES = {
   "Wales": "gb-wls",
 };
 
+// flagcdn only serves a fixed set of widths — picking anything else (like w72)
+// returns 404, which is what was breaking every match-card flag (size 36 →
+// w72 → broken). Snap to the next supported width ≥ requested.
+const FLAGCDN_WIDTHS = [20, 40, 80, 160, 320, 640, 1280, 2560];
+function _snapFlagWidth(requested) {
+  const n = Math.max(20, Number(requested) || 20);
+  for (const w of FLAGCDN_WIDTHS) if (w >= n) return w;
+  return FLAGCDN_WIDTHS[FLAGCDN_WIDTHS.length - 1];
+}
+
 export const flagUrl = (country, size = 32) => {
   const code = COUNTRY_CODES[country];
   if (!code) return null;
-  return `https://flagcdn.com/w${size}/${code}.png`;
+  return `https://flagcdn.com/w${_snapFlagWidth(size)}/${code}.png`;
 };
