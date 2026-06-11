@@ -52,7 +52,9 @@ async def _setup():
                 "country": t.upper(), "position": "MID", "price": 5.0,
                 "is_wc_2026": True,
             })
-    # Match 1 kicked off 1h ago, Match 2 in 4h
+    # Match 1 kicked off 1h ago (locked: started already), Match 2 in 4h
+    # (NOT locked yet — KO > 30 min away). With the new round-stays-open
+    # policy, closes_at = last KO (now + 4h).
     await db.matches.insert_one({
         "id": "test-match-1", "is_world_cup": True,
         "scheduled_at": (now - timedelta(hours=1)).isoformat(),
@@ -67,16 +69,12 @@ async def _setup():
         "home_team_name": "C", "away_team_name": "D",
         "status": "upcoming",
     })
-    # generate_wc_games() sets closes_at = FIRST KO of the matchday. Once that
-    # match starts, tick_wc_game_states() can shift closes_at earlier (to
-    # ko - 30min) — so for the integrity window check we anchor on the first
-    # kickoff (now - 1h here).
     await db.wc_games.insert_one({
         "id": GAME_ID, "game_type": "group", "stage": "group_md1",
         "group_letter": "Z", "matchday": 1,
         "card_limit_current": 4, "points_multiplier": 1.0,
         "opens_at": (now - timedelta(days=2)).isoformat(),
-        "closes_at": (now - timedelta(hours=1)).isoformat(),
+        "closes_at": (now + timedelta(hours=4)).isoformat(),
         "status": "open", "total_entries": 0,
         "eligible_team_ids": TEAMS,
         "eligible_country_names": [t.upper() for t in TEAMS],
@@ -127,7 +125,7 @@ async def test_enter_game_rejects_locked_team_pick():
             assert False, "Should have raised HTTPException — picked a locked team"
         except HTTPException as e:
             assert e.status_code == 400
-            assert "already played" in str(e.detail).lower()
+            assert "already started" in str(e.detail).lower() or "within 30 minutes" in str(e.detail).lower()
     finally:
         await _teardown(db)
 

@@ -2060,6 +2060,7 @@ async def generate_wc_games() -> int:
                 continue
             try:
                 first_ko = min(datetime.fromisoformat(m["scheduled_at"].replace("Z", "+00:00")) for m in day_matches)
+                last_ko = max(datetime.fromisoformat(m["scheduled_at"].replace("Z", "+00:00")) for m in day_matches)
             except Exception:
                 continue
             opens_at = first_ko - timedelta(hours=cfg["opens_hours_before"])
@@ -2068,7 +2069,7 @@ async def generate_wc_games() -> int:
                 "config_id": cfg["id"], "group_letter": letter, "matchday": idx,
                 "card_limit_current": cfg["card_limit_current"],
                 "points_multiplier": cfg["points_multiplier"],
-                "opens_at": opens_at.isoformat(), "closes_at": first_ko.isoformat(),
+                "opens_at": opens_at.isoformat(), "closes_at": last_ko.isoformat(),
                 "status": "upcoming", "total_entries": 0,
                 "eligible_team_ids": tids,
                 "created_at": now.isoformat(),
@@ -2084,31 +2085,28 @@ async def generate_wc_games() -> int:
             if tid and tid not in seen_t:
                 seen_t.add(tid)
                 all_team_ids.append(tid)
-    # Stage → (anchor function over sorted_wc, opens_hours_before fallback)
-    # Group stages: anchor at first match of MD1/2/3 chunk
-    stage_anchors: dict[str, str] = {}
+    # Stage → (open_anchor, close_anchor) — open at the FIRST match of the
+    # stage chunk; close at the LAST match (game stays selectable for the
+    # whole round, per-team locks handle individual matchups).
+    stage_anchors: dict[str, tuple[str, str]] = {}
     if sorted_wc:
         try:
-            # MD1 → match[0], MD2 → match[24], MD3 → match[48], R32 → match[72]…
-            if len(sorted_wc) > 0:
-                stage_anchors["group_md1"] = sorted_wc[0]["scheduled_at"]
-            if len(sorted_wc) > 24:
-                stage_anchors["group_md2"] = sorted_wc[24]["scheduled_at"]
-            if len(sorted_wc) > 48:
-                stage_anchors["group_md3"] = sorted_wc[48]["scheduled_at"]
-            if len(sorted_wc) > 72:
-                stage_anchors["r32"] = sorted_wc[72]["scheduled_at"]
-            if len(sorted_wc) > 88:
-                stage_anchors["r16"] = sorted_wc[88]["scheduled_at"]
-            if len(sorted_wc) > 96:
-                stage_anchors["qf"] = sorted_wc[96]["scheduled_at"]
-            if len(sorted_wc) > 100:
-                stage_anchors["sf"] = sorted_wc[100]["scheduled_at"]
-            if len(sorted_wc) > 102:
-                stage_anchors["finals"] = sorted_wc[102]["scheduled_at"]
+            def _slice_anchor(lo: int, hi: int) -> tuple[str, str] | None:
+                chunk = sorted_wc[lo:hi]
+                if not chunk:
+                    return None
+                return chunk[0]["scheduled_at"], chunk[-1]["scheduled_at"]
+            for stage_key, lo, hi in [
+                ("group_md1", 0, 24), ("group_md2", 24, 48), ("group_md3", 48, 72),
+                ("r32", 72, 88), ("r16", 88, 96), ("qf", 96, 100),
+                ("sf", 100, 102), ("finals", 102, 104),
+            ]:
+                pair = _slice_anchor(lo, hi)
+                if pair:
+                    stage_anchors[stage_key] = pair
         except Exception:
             pass
-    for stage, anchor_iso in stage_anchors.items():
+    for stage, (open_iso, close_iso) in stage_anchors.items():
         cfg = cfg_by.get(("round", stage))
         if not cfg:
             continue
@@ -2116,16 +2114,17 @@ async def generate_wc_games() -> int:
         if existing:
             continue
         try:
-            anchor_dt = datetime.fromisoformat(anchor_iso.replace("Z", "+00:00"))
+            open_dt = datetime.fromisoformat(open_iso.replace("Z", "+00:00"))
+            close_dt = datetime.fromisoformat(close_iso.replace("Z", "+00:00"))
         except Exception:
             continue
-        opens_at = anchor_dt - timedelta(hours=cfg["opens_hours_before"])
+        opens_at = open_dt - timedelta(hours=cfg["opens_hours_before"])
         row = {
             "id": new_id(), "game_type": "round", "stage": stage,
             "config_id": cfg["id"], "round_label": stage,
             "card_limit_current": cfg["card_limit_current"],
             "points_multiplier": cfg["points_multiplier"],
-            "opens_at": opens_at.isoformat(), "closes_at": anchor_dt.isoformat(),
+            "opens_at": opens_at.isoformat(), "closes_at": close_dt.isoformat(),
             "status": "upcoming", "total_entries": 0,
             "eligible_team_ids": all_team_ids,
             "created_at": now.isoformat(),
@@ -2159,49 +2158,72 @@ async def tick_wc_game_states() -> int:
     )
     transitions += r2.modified_count or 0
 
-    # ---- Integrity sweep: force-close multi-match games whose first
-    # contributing match is < 30 min away. We scan only the still-open ones
-    # to keep the query cheap; matches collection is indexed on scheduled_at.
+    # ---- Integrity sweep: force-close multi-match games once the LAST
+    # contributing match in the round is within 30 min of kickoff. Up to
+    # that point the game remains open — per-team locking (see wc_games
+    # route) takes care of dropping individual teams whose own match has
+    # started or is within 30 min.
     from datetime import datetime, timedelta, timezone
     now_dt = datetime.now(timezone.utc)
-    cutoff_lo = now_dt - timedelta(hours=2)
-    cutoff_hi_round = now_dt + timedelta(hours=96)
+    # Pre-cache chronological WC matches once per tick for round-game slicing.
+    all_wc = await db.matches.find(
+        {"is_world_cup": True}, {"_id": 0, "scheduled_at": 1},
+    ).sort("scheduled_at", 1).to_list(length=300)
+    ROUND_SLICES = {
+        "group_md1": (0, 24), "group_md2": (24, 48), "group_md3": (48, 72),
+        "r32": (72, 88), "r16": (88, 96), "qf": (96, 100),
+        "sf": (100, 102), "finals": (102, 104),
+    }
     open_multi = await db.wc_games.find(
         {"status": {"$in": ["upcoming", "open"]},
          "game_type": {"$in": ["round", "group", "matchday"]}},
-        {"_id": 0, "id": 1, "game_type": 1, "eligible_team_ids": 1, "closes_at": 1},
+        {"_id": 0, "id": 1, "game_type": 1, "eligible_team_ids": 1,
+         "closes_at": 1, "matchday": 1, "stage": 1},
     ).to_list(length=500)
     for g in open_multi:
         team_ids = list(g.get("eligible_team_ids") or [])
-        if not team_ids:
-            continue
-        q = {
-            "is_world_cup": True,
-            "scheduled_at": {"$gte": cutoff_lo.isoformat(),
-                             "$lte": cutoff_hi_round.isoformat()},
-        }
-        if g["game_type"] in ("group", "matchday"):
-            q["home_team_id"] = {"$in": team_ids}
-            q["away_team_id"] = {"$in": team_ids}
-        else:
-            q["$or"] = [
-                {"home_team_id": {"$in": team_ids}},
-                {"away_team_id": {"$in": team_ids}},
-            ]
-        first = await db.matches.find(q, {"_id": 0, "scheduled_at": 1}).sort("scheduled_at", 1).limit(1).to_list(length=1)
-        if not first:
+        last_iso: Optional[str] = None
+        if g["game_type"] == "group" and g.get("matchday") and team_ids:
+            ms = await db.matches.find(
+                {"is_world_cup": True,
+                 "home_team_id": {"$in": team_ids},
+                 "away_team_id": {"$in": team_ids}},
+                {"_id": 0, "scheduled_at": 1},
+            ).sort("scheduled_at", 1).to_list(length=20)
+            md = int(g["matchday"])
+            lo, hi = (md - 1) * 2, md * 2
+            chunk = ms[lo:hi]
+            if chunk:
+                last_iso = chunk[-1]["scheduled_at"]
+        elif g["game_type"] == "round" and g.get("stage") in ROUND_SLICES:
+            lo, hi = ROUND_SLICES[g["stage"]]
+            chunk = all_wc[lo:hi]
+            if chunk:
+                last_iso = chunk[-1]["scheduled_at"]
+        elif g["game_type"] == "matchday" and team_ids:
+            last = await db.matches.find(
+                {"is_world_cup": True,
+                 "home_team_id": {"$in": team_ids},
+                 "away_team_id": {"$in": team_ids}},
+                {"_id": 0, "scheduled_at": 1},
+            ).sort("scheduled_at", -1).limit(1).to_list(length=1)
+            if last:
+                last_iso = last[0]["scheduled_at"]
+        if not last_iso:
             continue
         try:
-            ko = datetime.fromisoformat(first[0]["scheduled_at"].replace("Z", "+00:00"))
+            last_ko = datetime.fromisoformat(last_iso.replace("Z", "+00:00"))
+            if last_ko.tzinfo is None:
+                last_ko = last_ko.replace(tzinfo=timezone.utc)
         except Exception:
             continue
-        deadline = ko - timedelta(minutes=30)
+        deadline = last_ko - timedelta(minutes=30)
         if now_dt >= deadline:
             res = await db.wc_games.update_one(
                 {"id": g["id"], "status": {"$in": ["upcoming", "open"]}},
                 {"$set": {"status": "closed",
                           "closes_at": deadline.isoformat(),
-                          "auto_closed_reason": "first_match_within_30min"}},
+                          "auto_closed_reason": "last_match_within_30min"}},
             )
             transitions += res.modified_count or 0
     return transitions

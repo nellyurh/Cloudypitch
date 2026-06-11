@@ -360,6 +360,53 @@ export const AdminPanel = () => {
             }} className="cp-btn-primary" style={{ background: "var(--cp-lime)", color: "var(--cp-forest)" }} data-testid="wcgames-open-all">
               <Trophy size={14}/> Open ALL 148 games
             </button>
+            <select
+              className="cp-input w-44"
+              data-testid="wcgames-open-stage"
+              defaultValue=""
+              onChange={async (e) => {
+                const stage = e.target.value;
+                if (!stage) return;
+                if (!confirm(`Open every WC2026 game in stage "${stage}"? (round + group games for that stage)`)) {
+                  e.target.value = ""; return;
+                }
+                setBusy(true);
+                try {
+                  const { data } = await api.post(`/admin/wc/games/open-stage?stage=${encodeURIComponent(stage)}`);
+                  setMsg(`✓ Opened ${data.modified} games in stage ${stage}`);
+                  refreshWcGames();
+                } catch (err) { setMsg(err?.response?.data?.detail || "Open-stage failed"); }
+                setBusy(false);
+                e.target.value = "";
+              }}
+            >
+              <option value="">Open stage…</option>
+              <option value="group_md1">Group MD1</option>
+              <option value="group_md2">Group MD2</option>
+              <option value="group_md3">Group MD3</option>
+              <option value="r32">Round of 32</option>
+              <option value="r16">Round of 16</option>
+              <option value="qf">Quarter-finals</option>
+              <option value="sf">Semi-finals</option>
+              <option value="finals">Finals</option>
+            </select>
+            <button
+              data-testid="wcgames-backfill-closes"
+              onClick={async () => {
+                if (!confirm("Recompute closes_at on every group/round game so each round stays open until 30 min before its LAST match KO?")) return;
+                setBusy(true);
+                try {
+                  const { data } = await api.post("/admin/wc/games/backfill-closes-at");
+                  setMsg(`✓ Backfilled closes_at on ${data.updated}/${data.scanned} games`);
+                  refreshWcGames();
+                } catch (e) { setMsg(e?.response?.data?.detail || "Backfill failed"); }
+                setBusy(false);
+              }}
+              className="cp-btn-primary"
+              style={{ background: "var(--cp-surface-2)" }}
+            >
+              <Calendar size={14}/> Backfill closes_at
+            </button>
           </div>
           <div className="cp-surface overflow-x-auto">
             <table className="w-full text-xs">

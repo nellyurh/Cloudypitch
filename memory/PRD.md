@@ -10,7 +10,16 @@ Global multi-sport livescore + predictions + fantasy platform launching for FIFA
 - Sportmonks (football), API-Sports (other sports), Trybit/CryptoCloud (crypto deposits), PocketFi (NGN), Google AdSense
 
 ## Implemented (rolling)
-### 2026-02-11 (this session — Group player pool + auto-close verification)
+### 2026-02-11 (round-based open/close + per-team 30-min lock)
+- **🚨 Round games stay open until LAST match's KO** — Previous behavior closed the entire Group A MD1 game as soon as the FIRST match (e.g. Mexico–S.Africa) was 30 min away, even though the second match (Czech–Korea) was still 2h+ out. Now:
+  - `generate_wc_games()` sets `closes_at = LAST KO` of the round (group games use matchday chunking; round games use chronological slicing).
+  - `tick_wc_game_states()` only force-closes when the LAST match is within 30 min.
+  - `routes/wc_games.game_detail` + `enter_game` filter is per-team: a team is locked when its OWN match is ≤30 min away or already started; the game itself stays open for other teams' players.
+  - **Backfill**: new admin endpoint `POST /api/admin/wc/games/backfill-closes-at` and corresponding "Backfill closes_at" button on the WC Games admin tab. Ran once → 6 games updated, all 26 multi-match games now have correct LAST-KO closes_at.
+- **Admin "Open by stage"** — new `POST /api/admin/wc/games/open-stage?stage=group_md1` + dropdown on Admin → WC Games tab. One click opens all 12 Group MD1 games (or all 16 R32 games, etc.) instead of clicking each row.
+- **Regression tests** — `tests/test_team_30min_cutoff.py` validates the per-team lock cutoff; `tests/test_round_autoclose.py` validates the per-pick rejection in `enter_game`; `tests/test_group_player_pool.py` validates the 4-team pool fix.
+
+### 2026-02-11 (Group player pool fix)
 - **🚨 Group MD mini-games only showing 2 of 4 teams' players** — `/api/fantasy/players?game_id=...` filtered by `country` name, but the denormalised `eligible_country_names` used FIFA spellings (`Czechia`, `South Korea`) while the player rows used Sportmonks spellings (`Czech Republic`, `Korea Republic`). Result: Group A MD1 showed only Mexico + South Africa (52 players) instead of all 4 teams (118). Fixed `list_fantasy_players` in `/app/backend/routes/fantasy.py` to prefer `eligible_team_ids` (exact ID match) and fall back to country names only when team IDs aren't available. Verified all 12 group games × 3 matchdays now return 4 teams of players.
 - **Verified locked-team filter + 30-min auto-close** from previous handoff — `/api/wc/games/{id}` correctly removes players from teams whose match has already kicked off, and `enter_game()` rejects picks from locked teams with a clear error. `tick_wc_game_states()` force-closes multi-match games once their first contributing match is within 30 min. Added regression tests at `/app/backend/tests/test_round_autoclose.py` and `/app/backend/tests/test_group_player_pool.py` — both pass.
 

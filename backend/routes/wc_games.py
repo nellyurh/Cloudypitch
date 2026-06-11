@@ -80,41 +80,34 @@ async def game_detail(game_id: str, user: dict = Depends(a.get_optional_user)):
 
     # ─── Integrity gate ───────────────────────────────────────────────────
     # For round / group / matchday games (which span multiple kickoffs),
-    # players from teams whose match has ALREADY STARTED must be removed
-    # from the pool. Otherwise late entrants could pick a team that already
-    # played and copy its known result. Single-match games don't need this
-    # filter because the whole game closes at one kickoff.
+    # a team becomes INELIGIBLE 30 minutes before its match kickoff (so a
+    # late entrant can't pick a team whose match is about to start or has
+    # already started). The group/round game itself stays OPEN until the
+    # LAST match in the round hits its 30-min cutoff.
     locked_team_ids: set[str] = set()
     if g.get("game_type") in ("round", "group", "matchday") and eligible_team_ids:
-        from datetime import datetime, timedelta
-        from db import utcnow_iso
-        # Window: same as the wc_settler resolution (see wc_settler.WINDOW_HOURS).
-        try:
-            closes = datetime.fromisoformat((g.get("closes_at") or utcnow_iso()).replace("Z", "+00:00"))
-        except Exception:
-            closes = None
-        if closes:
-            win_pre, win_post = (2, 96) if g["game_type"] == "round" else (2, 30)
-            ws = (closes - timedelta(hours=win_pre)).isoformat()
-            we = (closes + timedelta(hours=win_post)).isoformat()
-            q = {
-                "is_world_cup": True,
-                "scheduled_at": {"$gte": ws, "$lte": we, "$lt": utcnow_iso()},
-            }
-            if g["game_type"] in ("group", "matchday"):
-                q["home_team_id"] = {"$in": eligible_team_ids}
-                q["away_team_id"] = {"$in": eligible_team_ids}
-            else:
-                q["$or"] = [
-                    {"home_team_id": {"$in": eligible_team_ids}},
-                    {"away_team_id": {"$in": eligible_team_ids}},
-                ]
-            kicked = await db.matches.find(
-                q, {"_id": 0, "home_team_id": 1, "away_team_id": 1},
-            ).to_list(length=200)
-            for m in kicked:
-                if m.get("home_team_id"): locked_team_ids.add(m["home_team_id"])
-                if m.get("away_team_id"): locked_team_ids.add(m["away_team_id"])
+        from datetime import datetime, timedelta, timezone
+        now_dt = datetime.now(timezone.utc)
+        cutoff = (now_dt + timedelta(minutes=30)).isoformat()
+        q = {
+            "is_world_cup": True,
+            "scheduled_at": {"$lte": cutoff},
+        }
+        if g["game_type"] in ("group", "matchday"):
+            # Both teams of the match must be in the group/matchday pool.
+            q["home_team_id"] = {"$in": eligible_team_ids}
+            q["away_team_id"] = {"$in": eligible_team_ids}
+        else:
+            q["$or"] = [
+                {"home_team_id": {"$in": eligible_team_ids}},
+                {"away_team_id": {"$in": eligible_team_ids}},
+            ]
+        kicked = await db.matches.find(
+            q, {"_id": 0, "home_team_id": 1, "away_team_id": 1},
+        ).to_list(length=200)
+        for m in kicked:
+            if m.get("home_team_id"): locked_team_ids.add(m["home_team_id"])
+            if m.get("away_team_id"): locked_team_ids.add(m["away_team_id"])
 
     # Resolve eligible players from team IDs (minus locked teams)
     pool_team_ids = [tid for tid in eligible_team_ids if tid not in locked_team_ids]
@@ -176,60 +169,54 @@ async def enter_game(game_id: str, body: GameEntryIn, user: dict = Depends(a.get
         raise HTTPException(status_code=400, detail=f"Game is {g.get('status')} — entries closed")
 
     # ─── Integrity: for multi-match games (round/group/matchday), reject any
-    # pick whose team has already kicked off in this round/window. Mirrors the
-    # client-side gate in /games/{id}.eligible_players so a stale frontend
-    # can't sneak through.
+    # pick whose team is within 30 min of its match kickoff (or already
+    # started). Mirrors the client-side gate in /games/{id}.eligible_players
+    # so a stale frontend can't sneak through.
     if g.get("game_type") in ("round", "group", "matchday"):
         from datetime import datetime, timedelta, timezone
         team_ids = list(g.get("eligible_team_ids") or [])
         if team_ids:
-            try:
-                closes = datetime.fromisoformat((g.get("closes_at") or _now_iso()).replace("Z", "+00:00"))
-            except Exception:
-                closes = None
-            if closes:
-                win_pre, win_post = (2, 96) if g["game_type"] == "round" else (2, 30)
-                ws = (closes - timedelta(hours=win_pre)).isoformat()
-                we = (closes + timedelta(hours=win_post)).isoformat()
-                q = {
-                    "is_world_cup": True,
-                    "scheduled_at": {"$gte": ws, "$lte": we, "$lt": _now_iso()},
-                }
-                if g["game_type"] in ("group", "matchday"):
-                    q["home_team_id"] = {"$in": team_ids}
-                    q["away_team_id"] = {"$in": team_ids}
-                else:
-                    q["$or"] = [
-                        {"home_team_id": {"$in": team_ids}},
-                        {"away_team_id": {"$in": team_ids}},
-                    ]
-                kicked_rows = await db.matches.find(
-                    q, {"_id": 0, "home_team_id": 1, "away_team_id": 1, "home_team_name": 1, "away_team_name": 1},
-                ).to_list(length=200)
-                locked_ids = set()
-                locked_names = []
-                for m in kicked_rows:
-                    if m.get("home_team_id"):
-                        locked_ids.add(m["home_team_id"])
-                        locked_names.append(m.get("home_team_name") or m["home_team_id"])
-                    if m.get("away_team_id"):
-                        locked_ids.add(m["away_team_id"])
-                        locked_names.append(m.get("away_team_name") or m["away_team_id"])
-                if locked_ids and body.player_picks:
-                    pick_player_ids = [p.player_id for p in body.player_picks]
-                    bad = await db.players.find(
-                        {"id": {"$in": pick_player_ids}, "team_id": {"$in": list(locked_ids)}},
-                        {"_id": 0, "name": 1, "team_name": 1},
-                    ).to_list(length=50)
-                    if bad:
-                        n = bad[0]
-                        raise HTTPException(
-                            status_code=400,
-                            detail=(
-                                f"Player '{n.get('name')}' is from {n.get('team_name')}, which has already played this round. "
-                                f"Players from {', '.join(sorted(set(locked_names))[:4])} can't be picked any more."
-                            ),
-                        )
+            now_dt = datetime.now(timezone.utc)
+            cutoff = (now_dt + timedelta(minutes=30)).isoformat()
+            q = {
+                "is_world_cup": True,
+                "scheduled_at": {"$lte": cutoff},
+            }
+            if g["game_type"] in ("group", "matchday"):
+                q["home_team_id"] = {"$in": team_ids}
+                q["away_team_id"] = {"$in": team_ids}
+            else:
+                q["$or"] = [
+                    {"home_team_id": {"$in": team_ids}},
+                    {"away_team_id": {"$in": team_ids}},
+                ]
+            kicked_rows = await db.matches.find(
+                q, {"_id": 0, "home_team_id": 1, "away_team_id": 1, "home_team_name": 1, "away_team_name": 1},
+            ).to_list(length=200)
+            locked_ids = set()
+            locked_names = []
+            for m in kicked_rows:
+                if m.get("home_team_id"):
+                    locked_ids.add(m["home_team_id"])
+                    locked_names.append(m.get("home_team_name") or m["home_team_id"])
+                if m.get("away_team_id"):
+                    locked_ids.add(m["away_team_id"])
+                    locked_names.append(m.get("away_team_name") or m["away_team_id"])
+            if locked_ids and body.player_picks:
+                pick_player_ids = [p.player_id for p in body.player_picks]
+                bad = await db.players.find(
+                    {"id": {"$in": pick_player_ids}, "team_id": {"$in": list(locked_ids)}},
+                    {"_id": 0, "name": 1, "team_name": 1},
+                ).to_list(length=50)
+                if bad:
+                    n = bad[0]
+                    raise HTTPException(
+                        status_code=400,
+                        detail=(
+                            f"Player '{n.get('name')}' is from {n.get('team_name')}, whose match has already started or kicks off within 30 minutes. "
+                            f"Locked teams: {', '.join(sorted(set(locked_names))[:4])}."
+                        ),
+                    )
     cfg = await db.wc_game_config.find_one({"id": g.get("config_id")}, {"_id": 0})
     card_cap = (cfg or {}).get("card_limit_current", 2) if cfg else 2
     if len(body.cards_used) > card_cap:
@@ -661,6 +648,101 @@ async def admin_refresh_bracket(admin: dict = Depends(a.require_admin)):
     transitions = await tick_wc_game_states()
     return {"ok": True, "ingested": ingested, "created": created, "transitions": transitions}
 
+
+
+@admin_router.post("/games/open-stage")
+async def admin_open_stage(stage: str, admin: dict = Depends(a.require_admin)):
+    """Bulk-open every WC mini-game in a stage (e.g. `group_md1`, `r32`). All
+    rows in that stage flip to `status=open` with `opens_at=now`. This is the
+    round-by-round equivalent of `open-all` — admin opens MD1 once and all 12
+    Group MD1 games go live together.
+    """
+    db = get_db()
+    now = _now_iso()
+    res = await db.wc_games.update_many(
+        {"stage": stage, "status": {"$in": ["upcoming", "open"]}},
+        {"$set": {"status": "open", "opens_at": now, "updated_at": now}},
+    )
+    await db.audit_log.insert_one({
+        "id": new_id(), "user_id": admin["id"], "email": admin.get("email"),
+        "action": "wc_games_open_stage",
+        "metadata": {"stage": stage, "affected": res.modified_count, "matched": res.matched_count},
+        "created_at": now,
+    })
+    return {"ok": True, "stage": stage, "modified": res.modified_count, "matched": res.matched_count}
+
+
+@admin_router.post("/games/backfill-closes-at")
+async def admin_backfill_closes_at(admin: dict = Depends(a.require_admin)):
+    """One-shot: rewrite `closes_at` on every existing group/round game so it
+    points at the LAST contributing match's kickoff (rather than the first).
+
+    Group games: matches between the group's 4 teams, sorted by KO, chunked
+    into pairs (MD1=pair 0, MD2=pair 1, MD3=pair 2). closes_at = last KO of
+    that pair.
+    Round games: chronological slice over all WC matches:
+      group_md1 → [0:24], group_md2 → [24:48], group_md3 → [48:72],
+      r32 → [72:88], r16 → [88:96], qf → [96:100], sf → [100:102],
+      finals → [102:104]. closes_at = last KO of that slice.
+    """
+    db = get_db()
+    # Pre-load chronological WC match list for round slicing
+    all_wc = await db.matches.find(
+        {"is_world_cup": True}, {"_id": 0, "scheduled_at": 1},
+    ).sort("scheduled_at", 1).to_list(length=300)
+    ROUND_SLICES = {
+        "group_md1": (0, 24), "group_md2": (24, 48), "group_md3": (48, 72),
+        "r32": (72, 88), "r16": (88, 96), "qf": (96, 100),
+        "sf": (100, 102), "finals": (102, 104),
+    }
+    rows = await db.wc_games.find(
+        {"game_type": {"$in": ["round", "group", "matchday"]}},
+        {"_id": 0, "id": 1, "game_type": 1, "eligible_team_ids": 1,
+         "matchday": 1, "group_letter": 1, "closes_at": 1, "stage": 1},
+    ).to_list(length=1000)
+    updated = 0
+    for g in rows:
+        team_ids = list(g.get("eligible_team_ids") or [])
+        new_close: Optional[str] = None
+        if g["game_type"] == "group" and g.get("matchday") and team_ids:
+            ms = await db.matches.find(
+                {"is_world_cup": True,
+                 "home_team_id": {"$in": team_ids},
+                 "away_team_id": {"$in": team_ids}},
+                {"_id": 0, "scheduled_at": 1},
+            ).sort("scheduled_at", 1).to_list(length=20)
+            md = int(g["matchday"])
+            lo, hi = (md - 1) * 2, md * 2
+            chunk = ms[lo:hi]
+            if chunk:
+                new_close = chunk[-1]["scheduled_at"]
+        elif g["game_type"] == "round" and g.get("stage") in ROUND_SLICES:
+            lo, hi = ROUND_SLICES[g["stage"]]
+            chunk = all_wc[lo:hi]
+            if chunk:
+                new_close = chunk[-1]["scheduled_at"]
+        elif g["game_type"] == "matchday" and team_ids:
+            last = await db.matches.find(
+                {"is_world_cup": True,
+                 "home_team_id": {"$in": team_ids},
+                 "away_team_id": {"$in": team_ids}},
+                {"_id": 0, "scheduled_at": 1},
+            ).sort("scheduled_at", -1).limit(1).to_list(length=1)
+            if last:
+                new_close = last[0]["scheduled_at"]
+        if new_close and new_close != g.get("closes_at"):
+            await db.wc_games.update_one(
+                {"id": g["id"]},
+                {"$set": {"closes_at": new_close, "updated_at": _now_iso()}},
+            )
+            updated += 1
+    await db.audit_log.insert_one({
+        "id": new_id(), "user_id": admin["id"], "email": admin.get("email"),
+        "action": "wc_games_backfill_closes_at",
+        "metadata": {"updated": updated, "scanned": len(rows)},
+        "created_at": _now_iso(),
+    })
+    return {"ok": True, "updated": updated, "scanned": len(rows)}
 
 
 @admin_router.post("/games/open-all")
