@@ -108,10 +108,23 @@ export default function MyTeams() {
                 )}
                 <span className="truncate">{t.game_title || t.competition_id || "WC 2026 Fantasy"}</span>
               </div>
+              {t.match_info?.home_team_name && t.match_info?.away_team_name && (
+                <div className="flex items-center gap-2 text-xs mt-0.5" data-testid={`my-team-match-${t.id}`}>
+                  {t.match_info.home_team_logo && <img src={t.match_info.home_team_logo} alt="" className="w-4 h-4 object-contain"/>}
+                  <span className="font-bold truncate">{t.match_info.home_team_name}</span>
+                  {t.match_info.status === "FT" || t.match_info.status === "AET" || t.match_info.status === "PEN" ? (
+                    <span className="cp-pill !text-[9px] !bg-zinc-700 tabular-nums">{t.match_info.home_score ?? 0}–{t.match_info.away_score ?? 0}</span>
+                  ) : (
+                    <span className="opacity-50 text-[10px]">vs</span>
+                  )}
+                  <span className="font-bold truncate">{t.match_info.away_team_name}</span>
+                  {t.match_info.away_team_logo && <img src={t.match_info.away_team_logo} alt="" className="w-4 h-4 object-contain"/>}
+                </div>
+              )}
               <div className="grid grid-cols-3 gap-2 text-center mt-1">
                 <div>
                   <div className="text-[9px] uppercase opacity-60">Players</div>
-                  <div className="font-extrabold">{t.player_count}/{(t.players || []).length >= 16 ? "20" : "15"}</div>
+                  <div className="font-extrabold">{t.player_count}/{t.kind === "wc_game" ? "11" : ((t.players || []).length >= 16 ? "20" : "15")}</div>
                 </div>
                 <div>
                   <div className="text-[9px] uppercase opacity-60">Spent</div>

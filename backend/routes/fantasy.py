@@ -300,26 +300,72 @@ async def my_teams(user: dict = Depends(a.get_current_user)):
     ge = await db.wc_game_entries.find({"user_id": user["id"]}, {"_id": 0}).sort("updated_at", -1).to_list(length=400)
     for r in ge:
         game_title = None
+        squad_name = None
+        match_meta = None
         if r.get("wc_game_id"):
             g = await db.wc_games.find_one(
                 {"id": r["wc_game_id"]},
-                {"_id": 0, "game_type": 1, "stage": 1, "group_letter": 1, "matchday": 1, "title": 1, "match_info": 1},
+                {"_id": 0, "game_type": 1, "stage": 1, "group_letter": 1,
+                 "matchday": 1, "title": 1, "match_info": 1, "match_id": 1,
+                 "status": 1, "closes_at": 1},
             )
             if g:
-                if g.get("title"):
+                # For a single-match mini-game, prefer "Home Team vs Away Team"
+                # (e.g. "South Africa vs Mexico") over the generic "Match · Any".
+                if g.get("game_type") == "match":
+                    home_name = away_name = home_code = away_code = None
+                    if g.get("match_id"):
+                        m = await db.matches.find_one(
+                            {"id": g["match_id"]},
+                            {"_id": 0, "home_team_name": 1, "away_team_name": 1,
+                             "home_team_code": 1, "away_team_code": 1,
+                             "home_team_logo": 1, "away_team_logo": 1,
+                             "scheduled_at": 1, "status": 1,
+                             "home_score": 1, "away_score": 1},
+                        )
+                        if m:
+                            home_name = m.get("home_team_name")
+                            away_name = m.get("away_team_name")
+                            home_code = m.get("home_team_code")
+                            away_code = m.get("away_team_code")
+                            match_meta = {
+                                "home_team_name": home_name, "away_team_name": away_name,
+                                "home_team_code": home_code, "away_team_code": away_code,
+                                "home_team_logo": m.get("home_team_logo"),
+                                "away_team_logo": m.get("away_team_logo"),
+                                "scheduled_at": m.get("scheduled_at"),
+                                "status": m.get("status"),
+                                "home_score": m.get("home_score"),
+                                "away_score": m.get("away_score"),
+                            }
+                    if home_name and away_name:
+                        game_title = f"{home_name} vs {away_name}"
+                        squad_name = game_title
+                    elif g.get("title"):
+                        game_title = g["title"]
+                if not game_title and g.get("title"):
                     game_title = g["title"]
-                else:
-                    bits = [str(g.get("game_type", "")).title(), str(g.get("stage", ""))]
+                if not game_title:
+                    bits = [str(g.get("game_type", "")).title()]
+                    if g.get("stage") and g.get("stage") != "any":
+                        bits.append(str(g["stage"]).title())
                     if g.get("group_letter"):
                         bits.append("Group " + str(g["group_letter"]))
                     if g.get("matchday"):
                         bits.append("MD" + str(g["matchday"]))
                     game_title = " · ".join([b for b in bits if b])
+        # Mini-game entries store the lineup in `player_picks` (not `players`).
+        picks = r.get("player_picks") or []
         out.append({
             **r,
             "kind": "wc_game",
             "game_title": game_title or "WC mini-game",
-            "player_count": len(r.get("players", [])),
+            "squad_name": r.get("squad_name") or squad_name or game_title or "Mini-game entry",
+            "player_count": len(picks),
+            "players": picks,  # so the existing 15/20-detection on the frontend still works
+            "captain_id": r.get("captain_player_id"),
+            "match_info": match_meta,
+            "total_points": r.get("points_scored") or 0,
         })
 
     out.sort(key=lambda x: x.get("updated_at") or "", reverse=True)

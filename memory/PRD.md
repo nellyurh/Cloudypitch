@@ -10,7 +10,13 @@ Global multi-sport livescore + predictions + fantasy platform launching for FIFA
 - Sportmonks (football), API-Sports (other sports), Trybit/CryptoCloud (crypto deposits), PocketFi (NGN), Google AdSense
 
 ## Implemented (rolling)
-### 2026-02-10 (this session — part 10: WC kickoff time sync to 8 PM Lagos)
+### 2026-02-10 (this session — part 11: My Teams mini-game card fix)
+- **🚨 My Teams mini-game card showing 0/15 + "Match · Any"** — Two bugs in `/api/fantasy/my-teams`:
+  1. `len(r.get("players", []))` — wc_game_entries store the lineup in `player_picks`, NOT `players`. So `player_count` was ALWAYS 0 for every mini-game entry. Fixed.
+  2. The label builder didn't read the match teams for `game_type=match` games — it concatenated `Match · Any` (the literal `stage` field) instead of fetching the matches row and showing the real team names. Fixed: for single-match games we now join `matches` by `match_id` and surface `home_team_name vs away_team_name` as the title, plus a `match_info` block with logos + kickoff + status + score for the frontend to render the matchup ribbon.
+- **MyTeams frontend updated** — Added a small matchup ribbon (home logo · home name · "vs" or live score · away name · away logo) under the mini-game pill so each card visually identifies which fixture the entry covers. Player count denominator switched to `11` for mini-games (correct for single-match entries) instead of the legacy 15/20.
+
+### 2026-02-10 (part 10 — WC kickoff time sync)
 - **WC2026 kickoff time corrected** — User confirmed the World Cup opens at **8 PM Nigerian time** = 20:00 WAT (UTC+1) = **19:00 UTC**. Previous hardcoded value across the codebase was `2026-06-11T18:00:00+00:00` (= 19:00 WAT = 7 PM Lagos, off by an hour). Updated all 4 sources of truth: `routes/worldcup.py` `WC2026_START`, `seed_data.py` (competition + prize pool rows), `Header.jsx` `KICKOFF` constant, `RightRail.jsx` `<Countdown to=...>`, and `WorldCupHub.jsx` fallback default. Verified all countdown widgets shift +1 hour after restart.
 - **No errors on football page** — Investigated reported errors on `/`: only console warnings were 2 expected 401s for admin-only endpoints (`/api/payments/admin/intents`, `/api/withdrawals/admin/all`) when not signed in. Page renders cleanly with all 142 countries, today's fixtures (Brasileiro U17/U20, MLS Next Pro, ASEAN U19, Club Friendlies), and the right-rail WC widgets.
 
