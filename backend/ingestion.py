@@ -2319,8 +2319,11 @@ async def start_background_jobs():
         """Auto-settle closed WC mini-games whose dependent matches are all FT.
         Runs every 5 minutes after a short boot delay so user entries get
         their points + the leaderboards refresh without admin intervention.
+        Also settles all pending non-WC predictions for finished matches so
+        the predictions leaderboard updates in lockstep.
         """
         from wc_settler import settle_due_wc_games
+        from fantasy_scoring import compute_player_points  # noqa: F401
         await asyncio.sleep(240)
         while True:
             try:
@@ -2329,6 +2332,55 @@ async def start_background_jobs():
                     log.info(f"wc-games settler: settled {len(res['settled'])} games")
             except Exception as e:
                 log.warning(f"wc-games settler: {e}")
+            try:
+                # Score any pending predictions whose match is now FT/AET/PEN.
+                from prediction_scoring import score_prediction
+                from db import utcnow_iso as _now
+                db = get_db()
+                finished = await db.matches.find(
+                    {"status": {"$in": ["FT", "AET", "PEN"]}},
+                    {"_id": 0},
+                ).to_list(length=5000)
+                p_count = 0
+                for m in finished:
+                    preds = await db.predictions.find(
+                        {"match_id": m["id"], "settled_at": None},
+                        {"_id": 0},
+                    ).to_list(length=500)
+                    for p in preds:
+                        # Streak BEFORE settling current pick.
+                        scount = await db.predictions.count_documents(
+                            {"user_id": p["user_id"], "outcome_correct": True,
+                             "settled_at": {"$ne": None}},
+                        )
+                        result = score_prediction(
+                            predicted={
+                                "home_score_predicted": p["home_score_predicted"],
+                                "away_score_predicted": p["away_score_predicted"],
+                            },
+                            match=m,
+                            streak_count=scount + 1,
+                            applied_cards=[],
+                        )
+                        await db.predictions.update_one(
+                            {"id": p["id"]},
+                            {"$set": {
+                                "points_awarded": result["points_awarded"],
+                                "base_points": result["base_points"],
+                                "stage": result["stage"],
+                                "stage_multiplier": result["stage_multiplier"],
+                                "streak_bonus": result["streak_bonus"],
+                                "exact_score_hit": result["exact_score_hit"],
+                                "outcome_correct": result["outcome_correct"],
+                                "diff_correct": result["diff_correct"],
+                                "settled_at": _now(),
+                            }},
+                        )
+                        p_count += 1
+                if p_count:
+                    log.info(f"predictions settler: settled {p_count} predictions")
+            except Exception as e:
+                log.warning(f"predictions settler: {e}")
             await asyncio.sleep(300)
 
     async def live_poller():

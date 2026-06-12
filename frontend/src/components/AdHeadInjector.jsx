@@ -20,17 +20,10 @@ import api from "../lib/api";
  * doesn't follow the user into an action page.
  */
 const ACTION_ROUTE_PREFIXES = [
-  "/my-teams",
+  // Only block ad-script injection on the dense squad-building page where
+  // every tap is committed inventory. Every other route shows ads (with
+  // OnClick/Vignette gated by the network's own frequency caps).
   "/build-team",
-  "/fantasy",
-  "/wc/games",
-  "/admin",
-  "/wallet",
-  "/signin",
-  "/signup",
-  "/predictions/new",
-  "/transfers",
-  "/cards",
 ];
 
 const TAG = "data-cp-ads-head";

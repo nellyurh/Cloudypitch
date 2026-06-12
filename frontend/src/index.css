@@ -4,6 +4,43 @@
 @tailwind components;
 @tailwind utilities;
 
+/* ─── Samsung Internet hardening ───────────────────────────────────────
+ * Samsung Galaxy S22+ have a few well-known WebKit quirks that hit dense
+ * SPA pages like /my-teams + /build-team:
+ *   1. URL bar resize triggers layout thrash → freeze if we rely on 100vh.
+ *   2. backdrop-filter unsupported on older builds → blank-white flicker.
+ *   3. Aggressive horizontal overflow auto-wraps the body, causing the
+ *      "back" gesture to dead-end (blank-screen lock).
+ *   4. Sticky elements lose their compositor layer on heavy scroll →
+ *      white flash on next paint.
+ * The rules below opt every device in to the safe paths without changing
+ * desktop visuals. */
+html, body, #root {
+  /* Use dynamic viewport height where supported (Chrome 108+ / Safari 16+ /
+   * Samsung Internet 21+). Falls back to 100vh on older builds. */
+  min-height: 100vh;
+  min-height: 100dvh;
+  /* Stop horizontal accidental scroll that breaks Samsung's back gesture. */
+  overflow-x: hidden;
+  /* Faster gestures, no purple flash on tap. */
+  -webkit-tap-highlight-color: transparent;
+  /* Prevent iOS/Samsung font auto-scaling making cards wrap unexpectedly. */
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+}
+/* Promote heavy surfaces to their own compositor layer so Samsung's GPU
+ * doesn't re-rasterise on every scroll tick (root cause of the white flash). */
+.cp-surface, header, .sticky, [data-testid="mobile-top-banner"] {
+  transform: translateZ(0);
+  -webkit-transform: translateZ(0);
+}
+/* Fallback for browsers without backdrop-filter (Samsung Internet < 17). */
+@supports not (backdrop-filter: blur(8px)) {
+  .backdrop-blur-sm, .backdrop-blur, .backdrop-blur-md, .backdrop-blur-lg, .backdrop-blur-xl {
+    background-color: var(--cp-surface) !important;
+  }
+}
+
 @layer base {
   :root {
     /* Cloudy Pitch — LIGHT theme */
