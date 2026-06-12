@@ -83,16 +83,22 @@ export default function MyTeams() {
         </div>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
-          {teams.map(t => (
+          {teams.map(t => {
+            // Settled mini-games → public entries page (per-team points + leaderboard).
+            // Open/closed mini-games → /build-team?game_id=... so users see/edit their picks.
+            // Main squads → /build-team (no game_id).
+            const linkTo = t.kind === "wc_game" && t.wc_game_id
+              ? (t.wc_game_status === "settled"
+                  ? `/wc/games/${t.wc_game_id}/entries`
+                  : `/build-team?game_id=${t.wc_game_id}`)
+              : (t.game_id ? `/fantasy?game_id=${t.game_id}` : "/build-team");
+            const squadCap = t.kind === "wc_game"
+              ? (t.squad_size_required || 15)
+              : ((t.players || []).length >= 16 ? 20 : 15);
+            return (
             <Link
               key={t.id}
-              to={
-                t.kind === "wc_game" && t.wc_game_id
-                  ? `/wc/games/${t.wc_game_id}`
-                  : t.game_id
-                  ? `/fantasy?game_id=${t.game_id}`
-                  : "/build-team"
-              }
+              to={linkTo}
               className="cp-surface p-4 hover:bg-white/5 transition flex flex-col gap-2"
               data-testid={`my-team-${t.id}`}
             >
@@ -124,7 +130,7 @@ export default function MyTeams() {
               <div className="grid grid-cols-3 gap-2 text-center mt-1">
                 <div>
                   <div className="text-[9px] uppercase opacity-60">Players</div>
-                  <div className="font-extrabold">{t.player_count}/{t.kind === "wc_game" ? "11" : ((t.players || []).length >= 16 ? "20" : "15")}</div>
+                  <div className="font-extrabold">{t.player_count}/{squadCap}</div>
                 </div>
                 <div>
                   <div className="text-[9px] uppercase opacity-60">Spent</div>
@@ -148,7 +154,7 @@ export default function MyTeams() {
                 </div>
               )}
             </Link>
-          ))}
+          );})}
         </div>
       )}
     </div>

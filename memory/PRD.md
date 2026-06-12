@@ -10,6 +10,11 @@ Global multi-sport livescore + predictions + fantasy platform launching for FIFA
 - Sportmonks (football), API-Sports (other sports), Trybit/CryptoCloud (crypto deposits), PocketFi (NGN), Google AdSense
 
 ## Implemented (rolling)
+### 2026-02-11 (My Teams click → mini-game loads correctly)
+- **🚨 My Teams mini-game card opened a blank page** — `/wc/games/:id` had no Route registered, so clicking a saved mini-game went nowhere. Fixed in `MyTeams.jsx`: settled games → `/wc/games/:id/entries`, otherwise → `/build-team?game_id=:id` (which already hydrates the saved squad).
+- **🚨 Mini-game card showed "15/11" denominator** — Hardcoded to 11 regardless of game_type. Backend `/fantasy/my-teams` now returns `squad_size_required` (15 for match, 20 for group/round) and the UI uses that.
+- **🚨 BuildTeam couldn't re-hydrate a saved mini-game entry** — Frontend reads `sq.players[]` with `is_captain`/`is_vice` flags, but the wc entry stored `player_picks[]` with captain IDs separately. Normalised `game.my_entry` in `/api/wc/games/:id` to expose `players[]` (with per-pick flags) + `applied_cards[]`. Existing squads now load correctly when re-opened.
+
 ### 2026-02-11 (Public mini-game entries + per-team points + admin rename)
 - **🆕 Public mini-game entries page** — Route `/wc/games/:gameId/entries` (also reachable by clicking any settled game card). Shows ranked leaderboard of every entrant, expandable to reveal: (a) **points-by-team** chips for THAT round only (team_id → total points + player count), (b) position-grouped squad rows with per-player points, captain/vice badges, minutes, base points & multipliers, and (c) cards applied.
 - **🚨 Single-match games now close 30 min BEFORE kickoff** (was: at KO). Generator + `enter_game` defense-in-depth + backfill endpoint all updated. Backfill ran live → 104 of 148 match games corrected, Mexico–S.Africa game is now closed as expected.

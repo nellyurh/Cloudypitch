@@ -134,6 +134,20 @@ async def game_detail(game_id: str, user: dict = Depends(a.get_optional_user)):
         ent = await db.wc_game_entries.find_one(
             {"user_id": user["id"], "wc_game_id": game_id}, {"_id": 0}
         )
+        if ent:
+            # Normalise wc entries into the same shape the BuildTeam frontend
+            # uses for the main squad — i.e. expose `players[]` with
+            # per-pick `is_captain` / `is_vice` flags so the page hydrates
+            # cleanly when a user re-opens an existing mini-game entry.
+            cap_id = ent.get("captain_player_id")
+            vc_id = ent.get("vice_captain_player_id")
+            ent["players"] = [
+                {**p,
+                 "is_captain": p.get("player_id") == cap_id,
+                 "is_vice": p.get("player_id") == vc_id}
+                for p in (ent.get("player_picks") or [])
+            ]
+            ent["applied_cards"] = ent.get("cards_used") or []
         g["my_entry"] = ent
     return {"game": g}
 

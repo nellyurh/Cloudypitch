@@ -327,6 +327,8 @@ async def my_teams(user: dict = Depends(a.get_current_user)):
                  "matchday": 1, "title": 1, "match_info": 1, "match_id": 1,
                  "status": 1, "closes_at": 1},
             )
+            wc_game_status = (g or {}).get("status")
+            wc_game_type = (g or {}).get("game_type")
             if g:
                 # For a single-match mini-game, prefer "Home Team vs Away Team"
                 # (e.g. "South Africa vs Mexico") over the generic "Match · Any".
@@ -374,12 +376,21 @@ async def my_teams(user: dict = Depends(a.get_current_user)):
                     game_title = " · ".join([b for b in bits if b])
         # Mini-game entries store the lineup in `player_picks` (not `players`).
         picks = r.get("player_picks") or []
+        # Compute the squad size cap so the UI can show "15/15" or "20/20"
+        # rather than the legacy "/11" denominator.
+        try:
+            squad_size_required = int(_pick_rules_for_game(g or {}).get("total") or 15) if r.get("wc_game_id") else 15
+        except Exception:
+            squad_size_required = 15
         out.append({
             **r,
             "kind": "wc_game",
             "game_title": game_title or "WC mini-game",
             "squad_name": r.get("squad_name") or squad_name or game_title or "Mini-game entry",
             "player_count": len(picks),
+            "squad_size_required": squad_size_required,
+            "wc_game_status": wc_game_status if r.get("wc_game_id") else None,
+            "wc_game_type": wc_game_type if r.get("wc_game_id") else None,
             "players": picks,  # so the existing 15/20-detection on the frontend still works
             "captain_id": r.get("captain_player_id"),
             "match_info": match_meta,
