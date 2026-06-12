@@ -16,6 +16,7 @@ const TAB_HINTS = {
   wcconfig: "World Cup game configuration: when each WC mini-game opens/closes for predictions and fantasy edits.",
   wcgames: "All 148 WC games. Generate fixtures, tick state forward, or rebuild the schedule.",
   players: "Curated player price overrides. Use this when Sportmonks' auto-pricing makes a star too cheap or a bench player too expensive.",
+  playerpoints: "Season-points tracker. Total fantasy points each player has earned across every settled WC match → use this to retune prices before the next round.",
   ads: "AdSense status + sponsor ads. Disable Google Ads for premium subs is automatic. Add direct sponsor banners for any of 13 placements.",
   settings: "Currency rates (USD↔NGN), brand uploads, site config (which sports show, popup notice), and admin user creation. Every section has its own Save button.",
   cards: "Legend-card catalog — adjust prices for surge demand, change position locks, or do bulk tier price updates. Every change is audited.",
@@ -90,7 +91,7 @@ export const AdminPanel = () => {
     <div data-testid="admin-panel">
       <h1 className="text-2xl font-extrabold mb-3">Admin Panel</h1>
       <div className="flex gap-1 cp-surface p-1 w-fit mb-3 flex-wrap">
-        {["dashboard", "matches", "users", "ingest", "audit", "pools", "wcconfig", "wcgames", "players", "cards", "payments", "ads", "settings"].map(t => (
+        {["dashboard", "matches", "users", "ingest", "audit", "pools", "wcconfig", "wcgames", "players", "playerpoints", "cards", "payments", "ads", "settings"].map(t => (
           <button key={t} onClick={() => setTab(t)} className={`px-3 py-1.5 text-sm rounded transition ${tab === t ? "bg-cp-lime text-cp-forest font-bold" : "hover:bg-white/5"}`} data-testid={`admin-tab-${t}`}>{t.toUpperCase()}</button>
         ))}
       </div>
@@ -475,6 +476,10 @@ export const AdminPanel = () => {
 
       {tab === "players" && (
         <PlayerPricesTab onMessage={setMsg}/>
+      )}
+
+      {tab === "playerpoints" && (
+        <PlayerSeasonPointsTab onMessage={setMsg}/>
       )}
 
       {tab === "cards" && (
@@ -1297,3 +1302,140 @@ function PaymentsAdminTab({ onMessage }) {
     </div>
   );
 }
+
+function PlayerSeasonPointsTab({ onMessage }) {
+  const [rows, setRows] = useState([]);
+  const [meta, setMeta] = useState({ matches_processed: 0, scanned_players: 0 });
+  const [search, setSearch] = useState("");
+  const [position, setPosition] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [sortBy, setSortBy] = useState("season_points");
+  const [savingId, setSavingId] = useState(null);
+
+  const load = async () => {
+    setBusy(true);
+    try {
+      const { data } = await api.get("/admin/players/season-points?limit=1500");
+      setRows(data.players || []);
+      setMeta({ matches_processed: data.matches_processed, scanned_players: data.scanned_players });
+    } catch (e) { onMessage?.(e?.response?.data?.detail || "Failed to load"); }
+    setBusy(false);
+  };
+  useEffect(() => { load(); /* eslint-disable-next-line */ }, []);
+
+  const applyPrice = async (player_id, suggested) => {
+    setSavingId(player_id);
+    try {
+      const { data } = await api.patch(`/admin/players/${player_id}/price`, { price: suggested });
+      setRows((arr) => arr.map((r) => r.player_id === player_id ? { ...r, price: data.price } : r));
+      onMessage?.(`✓ Price set to €${data.price}M for ${player_id}`);
+    } catch (e) {
+      onMessage?.(e?.response?.data?.detail || "Price update failed");
+    }
+    setSavingId(null);
+  };
+
+  const filtered = rows
+    .filter((r) => !search || (r.name || "").toLowerCase().includes(search.toLowerCase()) || (r.team_name || "").toLowerCase().includes(search.toLowerCase()))
+    .filter((r) => !position || r.position === position)
+    .sort((a, b) => {
+      if (sortBy === "season_points") return (b.season_points || 0) - (a.season_points || 0);
+      if (sortBy === "ppg") return (b.ppg || 0) - (a.ppg || 0);
+      if (sortBy === "price") return (b.price || 0) - (a.price || 0);
+      if (sortBy === "delta") return ((b.suggested_price || 0) - (b.price || 0)) - ((a.suggested_price || 0) - (a.price || 0));
+      return (a.name || "").localeCompare(b.name || "");
+    });
+
+  return (
+    <div className="space-y-3" data-testid="admin-player-points">
+      <div className="cp-surface p-3 flex flex-wrap items-center gap-3">
+        <div className="text-xs flex-1 min-w-[180px]" style={{ color: "var(--cp-text-muted)" }}>
+          {meta.matches_processed} finished WC matches · {meta.scanned_players} players scanned
+        </div>
+        <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search player or country…" className="cp-input min-w-[200px]" data-testid="pp-search"/>
+        <select value={position} onChange={(e) => setPosition(e.target.value)} className="cp-input" data-testid="pp-pos">
+          <option value="">All positions</option>
+          <option value="GK">GK</option>
+          <option value="DEF">DEF</option>
+          <option value="MID">MID</option>
+          <option value="FWD">FWD</option>
+        </select>
+        <select value={sortBy} onChange={(e) => setSortBy(e.target.value)} className="cp-input" data-testid="pp-sort">
+          <option value="season_points">Sort: Total points</option>
+          <option value="ppg">Sort: Points / match</option>
+          <option value="delta">Sort: Suggested − Current</option>
+          <option value="price">Sort: Current price</option>
+          <option value="name">Sort: Name (A–Z)</option>
+        </select>
+        <button onClick={load} disabled={busy} className="cp-btn-primary" data-testid="pp-refresh">{busy ? "Loading…" : "Refresh"}</button>
+      </div>
+
+      <div className="cp-surface overflow-x-auto">
+        <table className="w-full text-sm">
+          <thead>
+            <tr style={{ color: "var(--cp-text-muted)" }} className="text-xs">
+              <th className="text-left p-2">Player</th>
+              <th className="text-left">Country</th>
+              <th>Pos</th>
+              <th className="text-right">Matches</th>
+              <th className="text-right">Total Pts</th>
+              <th className="text-right">Pts/Match</th>
+              <th className="text-right">Current €M</th>
+              <th className="text-right">Suggested €M</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody>
+            {filtered.slice(0, 600).map((r) => {
+              const delta = (r.suggested_price || 0) - (r.price || 0);
+              return (
+                <tr key={r.player_id} className="border-t" style={{ borderColor: "var(--cp-border)" }} data-testid={`pp-row-${r.player_id}`}>
+                  <td className="p-2 font-bold">{r.name}</td>
+                  <td className="text-xs">{r.team_name || r.country}</td>
+                  <td className="text-center">
+                    <span className="cp-pill text-[10px] font-bold" style={{ background: "var(--cp-surface-2)" }}>{r.position}</span>
+                  </td>
+                  <td className="text-right tabular-nums">{r.matches_played}</td>
+                  <td className="text-right tabular-nums font-extrabold" style={{ color: (r.season_points || 0) > 0 ? "var(--cp-lime)" : "var(--cp-text-muted)" }}>{r.season_points}</td>
+                  <td className="text-right tabular-nums">{r.ppg}</td>
+                  <td className="text-right tabular-nums">{(r.price || 0).toFixed(1)}</td>
+                  <td className="text-right tabular-nums">
+                    <span style={{ color: delta > 0 ? "#22c55e" : delta < 0 ? "#ef4444" : "var(--cp-text)" }}>
+                      {(r.suggested_price || 0).toFixed(1)}
+                      {Math.abs(delta) >= 0.1 && (
+                        <span className="text-[9px] ml-1 opacity-70">
+                          ({delta > 0 ? "+" : ""}{delta.toFixed(1)})
+                        </span>
+                      )}
+                    </span>
+                  </td>
+                  <td className="text-right pr-2">
+                    {Math.abs(delta) >= 0.1 ? (
+                      <button
+                        disabled={savingId === r.player_id}
+                        onClick={() => applyPrice(r.player_id, r.suggested_price)}
+                        className="text-[11px] underline opacity-80 hover:opacity-100"
+                        data-testid={`pp-apply-${r.player_id}`}
+                      >
+                        {savingId === r.player_id ? "…" : "Apply"}
+                      </button>
+                    ) : (
+                      <span className="text-[10px] opacity-30">—</span>
+                    )}
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+        {filtered.length === 0 && !busy && (
+          <div className="p-6 text-center text-sm" style={{ color: "var(--cp-text-muted)" }}>No players match the filter.</div>
+        )}
+        {filtered.length > 600 && (
+          <div className="p-3 text-center text-[11px]" style={{ color: "var(--cp-text-muted)" }}>Showing first 600 of {filtered.length}. Narrow with search/filters.</div>
+        )}
+      </div>
+    </div>
+  );
+}
+

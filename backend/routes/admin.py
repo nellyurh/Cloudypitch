@@ -124,21 +124,31 @@ async def admin_recompute_prices(_: dict = Depends(a.require_admin)):
     updated = 0
     for p in rows:
         country_name = (p.get("country") or p.get("team_name") or "").lower().strip()
-        if country_name in top_tier:   tier_premium = 0.8
-        elif country_name in mid_tier: tier_premium = 0.3
-        else:                          tier_premium = -0.4
+        if country_name in top_tier:
+            tier_premium = 0.8
+        elif country_name in mid_tier:
+            tier_premium = 0.3
+        else:
+            tier_premium = -0.4
         pos = p.get("position", "MID")
         base_price = {"GK": 4.0, "DEF": 4.5, "MID": 5.5, "FWD": 6.5}.get(pos, 5.0)
         jersey = p.get("shirt_number")
         jersey_bump = 0.0
         if isinstance(jersey, int):
-            if jersey == 10: jersey_bump = 1.0
-            elif jersey == 9: jersey_bump = 0.8
-            elif jersey == 7: jersey_bump = 0.6
-            elif jersey == 1: jersey_bump = 0.4
-            elif jersey <= 11: jersey_bump = 0.3
-            elif jersey <= 20: jersey_bump = 0.0
-            else: jersey_bump = -0.3
+            if jersey == 10:
+                jersey_bump = 1.0
+            elif jersey == 9:
+                jersey_bump = 0.8
+            elif jersey == 7:
+                jersey_bump = 0.6
+            elif jersey == 1:
+                jersey_bump = 0.4
+            elif jersey <= 11:
+                jersey_bump = 0.3
+            elif jersey <= 20:
+                jersey_bump = 0.0
+            else:
+                jersey_bump = -0.3
         try:
             sid = p.get("sportmonks_id") or p.get("id") or ""
             h = int.from_bytes(str(sid).encode(), "big") % 7
@@ -160,6 +170,131 @@ async def admin_recompute_prices(_: dict = Depends(a.require_admin)):
             await db.players.update_one({"id": p["id"]}, {"$set": {"price": new_price, "updated_at": utcnow_iso()}})
             updated += 1
     return {"ok": True, "scanned": len(rows), "updated": updated}
+
+
+@router.get("/players/season-points")
+async def admin_players_season_points(
+    _: dict = Depends(a.require_admin),
+    limit: int = 1500,
+):
+    """For every WC2026 player, sum the fantasy points they have actually
+    earned across every settled match this tournament. The output drives the
+    "Player Points" admin tab and lets the admin re-price under-/over-valued
+    players using `suggested_price`.
+
+    `season_points` is computed from `match_events` + `match_lineups` (same
+    source the settler uses) — so prices stay locked to the live scoring engine.
+
+    `suggested_price` rule of thumb (matches the rest of the price ladder):
+       suggested = current_price + (season_points - 8 * matches_played) * 0.04
+    Then clamped to [4.0, 14.5] and rounded to 0.1.
+    """
+    from fantasy_scoring import compute_player_points, aggregate_player_stats_from_events
+    db = get_db()
+
+    # Load all finished WC matches (FT / AET / PEN / FT_PEN / AWARDED).
+    FINISHED = {"FT", "AET", "PEN", "FT_PEN", "AWARDED"}
+    matches = await db.matches.find(
+        {"is_world_cup": True},
+        {"_id": 0, "id": 1, "home_team_id": 1, "away_team_id": 1,
+         "home_score": 1, "away_score": 1, "status": 1},
+    ).to_list(length=400)
+    matches = [m for m in matches if (m.get("status") or "").upper() in FINISHED]
+    match_ids = [m["id"] for m in matches]
+
+    events_by_match: dict[str, list[dict]] = {}
+    lineups_by_match: dict[str, list[dict]] = {}
+    cs_map: dict[tuple[str, str], bool] = {}
+    if match_ids:
+        for e in await db.match_events.find({"match_id": {"$in": match_ids}}, {"_id": 0}).to_list(length=20000):
+            events_by_match.setdefault(e["match_id"], []).append(e)
+        for ln in await db.match_lineups.find({"match_id": {"$in": match_ids}}, {"_id": 0}).to_list(length=20000):
+            lineups_by_match.setdefault(ln["match_id"], []).append(ln)
+        for m in matches:
+            h = int(m.get("home_score") or 0)
+            a = int(m.get("away_score") or 0)
+            if m.get("home_team_id"):
+                cs_map[(m["id"], m["home_team_id"])] = (a == 0)
+            if m.get("away_team_id"):
+                cs_map[(m["id"], m["away_team_id"])] = (h == 0)
+
+    players = await db.players.find(
+        {"is_wc_2026": True},
+        {"_id": 0, "id": 1, "name": 1, "team_id": 1, "team_name": 1,
+         "country": 1, "position": 1, "price": 1, "photo_url": 1},
+    ).sort("name", 1).limit(limit).to_list(length=limit)
+
+    out: list[dict] = []
+    for p in players:
+        name = p.get("name") or ""
+        team_id = p.get("team_id")
+        position = (p.get("position") or "MID").upper()
+        total_pts = 0
+        matches_played = 0
+        for m in matches:
+            if team_id not in (m.get("home_team_id"), m.get("away_team_id")):
+                continue
+            evs = events_by_match.get(m["id"], [])
+            agg = aggregate_player_stats_from_events(evs, name, team_id)
+            lin = next(
+                (x for x in lineups_by_match.get(m["id"], [])
+                 if (x.get("player_name") or "").strip().lower() == name.strip().lower()),
+                None,
+            )
+            minutes = 0
+            if lin:
+                minutes = 90 if lin.get("starter") else 30
+                if agg.get("substituted_out"):
+                    minutes = max(0, minutes - 30)
+            if minutes == 0 and not (agg.get("goals") or agg.get("assists") or agg.get("yellow_cards") or agg.get("red_cards")):
+                continue
+            matches_played += 1
+            res = compute_player_points(
+                position=position,
+                minutes_played=minutes,
+                goals=int(agg.get("goals", 0)),
+                assists=int(agg.get("assists", 0)),
+                yellow_cards=int(agg.get("yellow_cards", 0)),
+                red_cards=int(agg.get("red_cards", 0)),
+                own_goals=int(agg.get("own_goals", 0)),
+                missed_penalties=int(agg.get("missed_penalties", 0)),
+                clean_sheet=bool(cs_map.get((m["id"], team_id), False)),
+                saves=int(agg.get("saves", 0)),
+                penalty_saves=int(agg.get("penalty_saves", 0)),
+                is_motm=False,
+            )
+            total_pts += int(res["points"])
+
+        # Suggested price: nudge by performance vs a flat 8pts/match baseline.
+        cur = float(p.get("price") or 5.0)
+        delta = (total_pts - 8 * matches_played) * 0.04 if matches_played else 0.0
+        suggested = round(max(4.0, min(14.5, cur + delta)) * 10) / 10.0
+
+        out.append({
+            "player_id": p["id"],
+            "name": name,
+            "team_id": team_id,
+            "team_name": p.get("team_name") or p.get("country"),
+            "country": p.get("country"),
+            "position": position,
+            "price": cur,
+            "photo_url": p.get("photo_url"),
+            "season_points": total_pts,
+            "matches_played": matches_played,
+            "ppg": round(total_pts / matches_played, 2) if matches_played else 0.0,
+            "suggested_price": suggested,
+        })
+
+    out.sort(key=lambda r: (-(r["season_points"] or 0), -(r["matches_played"] or 0), r["name"]))
+    return {
+        "players": out,
+        "matches_processed": len(matches),
+        "scanned_players": len(players),
+    }
+
+
+class PlayerPriceIn(BaseModel):
+    price: float
 
 
 @router.post("/ingest/sportmonks/sync")
