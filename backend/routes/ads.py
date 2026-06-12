@@ -20,7 +20,7 @@ from models import new_id
 router = APIRouter(prefix="/api/ads", tags=["ads"])
 
 
-VALID_NETWORKS = {"admob", "adsense", "meta", "direct"}
+VALID_NETWORKS = {"admob", "adsense", "meta", "direct", "propellerads"}
 VALID_PLACEMENTS = {
     # Legacy
     "home_bottom_banner", "match_list_inline", "wc_hub_sponsor",
@@ -57,9 +57,22 @@ async def ads_config(user: dict = Depends(a.get_optional_user)):
     Premium users always get `{enabled: false}` so no ad code is ever loaded.
     """
     is_premium = bool(user and user.get("is_premium"))
+    db = get_db()
+    # Propeller push-notification zone: registered via the service worker at
+    # /sw.js. Pulled from the popunder/push zone the admin configured, OR a
+    # dedicated push entry if present.
+    push_zone = await db.propellerads_zones.find_one(
+        {"format": "push", "is_active": True}, {"_id": 0, "zone_id": 1}
+    )
+    popunder = await db.propellerads_zones.find_one(
+        {"format": "popunder", "is_active": True}, {"_id": 0, "snippet_html": 1, "zone_id": 1}
+    )
     return {
         "adsense_enabled": ADSENSE_ENABLED and not is_premium,
         "adsense_publisher_id": ADSENSE_PUBLISHER_ID if (ADSENSE_ENABLED and not is_premium) else "",
+        "propellerads_enabled": bool((push_zone or popunder) and not is_premium),
+        "propellerads_push_zone_id": (push_zone or {}).get("zone_id") if not is_premium else None,
+        "propellerads_popunder_snippet": (popunder or {}).get("snippet_html") if not is_premium else None,
         "premium": is_premium,
         "valid_placements": sorted(VALID_PLACEMENTS),
     }
@@ -100,6 +113,30 @@ async def serve_ad(placement_key: str, user: dict = Depends(a.get_optional_user)
         # Fire-and-forget impression bump
         await db.ad_placements.update_one({"id": pick["id"]}, {"$inc": {"impressions": 1}})
         return {"ad": pick, "premium": False, "source": "direct"}
+
+    # PropellerAds zones (admin-configured per placement). Wins over AdSense
+    # because the user pasted these in for their preferred network.
+    pa = await db.propellerads_zones.find_one(
+        {"placement_key": placement_key, "is_active": True}, {"_id": 0}
+    )
+    if pa and (pa.get("snippet_html") or pa.get("zone_id")):
+        await db.propellerads_zones.update_one(
+            {"placement_key": placement_key},
+            {"$inc": {"impressions": 1}},
+        )
+        return {
+            "ad": {
+                "network": "propellerads",
+                "placement_key": placement_key,
+                "zone_id": pa.get("zone_id"),
+                "snippet_html": pa.get("snippet_html") or "",
+                "width": pa.get("width"),
+                "height": pa.get("height"),
+                "format": pa.get("format") or "banner",  # banner | popunder | push
+            },
+            "premium": False,
+            "source": "propellerads",
+        }
 
     if ADSENSE_ENABLED:
         # Look up an admin-configured AdSense slot id for this placement (optional).
@@ -148,6 +185,53 @@ async def list_adsense_slots(user: dict = Depends(a.require_admin)):
 async def delete_adsense_slot(placement_key: str, user: dict = Depends(a.require_admin)):
     db = get_db()
     res = await db.adsense_slots.delete_one({"placement_key": placement_key})
+    return {"deleted": res.deleted_count}
+
+
+# ─── PropellerAds zones ────────────────────────────────────────────────────
+class PropellerZoneIn(BaseModel):
+    placement_key: str
+    zone_id: str | None = None
+    snippet_html: str | None = None
+    width: int | None = None
+    height: int | None = None
+    format: str = Field(default="banner", pattern="^(banner|popunder|push|native)$")
+    is_active: bool = True
+
+
+@router.get("/propellerads-zones")
+async def list_propellerads_zones(_: dict = Depends(a.require_admin)):
+    db = get_db()
+    rows = await db.propellerads_zones.find({}, {"_id": 0}).sort("placement_key", 1).to_list(length=200)
+    return {"zones": rows, "valid_placements": sorted(VALID_PLACEMENTS),
+            "valid_formats": ["banner", "popunder", "push", "native"]}
+
+
+@router.post("/propellerads-zones")
+async def upsert_propellerads_zone(body: PropellerZoneIn, user: dict = Depends(a.require_admin)):
+    # popunder/push zones are global — they don't need a real placement_key,
+    # but a sentinel string keeps the unique-index clean.
+    if body.format == "banner" and body.placement_key not in VALID_PLACEMENTS:
+        raise HTTPException(status_code=400, detail=f"Unknown placement_key. Use one of: {sorted(VALID_PLACEMENTS)}")
+    if not (body.zone_id or body.snippet_html):
+        raise HTTPException(status_code=400, detail="Provide at least zone_id or snippet_html")
+    db = get_db()
+    now = datetime.now(timezone.utc).isoformat()
+    payload = body.model_dump()
+    payload["updated_at"] = now
+    payload["updated_by"] = user["id"]
+    await db.propellerads_zones.update_one(
+        {"placement_key": body.placement_key, "format": body.format},
+        {"$set": payload, "$setOnInsert": {"id": new_id(), "impressions": 0, "created_at": now}},
+        upsert=True,
+    )
+    return {"ok": True, **payload}
+
+
+@router.delete("/propellerads-zones/{placement_key}")
+async def delete_propellerads_zone(placement_key: str, format: str = "banner", _: dict = Depends(a.require_admin)):
+    db = get_db()
+    res = await db.propellerads_zones.delete_one({"placement_key": placement_key, "format": format})
     return {"deleted": res.deleted_count}
 
 

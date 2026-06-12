@@ -10,6 +10,17 @@ Global multi-sport livescore + predictions + fantasy platform launching for FIFA
 - Sportmonks (football), API-Sports (other sports), Trybit/CryptoCloud (crypto deposits), PocketFi (NGN), Google AdSense
 
 ## Implemented (rolling)
+### 2026-02-11 (Player season points + PropellerAds + admin rename)
+- **🆕 Player Season Points (admin pricing tool)** — New `GET /api/admin/players/season-points` aggregates every WC2026 player's total fantasy points across every settled match (uses the same scoring engine as `wc_settler`). Returns `season_points`, `matches_played`, `ppg`, and a `suggested_price`. New "Player Points" admin tab with sortable table (Total / Per-match / Suggested-current delta) and 1-click **Apply** to write the price via the existing `PATCH /api/admin/players/{id}/price` endpoint.
+- **🆕 PropellerAds integration** — New network alongside AdSense:
+  - `/app/frontend/public/sw.js` hosted at root for push verification (`zoneId: 11139111`).
+  - Service worker auto-registers for non-premium users (`src/lib/registerAdSw.js`).
+  - `db.propellerads_zones` keyed on `(placement_key, format)` — admin can paste the per-zone HTML snippet from the PropellerAds dashboard.
+  - `/api/ads/serve/{placement}` prefers Propeller zones over AdSense fallback.
+  - `AdSlot.jsx` re-executes the pasted `<script>` tags (innerHTML alone won't run scripts).
+  - Seeded all 7 user zones (728×90 / 300×250 / 160×600 / 160×300 / 468×60 / 320×50 / popunder) mapped to 12 placements.
+  - New "PropellerAds zones" panel inside Admin → Ads tab — paste-the-snippet form.
+
 ### 2026-02-11 (My Teams click → mini-game loads correctly)
 - **🚨 My Teams mini-game card opened a blank page** — `/wc/games/:id` had no Route registered, so clicking a saved mini-game went nowhere. Fixed in `MyTeams.jsx`: settled games → `/wc/games/:id/entries`, otherwise → `/build-team?game_id=:id` (which already hydrates the saved squad).
 - **🚨 Mini-game card showed "15/11" denominator** — Hardcoded to 11 regardless of game_type. Backend `/fantasy/my-teams` now returns `squad_size_required` (15 for match, 20 for group/round) and the UI uses that.

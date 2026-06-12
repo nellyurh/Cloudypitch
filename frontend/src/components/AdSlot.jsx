@@ -47,6 +47,32 @@ const AdSlot = ({ placement, placementKey, className = "", style = {}, minHeight
     } catch (_e) { /* AdSense not yet loaded; auto-ads handle it */ }
   }, [ad]);
 
+  // PropellerAds inline banner: the dashboard provides a self-contained
+  // `<script src="..."></script>` snippet per zone. We mount it into a hidden
+  // div, then re-execute the <script> tag (innerHTML alone won't run scripts).
+  const propellerRef = useRef(null);
+  useEffect(() => {
+    if (ad?.network !== "propellerads" || !propellerRef.current) return;
+    const html = ad.snippet_html || "";
+    if (!html) return;
+    const container = propellerRef.current;
+    container.innerHTML = "";
+    const wrap = document.createElement("div");
+    wrap.innerHTML = html;
+    // Move every node over, replacing <script> nodes with executable copies.
+    Array.from(wrap.childNodes).forEach((node) => {
+      if (node.tagName === "SCRIPT") {
+        const s = document.createElement("script");
+        for (const attr of node.attributes) s.setAttribute(attr.name, attr.value);
+        if (node.textContent) s.textContent = node.textContent;
+        container.appendChild(s);
+      } else {
+        container.appendChild(node);
+      }
+    });
+    // Fire the snippet — impression counter already bumped on /ads/serve.
+  }, [ad, key]);
+
   if (!loaded) {
     if (minHeight) return <div className={className} style={{ minHeight, ...style }} aria-hidden="true"/>;
     return null;
@@ -84,6 +110,25 @@ const AdSlot = ({ placement, placementKey, className = "", style = {}, minHeight
           data-testid={`adslot-dismiss-${key}`}
         >×</button>
       </a>
+    );
+  }
+
+  // PropellerAds banner
+  if (ad.network === "propellerads") {
+    const w = ad.width || 300;
+    const h = ad.height || 250;
+    return (
+      <div
+        className={className}
+        style={{ minHeight: minHeight || h, ...style }}
+        data-testid={`adslot-propellerads-${key}`}
+      >
+        {label && <div className="text-[9px] uppercase tracking-widest mb-1 opacity-50">Ad</div>}
+        <div
+          ref={propellerRef}
+          style={{ minHeight: h, minWidth: w, maxWidth: "100%", margin: "0 auto" }}
+        />
+      </div>
     );
   }
 

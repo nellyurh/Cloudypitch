@@ -247,6 +247,126 @@ export const AdsTab = ({ onMessage }) => {
           </tbody>
         </table>
       </div>
+      <PropellerZonesPanel onMessage={onMessage}/>
+    </div>
+  );
+};
+
+// ─── PropellerAds zone manager ──────────────────────────────────────────
+const PropellerZonesPanel = ({ onMessage }) => {
+  const [rows, setRows] = useState([]);
+  const [draft, setDraft] = useState({
+    placement_key: "header_banner",
+    zone_id: "",
+    snippet_html: "",
+    width: 300,
+    height: 250,
+    format: "banner",
+    is_active: true,
+  });
+  const [busy, setBusy] = useState(false);
+
+  const load = async () => {
+    try {
+      const { data } = await api.get("/ads/propellerads-zones");
+      setRows(data.zones || []);
+    } catch (e) { onMessage?.(e?.response?.data?.detail || "Failed to load Propeller zones"); }
+  };
+  useEffect(() => { load(); /* eslint-disable-next-line */ }, []);
+
+  const save = async () => {
+    setBusy(true);
+    try {
+      await api.post("/ads/propellerads-zones", draft);
+      onMessage?.(`✓ Saved ${draft.placement_key} (${draft.format})`);
+      load();
+    } catch (e) { onMessage?.(e?.response?.data?.detail || "Save failed"); }
+    setBusy(false);
+  };
+
+  const remove = async (z) => {
+    if (!confirm(`Delete Propeller zone for ${z.placement_key} (${z.format})?`)) return;
+    try {
+      await api.delete(`/ads/propellerads-zones/${z.placement_key}?format=${z.format}`);
+      onMessage?.("✓ Deleted");
+      load();
+    } catch (e) { onMessage?.(e?.response?.data?.detail || "Delete failed"); }
+  };
+
+  return (
+    <div className="cp-surface p-4 mt-4" data-testid="propeller-zones-panel">
+      <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
+        <div>
+          <h3 className="font-extrabold flex items-center gap-2">🛰 PropellerAds zones</h3>
+          <div className="text-[11px]" style={{ color: "var(--cp-text-muted)" }}>
+            Paste the full snippet PropellerAds gives you per zone (the <code>&lt;script&gt;...&lt;/script&gt;</code> block). Without the snippet, nothing renders.
+          </div>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2 mb-3">
+        <select value={draft.placement_key} onChange={(e) => setDraft({...draft, placement_key: e.target.value})} className="cp-input" data-testid="pa-placement">
+          {PLACEMENTS.map((p) => <option key={p.key} value={p.key}>{p.label}</option>)}
+        </select>
+        <select value={draft.format} onChange={(e) => setDraft({...draft, format: e.target.value})} className="cp-input" data-testid="pa-format">
+          <option value="banner">Banner (inline)</option>
+          <option value="popunder">Popunder (interstitial)</option>
+          <option value="push">Push notification</option>
+          <option value="native">Native</option>
+        </select>
+        <input value={draft.zone_id} onChange={(e) => setDraft({...draft, zone_id: e.target.value})} placeholder="Zone ID (e.g. 29626230)" className="cp-input" data-testid="pa-zone-id"/>
+        <input type="number" value={draft.width} onChange={(e) => setDraft({...draft, width: parseInt(e.target.value) || 0})} placeholder="Width" className="cp-input" data-testid="pa-width"/>
+        <input type="number" value={draft.height} onChange={(e) => setDraft({...draft, height: parseInt(e.target.value) || 0})} placeholder="Height" className="cp-input" data-testid="pa-height"/>
+        <label className="flex items-center gap-2 text-sm">
+          <input type="checkbox" checked={draft.is_active} onChange={(e) => setDraft({...draft, is_active: e.target.checked})} data-testid="pa-active"/> Active
+        </label>
+      </div>
+      <textarea
+        value={draft.snippet_html}
+        onChange={(e) => setDraft({...draft, snippet_html: e.target.value})}
+        rows={4}
+        placeholder='Paste full PropellerAds snippet here, e.g.&#10;<script async data-cfasync="false" src="//pl12345.profitablerate.com/invoke.js"></script>&#10;<div id="container-xxx"></div>'
+        className="cp-input w-full font-mono text-[11px]"
+        data-testid="pa-snippet"
+      />
+      <div className="flex items-center gap-2 mt-2">
+        <button onClick={save} disabled={busy} className="cp-btn-primary" data-testid="pa-save">{busy ? "Saving…" : "Save / upsert"}</button>
+      </div>
+
+      <table className="w-full text-sm mt-4">
+        <thead>
+          <tr style={{ color: "var(--cp-text-muted)" }} className="text-xs">
+            <th className="text-left p-2">Placement</th>
+            <th>Format</th>
+            <th>Zone</th>
+            <th>Size</th>
+            <th>Snippet?</th>
+            <th>Active</th>
+            <th>Impressions</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((z) => (
+            <tr key={`${z.placement_key}-${z.format}`} className="border-t" style={{ borderColor: "var(--cp-border)" }} data-testid={`pa-row-${z.placement_key}-${z.format}`}>
+              <td className="p-2 text-xs">{z.placement_key}</td>
+              <td className="text-center text-xs">{z.format}</td>
+              <td className="text-center tabular-nums text-xs">{z.zone_id || "—"}</td>
+              <td className="text-center text-xs">{z.width}×{z.height}</td>
+              <td className="text-center">{z.snippet_html ? "✓" : "—"}</td>
+              <td className="text-center">{z.is_active ? "✓" : "✗"}</td>
+              <td className="text-center tabular-nums text-xs">{z.impressions || 0}</td>
+              <td className="text-right pr-2">
+                <button onClick={() => setDraft(z)} className="text-[11px] underline opacity-80 hover:opacity-100 mr-2" data-testid={`pa-edit-${z.placement_key}-${z.format}`}>Edit</button>
+                <button onClick={() => remove(z)} className="text-[11px] text-rose-400 underline opacity-80 hover:opacity-100" data-testid={`pa-del-${z.placement_key}-${z.format}`}>Delete</button>
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      {rows.length === 0 && (
+        <div className="p-4 text-center text-xs" style={{ color: "var(--cp-text-muted)" }}>No Propeller zones configured yet.</div>
+      )}
     </div>
   );
 };

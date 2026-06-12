@@ -29,6 +29,11 @@ import { PremiumPage } from "./pages/Premium";
 import { ReferralsPage } from "./pages/Referrals";
 import { ForgotPassword, ResetPassword, VerifyEmail } from "./pages/AuthPages";
 import { InterstitialAd } from "./components/InterstitialAd";
+import { registerAdServiceWorker } from "./lib/registerAdSw";
+
+if (typeof window !== "undefined") {
+  registerAdServiceWorker();
+}
 
 function App() {
   return (
