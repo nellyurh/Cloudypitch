@@ -47,19 +47,19 @@ const AdSlot = ({ placement, placementKey, className = "", style = {}, minHeight
     } catch (_e) { /* AdSense not yet loaded; auto-ads handle it */ }
   }, [ad]);
 
-  // PropellerAds inline banner: the dashboard provides a self-contained
-  // `<script src="..."></script>` snippet per zone. We mount it into a hidden
-  // div, then re-execute the <script> tag (innerHTML alone won't run scripts).
+  // PropellerAds + Adsterra inline banners: the dashboard provides a
+  // self-contained `<script src="..."></script>` snippet per zone. We mount
+  // it into a div, then re-execute the <script> tag (innerHTML alone won't
+  // run scripts).
   const propellerRef = useRef(null);
   useEffect(() => {
-    if (ad?.network !== "propellerads" || !propellerRef.current) return;
+    if (!ad || !["propellerads", "adsterra"].includes(ad.network) || !propellerRef.current) return;
     const html = ad.snippet_html || "";
     if (!html) return;
     const container = propellerRef.current;
     container.innerHTML = "";
     const wrap = document.createElement("div");
     wrap.innerHTML = html;
-    // Move every node over, replacing <script> nodes with executable copies.
     Array.from(wrap.childNodes).forEach((node) => {
       if (node.tagName === "SCRIPT") {
         const s = document.createElement("script");
@@ -113,15 +113,15 @@ const AdSlot = ({ placement, placementKey, className = "", style = {}, minHeight
     );
   }
 
-  // PropellerAds banner
-  if (ad.network === "propellerads") {
+  // PropellerAds + Adsterra banner
+  if (ad.network === "propellerads" || ad.network === "adsterra") {
     const w = ad.width || 300;
     const h = ad.height || 250;
     return (
       <div
         className={className}
         style={{ minHeight: minHeight || h, ...style }}
-        data-testid={`adslot-propellerads-${key}`}
+        data-testid={`adslot-${ad.network}-${key}`}
       >
         {label && <div className="text-[9px] uppercase tracking-widest mb-1 opacity-50">Ad</div>}
         <div

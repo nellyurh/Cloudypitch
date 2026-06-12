@@ -20,7 +20,7 @@ from models import new_id
 router = APIRouter(prefix="/api/ads", tags=["ads"])
 
 
-VALID_NETWORKS = {"admob", "adsense", "meta", "direct", "propellerads"}
+VALID_NETWORKS = {"admob", "adsense", "meta", "direct", "propellerads", "adsterra"}
 VALID_PLACEMENTS = {
     # Legacy
     "home_bottom_banner", "match_list_inline", "wc_hub_sponsor",
@@ -121,27 +121,39 @@ async def serve_ad(placement_key: str, user: dict = Depends(a.get_optional_user)
         return {"ad": pick, "premium": False, "source": "direct"}
 
     # PropellerAds zones (admin-configured per placement). Wins over AdSense
-    # because the user pasted these in for their preferred network.
+    # because the user pasted these in for their preferred network. If both
+    # PropellerAds and Adsterra are configured for the same placement, we
+    # alternate roughly 50/50 so neither network dominates inventory.
+    candidates: list[dict] = []
     pa = await db.propellerads_zones.find_one(
         {"placement_key": placement_key, "is_active": True}, {"_id": 0}
     )
     if pa and (pa.get("snippet_html") or pa.get("zone_id")):
-        await db.propellerads_zones.update_one(
+        candidates.append({"network": "propellerads", "zone": pa, "collection": "propellerads_zones"})
+    at = await db.adsterra_zones.find_one(
+        {"placement_key": placement_key, "is_active": True}, {"_id": 0}
+    )
+    if at and (at.get("snippet_html") or at.get("zone_id")):
+        candidates.append({"network": "adsterra", "zone": at, "collection": "adsterra_zones"})
+    if candidates:
+        pick = random.choice(candidates)
+        z = pick["zone"]
+        await db[pick["collection"]].update_one(
             {"placement_key": placement_key},
             {"$inc": {"impressions": 1}},
         )
         return {
             "ad": {
-                "network": "propellerads",
+                "network": pick["network"],
                 "placement_key": placement_key,
-                "zone_id": pa.get("zone_id"),
-                "snippet_html": pa.get("snippet_html") or "",
-                "width": pa.get("width"),
-                "height": pa.get("height"),
-                "format": pa.get("format") or "banner",  # banner | popunder | push
+                "zone_id": z.get("zone_id"),
+                "snippet_html": z.get("snippet_html") or "",
+                "width": z.get("width"),
+                "height": z.get("height"),
+                "format": z.get("format") or "banner",
             },
             "premium": False,
-            "source": "propellerads",
+            "source": pick["network"],
         }
 
     if ADSENSE_ENABLED:
@@ -238,6 +250,54 @@ async def upsert_propellerads_zone(body: PropellerZoneIn, user: dict = Depends(a
 async def delete_propellerads_zone(placement_key: str, format: str = "banner", _: dict = Depends(a.require_admin)):
     db = get_db()
     res = await db.propellerads_zones.delete_one({"placement_key": placement_key, "format": format})
+    return {"deleted": res.deleted_count}
+
+
+# ─── Adsterra zones ────────────────────────────────────────────────────
+class AdsterraZoneIn(BaseModel):
+    placement_key: str
+    zone_id: str | None = None
+    snippet_html: str | None = None
+    width: int | None = None
+    height: int | None = None
+    format: str = Field(default="banner", pattern="^(banner|popunder|push|native|social_bar|direct_link)$")
+    is_active: bool = True
+
+
+@router.get("/adsterra-zones")
+async def list_adsterra_zones(_: dict = Depends(a.require_admin)):
+    db = get_db()
+    rows = await db.adsterra_zones.find({}, {"_id": 0}).sort("placement_key", 1).to_list(length=200)
+    return {
+        "zones": rows,
+        "valid_placements": sorted(VALID_PLACEMENTS),
+        "valid_formats": ["banner", "popunder", "push", "native", "social_bar", "direct_link"],
+    }
+
+
+@router.post("/adsterra-zones")
+async def upsert_adsterra_zone(body: AdsterraZoneIn, user: dict = Depends(a.require_admin)):
+    if body.format == "banner" and body.placement_key not in VALID_PLACEMENTS:
+        raise HTTPException(status_code=400, detail=f"Unknown placement_key. Use one of: {sorted(VALID_PLACEMENTS)}")
+    if not (body.zone_id or body.snippet_html):
+        raise HTTPException(status_code=400, detail="Provide at least zone_id or snippet_html")
+    db = get_db()
+    now = datetime.now(timezone.utc).isoformat()
+    payload = body.model_dump()
+    payload["updated_at"] = now
+    payload["updated_by"] = user["id"]
+    await db.adsterra_zones.update_one(
+        {"placement_key": body.placement_key, "format": body.format},
+        {"$set": payload, "$setOnInsert": {"id": new_id(), "impressions": 0, "created_at": now}},
+        upsert=True,
+    )
+    return {"ok": True, **payload}
+
+
+@router.delete("/adsterra-zones/{placement_key}")
+async def delete_adsterra_zone(placement_key: str, format: str = "banner", _: dict = Depends(a.require_admin)):
+    db = get_db()
+    res = await db.adsterra_zones.delete_one({"placement_key": placement_key, "format": format})
     return {"deleted": res.deleted_count}
 
 
