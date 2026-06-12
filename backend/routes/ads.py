@@ -260,19 +260,35 @@ async def set_propellerads_site(body: PropellerSiteIn, admin: dict = Depends(a.r
     """Persist the raw `<meta>` / `<script>` Multitag verification snippet
     PropellerAds wants in `<head>`. The frontend `<head>` injector reads it via
     `/ads/config` and renders it on every page so the verifier sees it.
+
+    Security: admin-only (rate-limited at the auth layer); content is capped
+    at 8 KB to prevent oversized payloads; every write is audited.
     """
+    head = (body.verification_head or "").strip()
+    if len(head) > 8000:
+        raise HTTPException(status_code=400, detail="Verification head too large (max 8 KB)")
     db = get_db()
     now = datetime.now(timezone.utc).isoformat()
+    old = await db.settings.find_one({"id": "propellerads_site"}, {"_id": 0, "verification_head": 1})
     await db.settings.update_one(
         {"id": "propellerads_site"},
         {"$set": {
-            "verification_head": (body.verification_head or "").strip(),
+            "verification_head": head,
             "updated_at": now,
             "updated_by": admin["id"],
         }, "$setOnInsert": {"id": "propellerads_site"}},
         upsert=True,
     )
-    return {"ok": True, "verification_head": body.verification_head}
+    await db.audit_log.insert_one({
+        "user_id": admin["id"], "email": admin.get("email"),
+        "action": "propellerads_verification_head_set",
+        "metadata": {
+            "old_len": len((old or {}).get("verification_head") or ""),
+            "new_len": len(head),
+        },
+        "created_at": now,
+    })
+    return {"ok": True, "verification_head": head}
 
 
 class PropellerFileIn(BaseModel):
@@ -292,17 +308,29 @@ async def upload_propellerads_file(body: PropellerFileIn, admin: dict = Depends(
     import re
     import pathlib
     fn = (body.filename or "").strip().strip("/")
-    if not re.match(r"^[a-zA-Z0-9._-]{3,80}$", fn):
-        raise HTTPException(status_code=400, detail="Filename must be 3–80 chars, only [a-zA-Z0-9._-]")
+    # Strict allowlist: no leading dot, no path separators, length-bounded.
+    if not re.match(r"^[a-zA-Z0-9_-][a-zA-Z0-9._-]{2,79}$", fn):
+        raise HTTPException(
+            status_code=400,
+            detail="Filename must be 3–80 chars, start with [a-zA-Z0-9_-], and only contain letters/digits/_-.",
+        )
     if len(body.content or "") > 8000:
         raise HTTPException(status_code=400, detail="File content too large (max 8 KB)")
-    # Block overwriting the framework files.
-    if fn in {"index.html", "manifest.json", "favicon.ico", "robots.txt"}:
+    # Block overwriting the framework / sensitive files. (Belt-and-braces;
+    # the regex above already rejects leading dots like `.env` / `.htaccess`.)
+    BLOCKED = {
+        "index.html", "manifest.json", "favicon.ico", "robots.txt",
+        "asset-manifest.json", "service-worker.js",
+    }
+    if fn in BLOCKED or fn.lower().endswith(".js"):
         raise HTTPException(status_code=400, detail=f"Cannot overwrite {fn}")
 
-    public_dir = pathlib.Path("/app/frontend/public")
+    public_dir = pathlib.Path("/app/frontend/public").resolve()
+    target = (public_dir / fn).resolve()
+    # Defense in depth: ensure the resolved path is *inside* public_dir.
+    if public_dir not in target.parents and target != public_dir:
+        raise HTTPException(status_code=400, detail="Resolved path escapes public dir")
     public_dir.mkdir(parents=True, exist_ok=True)
-    target = public_dir / fn
     target.write_text(body.content, encoding="utf-8")
 
     db = get_db()
@@ -318,12 +346,21 @@ async def upload_propellerads_file(body: PropellerFileIn, admin: dict = Depends(
         {"$push": {"verification_files": {"filename": fn, "content": body.content, "created_at": now}}},
         upsert=True,
     )
+    await db.audit_log.insert_one({
+        "user_id": admin["id"], "email": admin.get("email"),
+        "action": "propellerads_verification_file_upload",
+        "metadata": {"filename": fn, "bytes": len(body.content or "")},
+        "created_at": now,
+    })
     return {"ok": True, "filename": fn, "served_at": f"/{fn}"}
 
 
 @router.delete("/propellerads-file/{filename}")
-async def delete_propellerads_file(filename: str, _: dict = Depends(a.require_admin)):
+async def delete_propellerads_file(filename: str, admin: dict = Depends(a.require_admin)):
     import pathlib
+    import re
+    if not re.match(r"^[a-zA-Z0-9_-][a-zA-Z0-9._-]{2,79}$", filename):
+        raise HTTPException(status_code=400, detail="Invalid filename")
     target = pathlib.Path("/app/frontend/public") / filename
     if target.exists() and filename not in {"index.html", "manifest.json", "favicon.ico", "robots.txt", "sw.js"}:
         try:
@@ -335,6 +372,12 @@ async def delete_propellerads_file(filename: str, _: dict = Depends(a.require_ad
         {"id": "propellerads_site"},
         {"$pull": {"verification_files": {"filename": filename}}},
     )
+    await db.audit_log.insert_one({
+        "user_id": admin["id"], "email": admin.get("email"),
+        "action": "propellerads_verification_file_delete",
+        "metadata": {"filename": filename, "modified": res.modified_count},
+        "created_at": datetime.now(timezone.utc).isoformat(),
+    })
     return {"ok": True, "modified": res.modified_count}
 
 
