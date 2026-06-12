@@ -10,6 +10,16 @@ Global multi-sport livescore + predictions + fantasy platform launching for FIFA
 - Sportmonks (football), API-Sports (other sports), Trybit/CryptoCloud (crypto deposits), PocketFi (NGN), Google AdSense
 
 
+### 2026-02-12 (Click-hijack KILL switch)
+- **🚫 Click-hijacking permanently disabled** across the entire site. Three layers:
+  1. `/api/ads/config` no longer returns `propellerads_serving_head` (OnClick/Vignette) or `propellerads_popunder_snippet`.
+  2. `/api/ads/serve/{placement}` skips zones with `format ∈ {popunder, onclick, vignette, interstitial}` for BOTH PropellerAds and Adsterra.
+  3. `AdHeadInjector.jsx` rewritten to inject ONLY verifier-required meta/link tags; refuses `<script>` nodes entirely. `AdSlot.jsx` also blocks hijack-format snippets as defense-in-depth.
+- **🆕 `POST /api/ads/wipe-popunders`** (admin) — one-shot cleanup that deletes every popunder/onclick/vignette/interstitial zone from both networks + blanks the legacy `serving_head` field. Audited.
+- Removed the popunder seed entry from `POST /api/ads/seed-defaults` so re-seeding can't re-introduce it.
+- Inline banner ads (header, sidebar, match-list, mobile bottom, etc.) continue to render normally via `<AdSlot>`. Only the tap-stealing formats are killed.
+
+
 ### 2026-02-12 (My Picks visibility + Past mini-games tab)
 - **🆕 Predictions "My Picks" tab** — Users can now see all their predictions (including settled ones with points) on `/predictions`. Previously only NS/TBD upcoming matches were shown so settled picks vanished. New `MyPredictionsList` component shows actual result vs user's pick, points earned, streak bonus, stage multiplier, and outcome badges (Exact/Outcome correct/Missed/Pending).
 - **🆕 WC Mini-Games "Past" tab** — New backend endpoint `GET /api/wc/games/mine/past` returns the user's entries for `closed`/`settling`/`settled` games with attached `match_info`. Frontend `WcGamesPanel` now has an "Open / Upcoming / **Past**" tab. Each past card shows headline, match score, picks count, rank-in-game, and points scored. Tapping a settled card opens `/wc/games/:id/entries`.

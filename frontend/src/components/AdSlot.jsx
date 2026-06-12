@@ -51,10 +51,15 @@ const AdSlot = ({ placement, placementKey, className = "", style = {}, minHeight
   // PropellerAds + Adsterra inline banners: the dashboard provides a
   // self-contained `<script src="..."></script>` snippet per zone. We mount
   // it into a div, then re-execute the <script> tag (innerHTML alone won't
-  // run scripts).
+  // run scripts). 🚫 Hijack formats (popunder/onclick/vignette/interstitial)
+  // are blocked here as a defense-in-depth — backend already filters them
+  // out of `/ads/serve`, but this guard ensures a manually-crafted snippet
+  // can never sneak through.
+  const HIJACK_FORMATS = new Set(["popunder", "onclick", "vignette", "interstitial"]);
   const propellerRef = useRef(null);
   useEffect(() => {
     if (!ad || !["propellerads", "adsterra"].includes(ad.network) || !propellerRef.current) return;
+    if (HIJACK_FORMATS.has(String(ad.format || "").toLowerCase())) return;
     const html = ad.snippet_html || "";
     if (!html) return;
     const container = propellerRef.current;

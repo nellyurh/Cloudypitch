@@ -55,34 +55,30 @@ class PlacementIn(BaseModel):
 async def ads_config(user: dict = Depends(a.get_optional_user)):
     """Public ad config — FE injects the AdSense script using this.
     Premium users always get `{enabled: false}` so no ad code is ever loaded.
+
+    🚫 Click-hijack hardening (2026-02-12): we permanently stop serving
+    Monetag/PropellerAds `serving_head` (OnClick/Vignette/Interstitial) and
+    `popunder` snippets. These scripts intercepted the first tap on any
+    page and forced a redirect — destroying UX. Only inline banner ads
+    (rendered by `<AdSlot>`) and the safe-to-render verification meta
+    tags remain.
     """
     is_premium = bool(user and user.get("is_premium"))
     db = get_db()
-    # Site-level Multitag verification snippet — pasted by admin into Settings.
-    # Injected unconditionally (even for premium) since it just identifies the
-    # site to PropellerAds.
     site_doc = await db.settings.find_one({"id": "propellerads_site"}, {"_id": 0})
     propellerads_verification_head = (site_doc or {}).get("verification_head") or ""
-    # Serving-only script(s) — gated by route on the frontend so OnClick /
-    # Vignette can't hijack taps on action pages (/my-teams, /build-team).
-    propellerads_serving_head = (site_doc or {}).get("serving_head") or ""
-    # Propeller push-notification zone: registered via the service worker at
-    # /sw.js. Pulled from the popunder/push zone the admin configured, OR a
-    # dedicated push entry if present.
     push_zone = await db.propellerads_zones.find_one(
         {"format": "push", "is_active": True}, {"_id": 0, "zone_id": 1}
-    )
-    popunder = await db.propellerads_zones.find_one(
-        {"format": "popunder", "is_active": True}, {"_id": 0, "snippet_html": 1, "zone_id": 1}
     )
     return {
         "adsense_enabled": ADSENSE_ENABLED and not is_premium,
         "adsense_publisher_id": ADSENSE_PUBLISHER_ID if (ADSENSE_ENABLED and not is_premium) else "",
-        "propellerads_enabled": bool((push_zone or popunder) and not is_premium),
+        "propellerads_enabled": bool(push_zone and not is_premium),
         "propellerads_push_zone_id": (push_zone or {}).get("zone_id") if not is_premium else None,
-        "propellerads_popunder_snippet": (popunder or {}).get("snippet_html") if not is_premium else None,
+        # Click-hijack vectors permanently disabled (see docstring).
+        "propellerads_popunder_snippet": None,
         "propellerads_verification_head": propellerads_verification_head,
-        "propellerads_serving_head": propellerads_serving_head if not is_premium else "",
+        "propellerads_serving_head": "",
         "premium": is_premium,
         "valid_placements": sorted(VALID_PLACEMENTS),
     }
@@ -135,7 +131,9 @@ async def serve_ad(
     # `viewport=mobile|desktop` query lets the client say "skip ads not sized
     # for this device" — prevents a 728×90 from breaking a 360px phone.
     candidates: list[dict] = []
-    pa_q: dict = {"placement_key": placement_key, "is_active": True}
+    pa_q: dict = {"placement_key": placement_key, "is_active": True,
+                  # 🚫 Skip popunder/onclick/vignette formats — they hijack taps.
+                  "format": {"$nin": ["popunder", "onclick", "vignette", "interstitial"]}}
     if viewport in ("mobile", "desktop"):
         pa_q["$or"] = [{"target_viewport": viewport}, {"target_viewport": "both"}, {"target_viewport": {"$exists": False}}]
     pa = await db.propellerads_zones.find_one(pa_q, {"_id": 0})
@@ -330,11 +328,10 @@ async def seed_default_zones(admin: dict = Depends(a.require_admin)):
             f'<script type="text/javascript" src="//www.topcreativeformat.com/{k}/invoke.js"></script>'
         )
 
-    popunder_snip = '<script src="https://pl29726725.effectivecpmnetwork.com/c9/b4/77/c9b4775d5c519901cc2963972c3760d1.js"></script>'
+    popunder_snip = '<script src="https://pl29726725.effectivecpmnetwork.com/c9/b4/77/c9b4775d5c519901cc2963972c3760d1.js"></script>'  # noqa: F841 — kept as reference; popunder zones are NOT seeded (click-hijack policy)
 
     adsterra_zones = [
-        # popunder — global, fires once per page
-        ("interstitial_nav", "pl29726725", popunder_snip, 1, 1, "popunder", "both"),
+        # 🚫 popunder zone INTENTIONALLY removed — popunders hijack taps.
         # 728x90 (desktop only)
         ("header_banner", "47bdc4aa", adsterra_snippet("47bdc4aaee0adc9a3a3054dc90bcde88", 728, 90), 728, 90, "banner", "desktop"),
         ("leaderboard_above", "47bdc4aa", adsterra_snippet("47bdc4aaee0adc9a3a3054dc90bcde88", 728, 90), 728, 90, "banner", "desktop"),
@@ -395,6 +392,34 @@ async def seed_default_zones(admin: dict = Depends(a.require_admin)):
         "adsterra_written": adsterra_written,
         "propellerads_viewport_updated": pa_updated,
         "next_step": "Open Admin → Ads → Adsterra zones panel; you should see 12 rows.",
+    }
+
+
+@router.post("/wipe-popunders")
+async def wipe_popunder_zones(admin: dict = Depends(a.require_admin)):
+    """Permanently delete every popunder/onclick/vignette/interstitial zone
+    from PropellerAds AND Adsterra. Click-hijack hardening — call once on
+    prod after the deploy that disables popunders."""
+    db = get_db()
+    HIJACK_FORMATS = ["popunder", "onclick", "vignette", "interstitial"]
+    pa = await db.propellerads_zones.delete_many({"format": {"$in": HIJACK_FORMATS}})
+    at = await db.adsterra_zones.delete_many({"format": {"$in": HIJACK_FORMATS}})
+    # Also blank the legacy `serving_head` field that used to ship OnClick.
+    await db.settings.update_one(
+        {"id": "propellerads_site"},
+        {"$set": {"serving_head": "", "updated_at": datetime.now(timezone.utc).isoformat(),
+                  "updated_by": admin["id"]}},
+    )
+    await db.audit_log.insert_one({
+        "user_id": admin["id"], "email": admin.get("email"),
+        "action": "ads_wipe_popunders",
+        "metadata": {"propellerads_deleted": pa.deleted_count, "adsterra_deleted": at.deleted_count},
+        "created_at": datetime.now(timezone.utc).isoformat(),
+    })
+    return {
+        "ok": True,
+        "propellerads_deleted": pa.deleted_count,
+        "adsterra_deleted": at.deleted_count,
     }
 
 
