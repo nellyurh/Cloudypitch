@@ -58,8 +58,8 @@ function WcGroupStrip({ startsAt, groups }) {
 /** Hero card (Sofascore-style): real WC trophy + title + previous-edition selector + stage progress. */
 function WcHero({ startsAt }) {
   const editions = [2026, 2022, 2018, 2014, 2010, 2006, 2002, 1998, 1994, 1990, 1986, 1982, 1978, 1974, 1970, 1966];
-  // User-supplied WC 2026 logo asset.
   const wcLogo = "https://customer-assets.emergentagent.com/job_fantasy-wc/artifacts/gbyjrmxz_world-cup-2026-logo.webp";
+  const isLive = startsAt ? new Date(startsAt).getTime() <= Date.now() : true;
   return (
     <div className="cp-surface overflow-hidden p-4 md:p-6 relative" data-testid="wc-hero" style={{
       background: "radial-gradient(circle at 90% 30%, rgba(163,230,53,0.05), transparent 60%), var(--cp-surface)",
@@ -68,8 +68,18 @@ function WcHero({ startsAt }) {
         <img src={wcLogo} alt="FIFA World Cup 2026" className="shrink-0 w-20 h-24 md:w-24 md:h-28 object-contain" data-testid="wc-hero-logo"/>
         <div className="flex-1 min-w-0">
           <h1 className="text-xl md:text-2xl font-extrabold leading-tight">FIFA World Cup 2026</h1>
-          <div className="text-xs mt-0.5" style={{ color: "var(--cp-text-muted)" }}>
-            <CountdownRibbon to={startsAt} label="Kicks off in"/>
+          <div className="text-xs mt-1" style={{ color: "var(--cp-text-muted)" }}>
+            {isLive ? (
+              <span className="inline-flex items-center gap-1.5 font-extrabold text-[11px] tracking-wider uppercase" style={{ color: "#22c55e" }} data-testid="wc-hero-live-pill">
+                <span className="relative flex h-2 w-2">
+                  <span className="absolute inline-flex h-2 w-2 rounded-full opacity-75 animate-ping" style={{ background: "#22c55e" }}/>
+                  <span className="relative inline-flex h-2 w-2 rounded-full" style={{ background: "#22c55e" }}/>
+                </span>
+                Tournament live
+              </span>
+            ) : (
+              <CountdownRibbon to={startsAt} label="Kicks off in"/>
+            )}
           </div>
           <div className="mt-3 flex items-center gap-1.5 overflow-x-auto no-scrollbar" data-testid="wc-edition-strip">
             {editions.map(y => (
@@ -443,7 +453,6 @@ export const WorldCupHub = () => {
 
   return (
     <div data-testid="worldcup-hub" className="space-y-3">
-      <AdSlot placement="wc_hub_top" minHeight={0} className="mb-3"/>
       <WcHero startsAt={startsAt}/>
       <div className="grid grid-cols-1 lg:grid-cols-[280px_1fr_320px] gap-3 mt-4">
         <MatchesPane matches={matches}/>

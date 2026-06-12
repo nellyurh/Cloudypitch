@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import api from "../lib/api";
+import AdSlot from "../components/AdSlot";
 import { Trophy, Plus, ArrowRight, Star, Repeat, Coins } from "lucide-react";
 
 const fmt = (n) => `€${(n || 0).toFixed(1)}M`;
@@ -83,7 +84,7 @@ export default function MyTeams() {
         </div>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
-          {teams.map(t => {
+          {teams.map((t, idx) => {
             // Settled mini-games → public entries page (per-team points + leaderboard).
             // Open/closed mini-games → /build-team?game_id=... so users see/edit their picks.
             // Main squads → /build-team (no game_id).
@@ -95,9 +96,11 @@ export default function MyTeams() {
             const squadCap = t.kind === "wc_game"
               ? (t.squad_size_required || 15)
               : ((t.players || []).length >= 16 ? 20 : 15);
+            // Insert a full-width ad row after every 2nd card (but not after the last).
+            const showAdAfter = ((idx + 1) % 2 === 0) && (idx !== teams.length - 1);
             return (
+            <React.Fragment key={t.id}>
             <Link
-              key={t.id}
               to={linkTo}
               className="cp-surface p-4 hover:bg-white/5 transition flex flex-col gap-2"
               data-testid={`my-team-${t.id}`}
@@ -154,6 +157,12 @@ export default function MyTeams() {
                 </div>
               )}
             </Link>
+            {showAdAfter && (
+              <div className="col-span-1 md:col-span-2 lg:col-span-3" data-testid={`my-teams-inline-ad-${idx}`}>
+                <AdSlot placement="match_list_inline" minHeight={0}/>
+              </div>
+            )}
+            </React.Fragment>
           );})}
         </div>
       )}

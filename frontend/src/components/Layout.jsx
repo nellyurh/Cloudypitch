@@ -10,10 +10,6 @@ export const Layout = ({ children }) => {
   return (
     <div className="min-h-screen" style={{ background: "var(--cp-bg)" }}>
       <Header />
-      {/* Header banner ad — direct sponsor first, AdSense fallback. Premium hidden. */}
-      <div className="max-w-[1400px] mx-auto px-3 md:px-5 pt-2">
-        <AdSlot placement="header_banner" minHeight={0}/>
-      </div>
       <main className="max-w-[1400px] mx-auto px-3 md:px-5 py-4 pb-24 lg:pb-6" data-testid="app-main">
         {children}
       </main>

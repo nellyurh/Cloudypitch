@@ -67,10 +67,8 @@ export const Header = () => {
       data-testid="site-header"
     >
       {/* Sofascore order:
-            (1) WC group ticker — full-width strip on top
-            (2) Logo + search + theme + signin band
-            (3) Sports nav with WC2026 first */}
-      <GroupTicker/>
+            (1) Logo + search + theme + signin band
+            (2) Sports nav with WC2026 first */}
 
       {/* Logo band — slim 52px container; logo image overflows above/below up to ~140px */}
       <div className="max-w-[1400px] mx-auto px-3 md:px-5 flex items-center gap-3" style={{ minHeight: 52, height: 52 }}>
