@@ -304,6 +304,8 @@ const PropellerZonesPanel = ({ onMessage }) => {
         </div>
       </div>
 
+      <PropellerSiteVerification onMessage={onMessage}/>
+
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2 mb-3">
         <select value={draft.placement_key} onChange={(e) => setDraft({...draft, placement_key: e.target.value})} className="cp-input" data-testid="pa-placement">
           {PLACEMENTS.map((p) => <option key={p.key} value={p.key}>{p.label}</option>)}
@@ -367,6 +369,104 @@ const PropellerZonesPanel = ({ onMessage }) => {
       {rows.length === 0 && (
         <div className="p-4 text-center text-xs" style={{ color: "var(--cp-text-muted)" }}>No Propeller zones configured yet.</div>
       )}
+    </div>
+  );
+};
+
+// ─── Site-level verification (Multitag) ─────────────────────────────────
+const PropellerSiteVerification = ({ onMessage }) => {
+  const [head, setHead] = useState("");
+  const [files, setFiles] = useState([]);
+  const [fname, setFname] = useState("");
+  const [fcontent, setFcontent] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  const load = async () => {
+    try {
+      const { data } = await api.get("/ads/propellerads-site");
+      setHead(data.verification_head || "");
+      setFiles(data.verification_files || []);
+    } catch (_e) { /* may not exist yet */ }
+  };
+  useEffect(() => { load(); }, []);
+
+  const saveHead = async () => {
+    setBusy(true);
+    try {
+      await api.post("/ads/propellerads-site", { verification_head: head });
+      onMessage?.("✓ Verification snippet saved — now click Verify on PropellerAds");
+    } catch (e) { onMessage?.(e?.response?.data?.detail || "Save failed"); }
+    setBusy(false);
+  };
+
+  const saveFile = async () => {
+    if (!fname || !fcontent) { onMessage?.("Filename and content are required"); return; }
+    setBusy(true);
+    try {
+      const { data } = await api.post("/ads/propellerads-file", { filename: fname, content: fcontent });
+      onMessage?.(`✓ Saved — served at ${window.location.origin}${data.served_at}`);
+      setFname(""); setFcontent("");
+      load();
+    } catch (e) { onMessage?.(e?.response?.data?.detail || "Save failed"); }
+    setBusy(false);
+  };
+
+  const removeFile = async (fn) => {
+    if (!confirm(`Delete verification file /${fn}?`)) return;
+    try {
+      await api.delete(`/ads/propellerads-file/${fn}`);
+      onMessage?.(`✓ Removed /${fn}`);
+      load();
+    } catch (e) { onMessage?.(e?.response?.data?.detail || "Delete failed"); }
+  };
+
+  return (
+    <div className="rounded p-3 mb-4 border" style={{ background: "var(--cp-surface-2)", borderColor: "var(--cp-border)" }} data-testid="propeller-site-verify">
+      <div className="text-xs font-extrabold mb-1">🔐 PropellerAds Multitag verification</div>
+      <div className="text-[10px] mb-2" style={{ color: "var(--cp-text-muted)" }}>
+        Use either method PropellerAds lets you pick — both are wired up here.
+      </div>
+
+      {/* Method 1: HEAD snippet */}
+      <div className="mb-2">
+        <div className="text-[10px] font-bold mb-1">A. Paste the meta/script PropellerAds gave you (injected into &lt;head&gt; on every page)</div>
+        <textarea
+          value={head}
+          onChange={(e) => setHead(e.target.value)}
+          rows={3}
+          placeholder={'<meta name="propeller" content="abc123...">\nor\n<script type="text/javascript">...</script>'}
+          className="cp-input w-full font-mono text-[11px]"
+          data-testid="pa-verify-head"
+        />
+        <button onClick={saveHead} disabled={busy} className="cp-btn-primary mt-1" data-testid="pa-verify-head-save">{busy ? "Saving…" : "Save head snippet"}</button>
+      </div>
+
+      {/* Method 2: file upload */}
+      <div className="mt-3 pt-3 border-t" style={{ borderColor: "var(--cp-border)" }}>
+        <div className="text-[10px] font-bold mb-1">B. Upload a verification file (root URL — e.g. /propeller-1234.html)</div>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-2 mb-2">
+          <input value={fname} onChange={(e) => setFname(e.target.value)} placeholder="filename (e.g. propeller-abc.html)" className="cp-input font-mono text-[11px]" data-testid="pa-verify-file-name"/>
+          <button onClick={saveFile} disabled={busy} className="cp-btn-primary" data-testid="pa-verify-file-save">{busy ? "Saving…" : "Save & serve at /filename"}</button>
+        </div>
+        <textarea
+          value={fcontent}
+          onChange={(e) => setFcontent(e.target.value)}
+          rows={3}
+          placeholder="Paste the exact body content PropellerAds gave you for the file"
+          className="cp-input w-full font-mono text-[11px]"
+          data-testid="pa-verify-file-content"
+        />
+        {files.length > 0 && (
+          <div className="mt-2 space-y-1">
+            {files.map((f) => (
+              <div key={f.filename} className="flex items-center justify-between text-[11px] py-1 px-2 rounded" style={{ background: "var(--cp-surface)" }}>
+                <a href={`/${f.filename}`} target="_blank" rel="noreferrer" className="font-mono underline" data-testid={`pa-verify-file-link-${f.filename}`}>/{f.filename}</a>
+                <button onClick={() => removeFile(f.filename)} className="text-rose-400 underline" data-testid={`pa-verify-file-del-${f.filename}`}>Remove</button>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
     </div>
   );
 };

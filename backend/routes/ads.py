@@ -58,6 +58,11 @@ async def ads_config(user: dict = Depends(a.get_optional_user)):
     """
     is_premium = bool(user and user.get("is_premium"))
     db = get_db()
+    # Site-level Multitag verification snippet — pasted by admin into Settings.
+    # Injected unconditionally (even for premium) since it just identifies the
+    # site to PropellerAds.
+    site_doc = await db.settings.find_one({"id": "propellerads_site"}, {"_id": 0})
+    propellerads_verification_head = (site_doc or {}).get("verification_head") or ""
     # Propeller push-notification zone: registered via the service worker at
     # /sw.js. Pulled from the popunder/push zone the admin configured, OR a
     # dedicated push entry if present.
@@ -73,6 +78,7 @@ async def ads_config(user: dict = Depends(a.get_optional_user)):
         "propellerads_enabled": bool((push_zone or popunder) and not is_premium),
         "propellerads_push_zone_id": (push_zone or {}).get("zone_id") if not is_premium else None,
         "propellerads_popunder_snippet": (popunder or {}).get("snippet_html") if not is_premium else None,
+        "propellerads_verification_head": propellerads_verification_head,
         "premium": is_premium,
         "valid_placements": sorted(VALID_PLACEMENTS),
     }
@@ -233,6 +239,103 @@ async def delete_propellerads_zone(placement_key: str, format: str = "banner", _
     db = get_db()
     res = await db.propellerads_zones.delete_one({"placement_key": placement_key, "format": format})
     return {"deleted": res.deleted_count}
+
+
+class PropellerSiteIn(BaseModel):
+    verification_head: str | None = None
+
+
+@router.get("/propellerads-site")
+async def get_propellerads_site(_: dict = Depends(a.require_admin)):
+    db = get_db()
+    doc = await db.settings.find_one({"id": "propellerads_site"}, {"_id": 0}) or {}
+    return {
+        "verification_head": doc.get("verification_head") or "",
+        "verification_files": doc.get("verification_files") or [],
+    }
+
+
+@router.post("/propellerads-site")
+async def set_propellerads_site(body: PropellerSiteIn, admin: dict = Depends(a.require_admin)):
+    """Persist the raw `<meta>` / `<script>` Multitag verification snippet
+    PropellerAds wants in `<head>`. The frontend `<head>` injector reads it via
+    `/ads/config` and renders it on every page so the verifier sees it.
+    """
+    db = get_db()
+    now = datetime.now(timezone.utc).isoformat()
+    await db.settings.update_one(
+        {"id": "propellerads_site"},
+        {"$set": {
+            "verification_head": (body.verification_head or "").strip(),
+            "updated_at": now,
+            "updated_by": admin["id"],
+        }, "$setOnInsert": {"id": "propellerads_site"}},
+        upsert=True,
+    )
+    return {"ok": True, "verification_head": body.verification_head}
+
+
+class PropellerFileIn(BaseModel):
+    filename: str
+    content: str
+
+
+@router.post("/propellerads-file")
+async def upload_propellerads_file(body: PropellerFileIn, admin: dict = Depends(a.require_admin)):
+    """Some PropellerAds verification paths need a small HTML / TXT file at
+    the site root (e.g. `propeller-verification.html`). The admin pastes the
+    filename + body; we (a) write the file into `/app/frontend/public/` so the
+    static server serves it at `/{filename}`, and (b) persist a copy in
+    `settings.propellerads_site.verification_files` so a fresh deploy can
+    regenerate the file on boot.
+    """
+    import re
+    import pathlib
+    fn = (body.filename or "").strip().strip("/")
+    if not re.match(r"^[a-zA-Z0-9._-]{3,80}$", fn):
+        raise HTTPException(status_code=400, detail="Filename must be 3–80 chars, only [a-zA-Z0-9._-]")
+    if len(body.content or "") > 8000:
+        raise HTTPException(status_code=400, detail="File content too large (max 8 KB)")
+    # Block overwriting the framework files.
+    if fn in {"index.html", "manifest.json", "favicon.ico", "robots.txt"}:
+        raise HTTPException(status_code=400, detail=f"Cannot overwrite {fn}")
+
+    public_dir = pathlib.Path("/app/frontend/public")
+    public_dir.mkdir(parents=True, exist_ok=True)
+    target = public_dir / fn
+    target.write_text(body.content, encoding="utf-8")
+
+    db = get_db()
+    now = datetime.now(timezone.utc).isoformat()
+    await db.settings.update_one(
+        {"id": "propellerads_site"},
+        {"$set": {"updated_at": now, "updated_by": admin["id"]},
+         "$pull": {"verification_files": {"filename": fn}}},
+        upsert=True,
+    )
+    await db.settings.update_one(
+        {"id": "propellerads_site"},
+        {"$push": {"verification_files": {"filename": fn, "content": body.content, "created_at": now}}},
+        upsert=True,
+    )
+    return {"ok": True, "filename": fn, "served_at": f"/{fn}"}
+
+
+@router.delete("/propellerads-file/{filename}")
+async def delete_propellerads_file(filename: str, _: dict = Depends(a.require_admin)):
+    import pathlib
+    target = pathlib.Path("/app/frontend/public") / filename
+    if target.exists() and filename not in {"index.html", "manifest.json", "favicon.ico", "robots.txt", "sw.js"}:
+        try:
+            target.unlink()
+        except Exception:
+            pass
+    db = get_db()
+    res = await db.settings.update_one(
+        {"id": "propellerads_site"},
+        {"$pull": {"verification_files": {"filename": filename}}},
+    )
+    return {"ok": True, "modified": res.modified_count}
 
 
 @router.get("/placements")
