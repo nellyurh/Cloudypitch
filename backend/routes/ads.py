@@ -85,7 +85,11 @@ async def ads_config(user: dict = Depends(a.get_optional_user)):
 
 
 @router.get("/serve/{placement_key}")
-async def serve_ad(placement_key: str, user: dict = Depends(a.get_optional_user)):
+async def serve_ad(
+    placement_key: str,
+    user: dict = Depends(a.get_optional_user),
+    viewport: str | None = None,
+):
     """Return the best active ad for this placement.
 
     Priority:
@@ -124,15 +128,16 @@ async def serve_ad(placement_key: str, user: dict = Depends(a.get_optional_user)
     # because the user pasted these in for their preferred network. If both
     # PropellerAds and Adsterra are configured for the same placement, we
     # alternate roughly 50/50 so neither network dominates inventory.
+    # `viewport=mobile|desktop` query lets the client say "skip ads not sized
+    # for this device" — prevents a 728×90 from breaking a 360px phone.
     candidates: list[dict] = []
-    pa = await db.propellerads_zones.find_one(
-        {"placement_key": placement_key, "is_active": True}, {"_id": 0}
-    )
+    pa_q: dict = {"placement_key": placement_key, "is_active": True}
+    if viewport in ("mobile", "desktop"):
+        pa_q["$or"] = [{"target_viewport": viewport}, {"target_viewport": "both"}, {"target_viewport": {"$exists": False}}]
+    pa = await db.propellerads_zones.find_one(pa_q, {"_id": 0})
     if pa and (pa.get("snippet_html") or pa.get("zone_id")):
         candidates.append({"network": "propellerads", "zone": pa, "collection": "propellerads_zones"})
-    at = await db.adsterra_zones.find_one(
-        {"placement_key": placement_key, "is_active": True}, {"_id": 0}
-    )
+    at = await db.adsterra_zones.find_one(pa_q, {"_id": 0})
     if at and (at.get("snippet_html") or at.get("zone_id")):
         candidates.append({"network": "adsterra", "zone": at, "collection": "adsterra_zones"})
     if candidates:
@@ -151,6 +156,7 @@ async def serve_ad(placement_key: str, user: dict = Depends(a.get_optional_user)
                 "width": z.get("width"),
                 "height": z.get("height"),
                 "format": z.get("format") or "banner",
+                "target_viewport": z.get("target_viewport") or "both",
             },
             "premium": False,
             "source": pick["network"],
@@ -215,6 +221,7 @@ class PropellerZoneIn(BaseModel):
     height: int | None = None
     format: str = Field(default="banner", pattern="^(banner|popunder|push|native)$")
     is_active: bool = True
+    target_viewport: str = Field(default="both", pattern="^(mobile|desktop|both)$")
 
 
 @router.get("/propellerads-zones")
@@ -262,6 +269,7 @@ class AdsterraZoneIn(BaseModel):
     height: int | None = None
     format: str = Field(default="banner", pattern="^(banner|popunder|push|native|social_bar|direct_link)$")
     is_active: bool = True
+    target_viewport: str = Field(default="both", pattern="^(mobile|desktop|both)$")
 
 
 @router.get("/adsterra-zones")

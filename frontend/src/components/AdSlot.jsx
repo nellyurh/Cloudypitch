@@ -27,7 +27,8 @@ const AdSlot = ({ placement, placementKey, className = "", style = {}, minHeight
     let cancelled = false;
     (async () => {
       try {
-        const { data } = await api.get(`/ads/serve/${key}`);
+        const viewport = typeof window !== "undefined" && window.innerWidth < 768 ? "mobile" : "desktop";
+        const { data } = await api.get(`/ads/serve/${key}?viewport=${viewport}`);
         if (cancelled) return;
         if (data?.premium) { setLoaded(true); return; }
         setAd(data?.ad || null);
@@ -117,16 +118,31 @@ const AdSlot = ({ placement, placementKey, className = "", style = {}, minHeight
   if (ad.network === "propellerads" || ad.network === "adsterra") {
     const w = ad.width || 300;
     const h = ad.height || 250;
+    // Hard guard: ad too wide for the viewport → render nothing rather than
+    // letting a 728px iframe blow the mobile layout out horizontally.
+    const vw = typeof window !== "undefined" ? window.innerWidth : 1024;
+    if (w > vw - 16) return null;
     return (
       <div
         className={className}
-        style={{ minHeight: minHeight || h, ...style }}
+        style={{
+          minHeight: minHeight || h,
+          maxWidth: "100%",
+          overflow: "hidden",
+          ...style,
+        }}
         data-testid={`adslot-${ad.network}-${key}`}
       >
         {label && <div className="text-[9px] uppercase tracking-widest mb-1 opacity-50">Ad</div>}
         <div
           ref={propellerRef}
-          style={{ minHeight: h, minWidth: w, maxWidth: "100%", margin: "0 auto" }}
+          style={{
+            minHeight: h,
+            width: w,
+            maxWidth: "100%",
+            margin: "0 auto",
+            overflow: "hidden",
+          }}
         />
       </div>
     );
