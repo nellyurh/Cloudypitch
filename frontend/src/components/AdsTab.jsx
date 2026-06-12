@@ -417,11 +417,30 @@ const AdsterraZonesPanel = ({ onMessage }) => {
 
   return (
     <div className="cp-surface p-4 mt-4" data-testid="adsterra-zones-panel">
-      <div className="mb-3">
-        <h3 className="font-extrabold flex items-center gap-2">📡 Adsterra zones</h3>
-        <div className="text-[11px]" style={{ color: "var(--cp-text-muted)" }}>
-          Paste the full snippet Adsterra gives you per ad unit. When both Adsterra and PropellerAds are configured for the same placement, traffic alternates ~50/50.
+      <div className="mb-3 flex items-start justify-between gap-3 flex-wrap">
+        <div>
+          <h3 className="font-extrabold flex items-center gap-2">📡 Adsterra zones</h3>
+          <div className="text-[11px]" style={{ color: "var(--cp-text-muted)" }}>
+            Paste the full snippet Adsterra gives you per ad unit. When both Adsterra and PropellerAds are configured for the same placement, traffic alternates ~50/50.
+          </div>
         </div>
+        <button
+          onClick={async () => {
+            if (!confirm("Seed the 7 Adsterra ad units (728×90, 468×60, 300×250, 160×300, 160×600, 320×50, popunder) across 12 placements? Existing rows will be overwritten with the latest snippet.")) return;
+            setBusy(true);
+            try {
+              const { data } = await api.post("/ads/seed-defaults");
+              onMessage?.(`✓ ${data.adsterra_written} Adsterra zones seeded · ${data.propellerads_viewport_updated} Propeller rows tagged.`);
+              load();
+            } catch (e) { onMessage?.(e?.response?.data?.detail || "Seed failed"); }
+            setBusy(false);
+          }}
+          disabled={busy}
+          className="cp-btn-primary"
+          data-testid="at-seed-defaults"
+        >
+          🌱 Seed defaults
+        </button>
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2 mb-3">

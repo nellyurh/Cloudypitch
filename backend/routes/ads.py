@@ -309,6 +309,91 @@ async def delete_adsterra_zone(placement_key: str, format: str = "banner", _: di
     return {"deleted": res.deleted_count}
 
 
+# ─── One-click seed for the user's known ad inventory ───────────────────
+# Builds the 12 Adsterra placement bindings from the keys the user pasted in
+# their dashboard. Idempotent: re-running on prod won't duplicate rows. Call
+# once after a deploy if the zones table looks empty.
+@router.post("/seed-defaults")
+async def seed_default_zones(admin: dict = Depends(a.require_admin)):
+    db = get_db()
+    now = datetime.now(timezone.utc).isoformat()
+
+    def adsterra_snippet(k: str, w: int, h: int) -> str:
+        return (
+            '<script type="text/javascript">'
+            f'atOptions = {{"key":"{k}","format":"iframe","height":{h},"width":{w},"params":{{}}}};'
+            '</script>'
+            f'<script type="text/javascript" src="//www.topcreativeformat.com/{k}/invoke.js"></script>'
+        )
+
+    popunder_snip = '<script src="https://pl29726725.effectivecpmnetwork.com/c9/b4/77/c9b4775d5c519901cc2963972c3760d1.js"></script>'
+
+    adsterra_zones = [
+        # popunder — global, fires once per page
+        ("interstitial_nav", "pl29726725", popunder_snip, 1, 1, "popunder", "both"),
+        # 728x90 (desktop only)
+        ("header_banner", "47bdc4aa", adsterra_snippet("47bdc4aaee0adc9a3a3054dc90bcde88", 728, 90), 728, 90, "banner", "desktop"),
+        ("leaderboard_above", "47bdc4aa", adsterra_snippet("47bdc4aaee0adc9a3a3054dc90bcde88", 728, 90), 728, 90, "banner", "desktop"),
+        # 468x60 (desktop only)
+        ("wc_hub_sponsor", "1c75ccba", adsterra_snippet("1c75ccbae5b09a41c7fa02b82d9cc5cc", 468, 60), 468, 60, "banner", "desktop"),
+        ("pool_sponsor", "1c75ccba", adsterra_snippet("1c75ccbae5b09a41c7fa02b82d9cc5cc", 468, 60), 468, 60, "banner", "desktop"),
+        # 300x250 (both)
+        ("match_list_inline", "414b1005", adsterra_snippet("414b1005460ea6e384f05845cd42fbe9", 300, 250), 300, 250, "banner", "both"),
+        ("sidebar_right", "414b1005", adsterra_snippet("414b1005460ea6e384f05845cd42fbe9", 300, 250), 300, 250, "banner", "both"),
+        ("predictions_inline", "414b1005", adsterra_snippet("414b1005460ea6e384f05845cd42fbe9", 300, 250), 300, 250, "banner", "both"),
+        # 160x300 (both)
+        ("wc_hub_top", "f935c3db", adsterra_snippet("f935c3dbc830c6d0b0e8db8d259bba39", 160, 300), 160, 300, "banner", "both"),
+        # 160x600 (desktop only)
+        ("fantasy_sidebar", "26bdc9ff", adsterra_snippet("26bdc9ff6c38a8bd47a6c5702c655cdb", 160, 600), 160, 600, "banner", "desktop"),
+        # 320x50 (mobile only)
+        ("mobile_bottom", "3d9ad5a5", adsterra_snippet("3d9ad5a5b07f4de03be71dd3a1fd121a", 320, 50), 320, 50, "banner", "mobile"),
+        ("home_bottom_banner", "3d9ad5a5", adsterra_snippet("3d9ad5a5b07f4de03be71dd3a1fd121a", 320, 50), 320, 50, "banner", "mobile"),
+    ]
+
+    adsterra_written = 0
+    for pk, zid, html, w, h, fmt, vp in adsterra_zones:
+        payload = {
+            "placement_key": pk, "zone_id": zid, "snippet_html": html,
+            "width": w, "height": h, "format": fmt, "is_active": True,
+            "target_viewport": vp, "updated_at": now, "updated_by": admin["id"],
+        }
+        await db.adsterra_zones.update_one(
+            {"placement_key": pk, "format": fmt},
+            {"$set": payload, "$setOnInsert": {"id": new_id(), "impressions": 0, "created_at": now}},
+            upsert=True,
+        )
+        adsterra_written += 1
+
+    # Also tag PropellerAds rows (if present) with viewport so the device
+    # filter applies uniformly across both networks.
+    PA_VIEWPORT = {
+        "header_banner": "desktop", "leaderboard_above": "desktop",
+        "wc_hub_sponsor": "desktop", "pool_sponsor": "desktop",
+        "fantasy_sidebar": "desktop",
+        "mobile_bottom": "mobile", "home_bottom_banner": "mobile",
+    }
+    pa_updated = 0
+    for pk, vp in PA_VIEWPORT.items():
+        r = await db.propellerads_zones.update_many(
+            {"placement_key": pk, "target_viewport": {"$ne": vp}},
+            {"$set": {"target_viewport": vp, "updated_at": now}},
+        )
+        pa_updated += r.modified_count or 0
+
+    await db.audit_log.insert_one({
+        "user_id": admin["id"], "email": admin.get("email"),
+        "action": "ads_seed_defaults",
+        "metadata": {"adsterra_written": adsterra_written, "propellerads_viewport_updated": pa_updated},
+        "created_at": now,
+    })
+    return {
+        "ok": True,
+        "adsterra_written": adsterra_written,
+        "propellerads_viewport_updated": pa_updated,
+        "next_step": "Open Admin → Ads → Adsterra zones panel; you should see 12 rows.",
+    }
+
+
 class PropellerSiteIn(BaseModel):
     verification_head: str | None = None
 
