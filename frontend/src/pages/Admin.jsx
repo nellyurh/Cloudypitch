@@ -181,14 +181,38 @@ export const AdminPanel = () => {
       {tab === "users" && (
         <div className="cp-surface overflow-hidden">
           <table className="w-full text-sm">
-            <thead><tr style={{ color: "var(--cp-text-muted)" }} className="text-xs"><th className="text-left p-2">Email</th><th className="text-left">Name</th><th>Role</th><th>Active</th><th>Joined</th></tr></thead>
+            <thead><tr style={{ color: "var(--cp-text-muted)" }} className="text-xs"><th className="text-left p-2">Email</th><th className="text-left">Name</th><th>Role</th><th>Active</th><th>Joined</th><th></th></tr></thead>
             <tbody>
               {users.map(u => (
-                <tr key={u.id} className="border-t" style={{ borderColor: "var(--cp-border)" }}>
-                  <td className="p-2">{u.email}</td><td>{u.display_name}</td>
+                <tr key={u.id} className="border-t" style={{ borderColor: "var(--cp-border)" }} data-testid={`admin-user-row-${u.id}`}>
+                  <td className="p-2">{u.email}</td>
+                  <td>
+                    <span>{u.display_name}</span>
+                  </td>
                   <td className="text-center"><span className="cp-pill" style={{ background: u.role === "admin" ? "#A3E635" : "var(--cp-surface-2)", color: u.role === "admin" ? "#064E3B" : "var(--cp-text)" }}>{u.role}</span></td>
                   <td className="text-center">{u.is_active ? "✓" : "✗"}</td>
                   <td className="text-xs">{u.created_at?.slice(0,10)}</td>
+                  <td className="text-right pr-2">
+                    <button
+                      onClick={async () => {
+                        const next = prompt(`Edit display name for ${u.email}`, u.display_name || "");
+                        if (next == null) return;
+                        const trimmed = String(next).trim();
+                        if (trimmed === (u.display_name || "")) return;
+                        try {
+                          const { data } = await api.patch(`/admin/users/${u.id}/display-name`, { display_name: trimmed });
+                          setUsers((arr) => arr.map((x) => x.id === u.id ? { ...x, display_name: data.display_name } : x));
+                          setMsg(`✓ Renamed ${u.email} → ${data.display_name}`);
+                        } catch (e) {
+                          setMsg(e?.response?.data?.detail || "Rename failed");
+                        }
+                      }}
+                      className="text-[11px] underline opacity-80 hover:opacity-100"
+                      data-testid={`admin-rename-${u.id}`}
+                    >
+                      Edit name
+                    </button>
+                  </td>
                 </tr>
               ))}
             </tbody>

@@ -168,6 +168,28 @@ async def enter_game(game_id: str, body: GameEntryIn, user: dict = Depends(a.get
     if g.get("status") not in ("upcoming", "open"):
         raise HTTPException(status_code=400, detail=f"Game is {g.get('status')} — entries closed")
 
+    # ─── Integrity (match games): reject if the match's KO is ≤30 min away,
+    # even if `status` is still "open" (manual admin override). Belt-and-
+    # braces against the auto-close tick missing a sweep.
+    if g.get("game_type") == "match" and g.get("match_id"):
+        from datetime import datetime, timedelta, timezone
+        m = await db.matches.find_one({"id": g["match_id"]}, {"_id": 0, "scheduled_at": 1, "home_team_name": 1, "away_team_name": 1})
+        if m and m.get("scheduled_at"):
+            try:
+                ko = datetime.fromisoformat(m["scheduled_at"].replace("Z", "+00:00"))
+                if ko.tzinfo is None:
+                    ko = ko.replace(tzinfo=timezone.utc)
+            except Exception:
+                ko = None
+            if ko and (ko - datetime.now(timezone.utc)) <= timedelta(minutes=30):
+                raise HTTPException(
+                    status_code=400,
+                    detail=(
+                        f"This match ({m.get('home_team_name')} vs {m.get('away_team_name')}) "
+                        f"kicks off within 30 minutes — entries are closed."
+                    ),
+                )
+
     # ─── Integrity: for multi-match games (round/group/matchday), reject any
     # pick whose team is within 30 min of its match kickoff (or already
     # started). Mirrors the client-side gate in /games/{id}.eligible_players
@@ -450,6 +472,8 @@ async def public_game_entries(game_id: str, limit: int = 200):
             "country_code": u.get("country_code") or "—",
             "is_premium": bool(u.get("is_premium")),
             "points_scored": r.get("points_scored", 0),
+            "raw_points": r.get("raw_points", 0),
+            "points_multiplier_applied": r.get("points_multiplier_applied", 1.0),
             "captain_player_id": r.get("captain_player_id"),
             "vice_captain_player_id": r.get("vice_captain_player_id"),
             "captain": by_player.get(r.get("captain_player_id")),
@@ -459,6 +483,11 @@ async def public_game_entries(game_id: str, limit: int = 200):
                  "position_in_squad": p.get("position")}
                 for p in (r.get("player_picks") or [])
             ],
+            # Per-player points breakdown (only counts the round's contributing
+            # matches — see _resolve_match_ids_for_game in wc_settler). Each
+            # item: {player_id, name, position, team_id, minutes, base_points,
+            # captain, vice, multiplier, card_boost, points, breakdown}
+            "breakdown_by_player": r.get("breakdown_by_player") or [],
             "cards_applied": cards_resolved,
         })
     return {"visible": True, "game": g, "entries": out}
@@ -695,6 +724,34 @@ async def admin_backfill_closes_at(admin: dict = Depends(a.require_admin)):
         "r32": (72, 88), "r16": (88, 96), "qf": (96, 100),
         "sf": (100, 102), "finals": (102, 104),
     }
+
+    # ── Match-type games: closes_at = KO - 30 min ──────────────────────────
+    from datetime import datetime, timedelta, timezone
+    match_rows = await db.wc_games.find(
+        {"game_type": "match"},
+        {"_id": 0, "id": 1, "match_id": 1, "closes_at": 1},
+    ).to_list(length=2000)
+    match_updated = 0
+    for g in match_rows:
+        if not g.get("match_id"):
+            continue
+        m = await db.matches.find_one({"id": g["match_id"]}, {"_id": 0, "scheduled_at": 1})
+        if not m or not m.get("scheduled_at"):
+            continue
+        try:
+            ko = datetime.fromisoformat(m["scheduled_at"].replace("Z", "+00:00"))
+            if ko.tzinfo is None:
+                ko = ko.replace(tzinfo=timezone.utc)
+        except Exception:
+            continue
+        new_close = (ko - timedelta(minutes=30)).isoformat()
+        if new_close != g.get("closes_at"):
+            await db.wc_games.update_one(
+                {"id": g["id"]},
+                {"$set": {"closes_at": new_close, "updated_at": _now_iso()}},
+            )
+            match_updated += 1
+
     rows = await db.wc_games.find(
         {"game_type": {"$in": ["round", "group", "matchday"]}},
         {"_id": 0, "id": 1, "game_type": 1, "eligible_team_ids": 1,
@@ -739,10 +796,11 @@ async def admin_backfill_closes_at(admin: dict = Depends(a.require_admin)):
     await db.audit_log.insert_one({
         "id": new_id(), "user_id": admin["id"], "email": admin.get("email"),
         "action": "wc_games_backfill_closes_at",
-        "metadata": {"updated": updated, "scanned": len(rows)},
+        "metadata": {"updated": updated, "scanned": len(rows), "match_updated": match_updated, "match_scanned": len(match_rows)},
         "created_at": _now_iso(),
     })
-    return {"ok": True, "updated": updated, "scanned": len(rows)}
+    return {"ok": True, "updated": updated, "scanned": len(rows),
+            "match_updated": match_updated, "match_scanned": len(match_rows)}
 
 
 @admin_router.post("/games/open-all")

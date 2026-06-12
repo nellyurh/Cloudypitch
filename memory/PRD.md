@@ -10,7 +10,13 @@ Global multi-sport livescore + predictions + fantasy platform launching for FIFA
 - Sportmonks (football), API-Sports (other sports), Trybit/CryptoCloud (crypto deposits), PocketFi (NGN), Google AdSense
 
 ## Implemented (rolling)
-### 2026-02-11 (round-based open/close + per-team 30-min lock)
+### 2026-02-11 (Public mini-game entries + per-team points + admin rename)
+- **🆕 Public mini-game entries page** — Route `/wc/games/:gameId/entries` (also reachable by clicking any settled game card). Shows ranked leaderboard of every entrant, expandable to reveal: (a) **points-by-team** chips for THAT round only (team_id → total points + player count), (b) position-grouped squad rows with per-player points, captain/vice badges, minutes, base points & multipliers, and (c) cards applied.
+- **🚨 Single-match games now close 30 min BEFORE kickoff** (was: at KO). Generator + `enter_game` defense-in-depth + backfill endpoint all updated. Backfill ran live → 104 of 148 match games corrected, Mexico–S.Africa game is now closed as expected.
+- **🚨 Settler scoping fix** — `_resolve_match_ids_for_game` no longer keys off `closes_at` ± window (which broke when we moved `closes_at` to LAST KO). Now uses the same matchday/stage slicing as the generator, so points are guaranteed to come ONLY from that round's matches.
+- **🆕 Admin: edit user display name** — `PATCH /api/admin/users/{user_id}/display-name` + inline "Edit name" action on the Admin → Users tab. Validates length, uniqueness, logs the rename to `audit_log`.
+
+### 2026-02-11 (Round-based open/close + per-team 30-min lock)
 - **🚨 Round games stay open until LAST match's KO** — Previous behavior closed the entire Group A MD1 game as soon as the FIRST match (e.g. Mexico–S.Africa) was 30 min away, even though the second match (Czech–Korea) was still 2h+ out. Now:
   - `generate_wc_games()` sets `closes_at = LAST KO` of the round (group games use matchday chunking; round games use chronological slicing).
   - `tick_wc_game_states()` only force-closes when the LAST match is within 30 min.

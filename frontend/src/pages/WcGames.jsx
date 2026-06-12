@@ -32,6 +32,11 @@ function GameCard({ g, onOpen }) {
   const t = timeToOpenOrClose(g);
   const entered = !!g.my_entry;
   const handleClick = () => {
+    if (g.status === "settled") {
+      // Settled → everyone can view all entries with per-team / per-player points.
+      navigate(`/wc/games/${g.id}/entries`);
+      return;
+    }
     if (g.status === "open" && !entered) {
       const mode = SQUAD_MODE_FOR_TYPE[g.game_type] || "15";
       // `/fantasy` is the competition picker; `/build-team` is the squad-build page.
@@ -122,6 +127,8 @@ function GameCard({ g, onOpen }) {
           <span className="cp-pill text-[10px] font-bold" style={{ background: "rgba(163,230,53,0.15)", color: "#A3E635" }}>Play now</span>
         ) : g.status === "upcoming" ? (
           <span className="cp-pill text-[10px] font-bold" style={{ background: "var(--cp-surface-2)", color: "var(--cp-text-muted)" }}>Soon</span>
+        ) : g.status === "settled" ? (
+          <span className="cp-pill text-[10px] font-bold inline-flex items-center gap-1" style={{ background: "rgba(163,230,53,0.15)", color: "#A3E635" }} data-testid={`view-entries-pill-${g.id}`}>View entries →</span>
         ) : (
           <span className="cp-pill text-[10px] font-bold inline-flex items-center gap-1" style={{ background: "var(--cp-surface-2)", color: "var(--cp-text-muted)" }}><Lock size={10}/>Closed</span>
         )}

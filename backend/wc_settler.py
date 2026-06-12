@@ -26,53 +26,60 @@ log = logging.getLogger("wc_settler")
 
 FINISHED_STATUSES = {"FT", "AET", "PEN", "FT_PEN", "AWARDED"}
 
-# How far either side of `closes_at` a group/round game's contributing
-# matches can fall. Group matchday = ~24h window; round windows are wider.
-WINDOW_HOURS = {
-    "match": (1, 6),       # single kickoff
-    "group": (2, 30),      # one matchday is ~24h
-    "matchday": (2, 30),
-    "round": (2, 96),      # whole round may span ~3-4 days
+# Round-game stage slices: chronological position of each stage in the
+# sorted WC match list (see ingestion.generate_wc_games for matching slices).
+ROUND_SLICES = {
+    "group_md1": (0, 24), "group_md2": (24, 48), "group_md3": (48, 72),
+    "r32": (72, 88), "r16": (88, 96), "qf": (96, 100),
+    "sf": (100, 102), "finals": (102, 104),
 }
 
 
 # ---------- match resolution ----------
 async def _resolve_match_ids_for_game(db, g: dict) -> list[str]:
-    """Return the list of `matches.id` values that contribute to this game."""
+    """Return the list of `matches.id` values that contribute to this game.
+
+    Resolution strategy mirrors `ingestion.tick_wc_game_states` and the
+    admin backfill in `routes/wc_games.admin_backfill_closes_at`:
+
+      * match   → that single match
+      * group   → matches between the 4 group teams, chunked by matchday
+      * matchday→ matches between this matchday's eligible teams
+      * round   → chronological slice over all WC matches per stage
+    """
     gt = g.get("game_type")
     if gt == "match":
         return [g["match_id"]] if g.get("match_id") else []
 
     eligible_team_ids = list(g.get("eligible_team_ids") or [])
-    if not eligible_team_ids:
-        return []
+    if gt == "group" and g.get("matchday") and eligible_team_ids:
+        ms = await db.matches.find(
+            {"is_world_cup": True,
+             "home_team_id": {"$in": eligible_team_ids},
+             "away_team_id": {"$in": eligible_team_ids}},
+            {"_id": 0, "id": 1, "scheduled_at": 1},
+        ).sort("scheduled_at", 1).to_list(length=20)
+        md = int(g["matchday"])
+        lo, hi = (md - 1) * 2, md * 2
+        return [m["id"] for m in ms[lo:hi]]
 
-    # Window: matches scheduled near the game's `closes_at`.
-    try:
-        closes = datetime.fromisoformat(g["closes_at"].replace("Z", "+00:00"))
-    except Exception:
-        return []
-    pre_h, post_h = WINDOW_HOURS.get(gt, (2, 30))
-    window_start = (closes - timedelta(hours=pre_h)).isoformat()
-    window_end = (closes + timedelta(hours=post_h)).isoformat()
+    if gt == "round" and g.get("stage") in ROUND_SLICES:
+        all_wc = await db.matches.find(
+            {"is_world_cup": True}, {"_id": 0, "id": 1, "scheduled_at": 1},
+        ).sort("scheduled_at", 1).to_list(length=300)
+        lo, hi = ROUND_SLICES[g["stage"]]
+        return [m["id"] for m in all_wc[lo:hi]]
 
-    q: dict = {
-        "is_world_cup": True,
-        "scheduled_at": {"$gte": window_start, "$lte": window_end},
-    }
-    if gt in ("group", "matchday"):
-        # Both teams must be inside the eligible set (group internal matches).
-        q["home_team_id"] = {"$in": eligible_team_ids}
-        q["away_team_id"] = {"$in": eligible_team_ids}
-    else:  # round
-        # EITHER side in eligible set (round games span many teams).
-        q["$or"] = [
-            {"home_team_id": {"$in": eligible_team_ids}},
-            {"away_team_id": {"$in": eligible_team_ids}},
-        ]
+    if gt == "matchday" and eligible_team_ids:
+        ms = await db.matches.find(
+            {"is_world_cup": True,
+             "home_team_id": {"$in": eligible_team_ids},
+             "away_team_id": {"$in": eligible_team_ids}},
+            {"_id": 0, "id": 1},
+        ).to_list(length=200)
+        return [m["id"] for m in ms]
 
-    rows = await db.matches.find(q, {"_id": 0, "id": 1}).to_list(length=200)
-    return [r["id"] for r in rows]
+    return []
 
 
 # ---------- single-game settlement ----------

@@ -1,6 +1,7 @@
 """Admin panel routes."""
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form
 from typing import Optional
+from pydantic import BaseModel
 from db import get_db, utcnow_iso
 import auth as a
 from ingestion import sync_sportmonks_today_and_next, sync_apisports_today, sync_statpal_tennis, poll_sportmonks_live
@@ -63,6 +64,45 @@ async def deactivate_user(user_id: str, _: dict = Depends(a.require_admin)):
     db = get_db()
     await db.users.update_one({"id": user_id}, {"$set": {"is_active": False}})
     return {"ok": True}
+
+
+class UserNameIn(BaseModel):
+    display_name: str
+
+
+@router.patch("/users/{user_id}/display-name")
+async def admin_set_display_name(
+    user_id: str,
+    body: UserNameIn,
+    admin: dict = Depends(a.require_admin),
+):
+    """Rename a user. Validates uniqueness and length (2–30 chars). Logs to
+    audit trail so the change is traceable. Idempotent — same name is a no-op.
+    """
+    db = get_db()
+    new_name = (body.display_name or "").strip()
+    if not (2 <= len(new_name) <= 30):
+        raise HTTPException(status_code=400, detail="Display name must be 2–30 characters")
+    target = await db.users.find_one({"id": user_id}, {"_id": 0, "display_name": 1, "email": 1})
+    if not target:
+        raise HTTPException(status_code=404, detail="User not found")
+    if target.get("display_name") == new_name:
+        return {"ok": True, "user_id": user_id, "display_name": new_name, "unchanged": True}
+    clash = await db.users.find_one({"display_name": new_name, "id": {"$ne": user_id}}, {"_id": 0, "id": 1})
+    if clash:
+        raise HTTPException(status_code=400, detail="That display name is already taken")
+    await db.users.update_one({"id": user_id}, {"$set": {"display_name": new_name}})
+    await db.audit_log.insert_one({
+        "user_id": admin["id"], "email": admin.get("email"),
+        "action": "user_display_name_change",
+        "metadata": {
+            "target_user_id": user_id,
+            "target_email": target.get("email"),
+            "old_name": target.get("display_name"),
+            "new_name": new_name,
+        },
+    })
+    return {"ok": True, "user_id": user_id, "display_name": new_name}
 
 
 @router.get("/audit")

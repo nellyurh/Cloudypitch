@@ -1996,12 +1996,15 @@ async def generate_wc_games() -> int:
             except Exception:
                 continue
             opens_at = ko - timedelta(hours=match_cfg["opens_hours_before"])
+            # Match games close 30 minutes BEFORE kickoff so users can't sneak
+            # a pick in while the team news is dropping.
+            closes_at = ko - timedelta(minutes=30)
             row = {
                 "id": new_id(), "game_type": "match", "stage": "any",
                 "config_id": match_cfg["id"], "match_id": m["id"],
                 "card_limit_current": match_cfg["card_limit_current"],
                 "points_multiplier": match_cfg["points_multiplier"],
-                "opens_at": opens_at.isoformat(), "closes_at": ko.isoformat(),
+                "opens_at": opens_at.isoformat(), "closes_at": closes_at.isoformat(),
                 "status": "upcoming", "total_entries": 0,
                 "eligible_team_ids": [t for t in (m.get("home_team_id"), m.get("away_team_id")) if t],
                 "created_at": now.isoformat(),
