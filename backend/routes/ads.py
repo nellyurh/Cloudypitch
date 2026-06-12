@@ -63,6 +63,9 @@ async def ads_config(user: dict = Depends(a.get_optional_user)):
     # site to PropellerAds.
     site_doc = await db.settings.find_one({"id": "propellerads_site"}, {"_id": 0})
     propellerads_verification_head = (site_doc or {}).get("verification_head") or ""
+    # Serving-only script(s) — gated by route on the frontend so OnClick /
+    # Vignette can't hijack taps on action pages (/my-teams, /build-team).
+    propellerads_serving_head = (site_doc or {}).get("serving_head") or ""
     # Propeller push-notification zone: registered via the service worker at
     # /sw.js. Pulled from the popunder/push zone the admin configured, OR a
     # dedicated push entry if present.
@@ -79,6 +82,7 @@ async def ads_config(user: dict = Depends(a.get_optional_user)):
         "propellerads_push_zone_id": (push_zone or {}).get("zone_id") if not is_premium else None,
         "propellerads_popunder_snippet": (popunder or {}).get("snippet_html") if not is_premium else None,
         "propellerads_verification_head": propellerads_verification_head,
+        "propellerads_serving_head": propellerads_serving_head if not is_premium else "",
         "premium": is_premium,
         "valid_placements": sorted(VALID_PLACEMENTS),
     }
@@ -427,20 +431,40 @@ async def set_propellerads_site(body: PropellerSiteIn, admin: dict = Depends(a.r
     head = (body.verification_head or "").strip()
     if len(head) > 8000:
         raise HTTPException(status_code=400, detail="Verification head too large (max 8 KB)")
+
+    # Split the snippet: <meta>/<link>/comment tags can live in the static
+    # `index.html` (safe for verifier crawlers, doesn't run JS). <script>
+    # tags are isolated into `serving_head` and only injected via the React
+    # runtime on browse routes — keeps Monetag's OnClick/Vignette from
+    # hijacking clicks on /my-teams, /build-team, /admin, etc.
+    import re
+    static_safe = "\n".join(
+        m.group(0) for m in re.finditer(r'<(meta|link|!--)[^>]*?(?:/>|-->)|<meta[^>]*>', head)
+    )
+    serving_only = re.sub(
+        r'<(meta|link|!--)[^>]*?(?:/>|-->)', "", head, flags=re.IGNORECASE
+    )
+    serving_only = re.sub(r'<meta[^>]*>', "", serving_only, flags=re.IGNORECASE).strip()
+
     db = get_db()
     now = datetime.now(timezone.utc).isoformat()
     old = await db.settings.find_one({"id": "propellerads_site"}, {"_id": 0, "verification_head": 1})
     await db.settings.update_one(
         {"id": "propellerads_site"},
         {"$set": {
-            "verification_head": head,
+            "verification_head": head,            # raw original (admin-editable)
+            "static_head": static_safe,           # only safe-to-render-in-html
+            "serving_head": serving_only,         # gated by route on the frontend
             "updated_at": now,
             "updated_by": admin["id"],
         }, "$setOnInsert": {"id": "propellerads_site"}},
         upsert=True,
     )
 
-    # Patch into the static index.html so the verifier crawler sees it.
+    # Patch into the static index.html so the verifier crawler sees the
+    # <meta> tags. Scripts are NOT written here — they'd otherwise fire on
+    # every page including click-sensitive ones (build-team, my-teams) and
+    # let Monetag's OnClick/Vignette steal taps.
     static_patched = False
     static_error: str | None = None
     try:
@@ -453,7 +477,7 @@ async def set_propellerads_site(body: PropellerSiteIn, admin: dict = Depends(a.r
             if START in txt and END in txt:
                 pre, rest = txt.split(START, 1)
                 _, post = rest.split(END, 1)
-                new_block = START + ("\n        " + head if head else "") + "\n        " + END
+                new_block = START + ("\n        " + static_safe if static_safe else "") + "\n        " + END
                 idx_path.write_text(pre + new_block + post, encoding="utf-8")
                 static_patched = True
             else:
