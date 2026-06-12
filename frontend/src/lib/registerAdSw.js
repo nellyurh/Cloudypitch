@@ -1,35 +1,47 @@
 /**
- * Register the PropellerAds push service worker at `/sw.js`.
+ * Ad service-worker management.
  *
- * - Premium users (or anyone with `localStorage.cp_no_ads === "1"`) are
- *   skipped, so paying subs never see push prompts.
- * - We don't request notification permission here — we only register the
- *   worker; PropellerAds' worker code triggers the system prompt only
- *   when the user clicks something they routed (i.e. user-gesture).
- * - Wrapped in try/catch because some browsers (incognito Firefox, http
- *   contexts) reject SW registration.
+ * 🚫 We intentionally DO NOT register Monetag/PropellerAds' service worker
+ * at `/sw.js` any more. That worker (domain 3nbf4.com, zoneId 11139111)
+ * hooks into navigation and `notificationclick` events, which acts as a
+ * tap-hijack on the first user gesture — destroying UX.
+ *
+ * Instead we proactively *unregister* any previously-registered ad worker
+ * + delete its caches so users who had it installed before the fix get
+ * cleaned up the next time they open the site.
  */
+const AD_SW_DOMAINS = ["3nbf4.com", "propellerads", "monetag"];
+
 export function registerAdServiceWorker() {
   if (typeof window === "undefined" || !("serviceWorker" in navigator)) return;
-  // Opt-out flag — set when the user buys premium.
-  try {
-    if (localStorage.getItem("cp_no_ads") === "1") return;
-  } catch (_e) { /* sandboxed storage; treat as enabled */ }
-
-  // Only register on https origins
-  if (window.location.protocol !== "https:") return;
-
-  // Defer to idle so we don't fight first-paint.
-  const start = () => {
+  // Run an async cleanup pass — never await it, never block first paint.
+  (async () => {
     try {
-      navigator.serviceWorker
-        .register("/sw.js", { scope: "/" })
-        .catch(() => { /* silent — sw.js may not be configured yet */ });
-    } catch (_e) { /* noop */ }
-  };
-  if ("requestIdleCallback" in window) {
-    window.requestIdleCallback(start, { timeout: 4000 });
-  } else {
-    setTimeout(start, 2000);
-  }
+      const regs = await navigator.serviceWorker.getRegistrations();
+      for (const reg of regs) {
+        const scriptURL =
+          (reg.active && reg.active.scriptURL) ||
+          (reg.installing && reg.installing.scriptURL) ||
+          (reg.waiting && reg.waiting.scriptURL) ||
+          "";
+        const isAdWorker =
+          scriptURL.endsWith("/sw.js") ||
+          AD_SW_DOMAINS.some((d) => scriptURL.includes(d));
+        if (isAdWorker) {
+          try { await reg.unregister(); } catch (_e) { /* noop */ }
+        }
+      }
+      // Wipe any caches the ad worker left behind.
+      if ("caches" in window) {
+        try {
+          const names = await caches.keys();
+          await Promise.all(
+            names
+              .filter((n) => AD_SW_DOMAINS.some((d) => n.includes(d)) || /propellerads|monetag|adservice/i.test(n))
+              .map((n) => caches.delete(n)),
+          );
+        } catch (_e) { /* noop */ }
+      }
+    } catch (_e) { /* sandboxed / private mode — ignore */ }
+  })();
 }

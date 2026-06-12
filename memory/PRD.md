@@ -10,6 +10,14 @@ Global multi-sport livescore + predictions + fantasy platform launching for FIFA
 - Sportmonks (football), API-Sports (other sports), Trybit/CryptoCloud (crypto deposits), PocketFi (NGN), Google AdSense
 
 
+### 2026-02-12 (Service-worker hijack killed — root cause)
+- **🚫 Real culprit was the Monetag service worker** at `/sw.js` (domain `3nbf4.com`, zoneId `11139111`). It was auto-registered for every non-premium visitor via `registerAdSw.js` and hooked into navigation/notification events to hijack the first tap. Banner ads were never the issue.
+- **`/app/frontend/public/sw.js`** rewritten to a no-op worker that self-unregisters on `activate` and clears all caches. Browsers that previously installed the Monetag worker will be cleaned up automatically on next visit.
+- **`/app/frontend/src/lib/registerAdSw.js`** rewritten: no longer registers any ad worker; instead it iterates `navigator.serviceWorker.getRegistrations()` and unregisters anything pointing at `/sw.js` / 3nbf4.com / propellerads / monetag domains. Also purges related caches.
+- Verified via Playwright on preview: **0 popups, 0 active SW registrations** after page load.
+- Banners (Adsterra/AdSense/direct sponsors) and the previously-killed popunder filter remain — only this third hijack vector is now also closed.
+
+
 ### 2026-02-12 (Click-hijack KILL switch)
 - **🚫 Click-hijacking permanently disabled** across the entire site. Three layers:
   1. `/api/ads/config` no longer returns `propellerads_serving_head` (OnClick/Vignette) or `propellerads_popunder_snippet`.
