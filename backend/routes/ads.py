@@ -258,11 +258,18 @@ async def get_propellerads_site(_: dict = Depends(a.require_admin)):
 @router.post("/propellerads-site")
 async def set_propellerads_site(body: PropellerSiteIn, admin: dict = Depends(a.require_admin)):
     """Persist the raw `<meta>` / `<script>` Multitag verification snippet
-    PropellerAds wants in `<head>`. The frontend `<head>` injector reads it via
-    `/ads/config` and renders it on every page so the verifier sees it.
+    PropellerAds wants in `<head>`. Two write paths so it works for *both*
+    Monetag's static crawler verifier AND any runtime ad-tag loader:
 
-    Security: admin-only (rate-limited at the auth layer); content is capped
-    at 8 KB to prevent oversized payloads; every write is audited.
+      1. **Static** — patched into `/app/frontend/public/index.html` between
+         `<!-- CP_AD_VERIFICATION_START --> ... END -->` markers, so the
+         next `yarn build` ships the snippet in the initial HTML. This is
+         the path the Monetag verifier actually reads.
+      2. **Runtime** — stored in `db.settings.propellerads_site` and injected
+         on every page via `<AdHeadInjector/>` so SPAs picked up post-boot
+         still see it.
+
+    Security: admin-only, 8 KB cap, audited.
     """
     head = (body.verification_head or "").strip()
     if len(head) > 8000:
@@ -279,16 +286,47 @@ async def set_propellerads_site(body: PropellerSiteIn, admin: dict = Depends(a.r
         }, "$setOnInsert": {"id": "propellerads_site"}},
         upsert=True,
     )
+
+    # Patch into the static index.html so the verifier crawler sees it.
+    static_patched = False
+    static_error: str | None = None
+    try:
+        import pathlib
+        idx_path = pathlib.Path("/app/frontend/public/index.html")
+        if idx_path.exists():
+            txt = idx_path.read_text(encoding="utf-8")
+            START = "<!-- CP_AD_VERIFICATION_START -->"
+            END = "<!-- CP_AD_VERIFICATION_END -->"
+            if START in txt and END in txt:
+                pre, rest = txt.split(START, 1)
+                _, post = rest.split(END, 1)
+                new_block = START + ("\n        " + head if head else "") + "\n        " + END
+                idx_path.write_text(pre + new_block + post, encoding="utf-8")
+                static_patched = True
+            else:
+                static_error = "Index markers missing — add CP_AD_VERIFICATION_START / END comments to <head>."
+    except Exception as e:
+        static_error = str(e)
+
     await db.audit_log.insert_one({
         "user_id": admin["id"], "email": admin.get("email"),
         "action": "propellerads_verification_head_set",
         "metadata": {
             "old_len": len((old or {}).get("verification_head") or ""),
             "new_len": len(head),
+            "static_patched": static_patched,
+            "static_error": static_error,
         },
         "created_at": now,
     })
-    return {"ok": True, "verification_head": head}
+    return {
+        "ok": True,
+        "verification_head": head,
+        "static_patched": static_patched,
+        "static_error": static_error,
+        "next_step": "Redeploy cloudypitch.com (yarn build + restart) so the static index.html ships the snippet."
+        if static_patched else "Add markers to /app/frontend/public/index.html, then save again.",
+    }
 
 
 class PropellerFileIn(BaseModel):
