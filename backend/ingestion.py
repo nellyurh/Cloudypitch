@@ -2334,21 +2334,28 @@ async def start_background_jobs():
                 log.warning(f"wc-games settler: {e}")
             try:
                 # Score any pending predictions whose match is now FT/AET/PEN.
-                from prediction_scoring import score_prediction
+                # 🐛 Inverted (2026-02-12): query starts from UNSETTLED preds,
+                # not all FT matches — the latter exceeded our 5000-row page
+                # cap (5000+ FT matches across all sports) and WC matches were
+                # silently dropped from the loop.
+                from scoring import score_prediction
                 from db import utcnow_iso as _now
                 db = get_db()
-                finished = await db.matches.find(
-                    {"status": {"$in": ["FT", "AET", "PEN"]}},
-                    {"_id": 0},
-                ).to_list(length=5000)
+                pending = await db.predictions.find(
+                    {"settled_at": None}, {"_id": 0},
+                ).to_list(length=20000)
                 p_count = 0
-                for m in finished:
-                    preds = await db.predictions.find(
-                        {"match_id": m["id"], "settled_at": None},
+                if pending:
+                    match_ids = list({p["match_id"] for p in pending})
+                    finished_matches = await db.matches.find(
+                        {"id": {"$in": match_ids}, "status": {"$in": ["FT", "AET", "PEN"]}},
                         {"_id": 0},
-                    ).to_list(length=500)
-                    for p in preds:
-                        # Streak BEFORE settling current pick.
+                    ).to_list(length=len(match_ids))
+                    by_id = {m["id"]: m for m in finished_matches}
+                    for p in pending:
+                        m = by_id.get(p["match_id"])
+                        if not m:
+                            continue
                         scount = await db.predictions.count_documents(
                             {"user_id": p["user_id"], "outcome_correct": True,
                              "settled_at": {"$ne": None}},

@@ -10,6 +10,14 @@ Global multi-sport livescore + predictions + fantasy platform launching for FIFA
 - Sportmonks (football), API-Sports (other sports), Trybit/CryptoCloud (crypto deposits), PocketFi (NGN), Google AdSense
 
 
+### 2026-02-12 (Samsung S22 blank/scanline fix + prediction settler unblock)
+- **🐛 Samsung S22 was rendering blank `/build-team` + scanline corruption on `/profile`.** Root cause: our previous "Samsung hardening" CSS promoted **every** `.cp-surface` / `.sticky` element to its own GPU compositor layer via `transform: translateZ(0)`. Samsung S22 has a smaller texture-cache than Chrome's reference Pixel — 50+ promoted layers per page overflows it, and the GPU either renders a black/white blank or partial textures (scanlines). Removed the global GPU-promotion rule; only safe viewport/overflow rules remain.
+- **🐛 Prediction auto-settler was permanently dead.** Two compounding bugs:
+  1. `ingestion.py:wc_games_settler_loop` imported `from prediction_scoring import score_prediction`, but the module is `scoring`. The `ImportError` was swallowed by the surrounding try/except every 5 min — logs showed `predictions settler: No module named 'prediction_scoring'` every cycle.
+  2. Even after fixing the import, both the loop AND `POST /api/predictions/settle` started from `db.matches.find({status: FT/AET/PEN}).to_list(length=5000)`. The DB has 5000+ FT matches across all sports, so WC matches fell outside the page and never got scored. Inverted: query starts from unsettled predictions, looks up only their matches in bulk.
+- Verified: manually inserted exact 2-0 predictions on Mexico vs South Africa, hit `/api/predictions/settle` → returned `{"settled": 3}`, points = 30 each with `exact_score_hit: true`. Background loop now runs the same code path every 5 min.
+
+
 ### 2026-02-12 (Service-worker hijack killed — root cause)
 - **🚫 Real culprit was the Monetag service worker** at `/sw.js` (domain `3nbf4.com`, zoneId `11139111`). It was auto-registered for every non-premium visitor via `registerAdSw.js` and hooked into navigation/notification events to hijack the first tap. Banner ads were never the issue.
 - **`/app/frontend/public/sw.js`** rewritten to a no-op worker that self-unregisters on `activate` and clears all caches. Browsers that previously installed the Monetag worker will be cleaned up automatically on next visit.

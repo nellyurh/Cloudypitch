@@ -208,37 +208,50 @@ async def _outcome_streak(db, user_id: str) -> int:
 
 @router.post("/settle")
 async def settle_predictions(user: dict = Depends(a.require_admin)):
-    """Admin trigger: score predictions for finished matches with new engine."""
+    """Admin trigger: score predictions for finished matches with new engine.
+
+    🐛 We used to query every FT match in the DB and look up predictions per
+    match — but with 5000+ FT matches across all sports, the WC matches fell
+    outside the page limit and got skipped forever. Inverted: start from
+    UNSETTLED predictions, then fetch only their matches in bulk.
+    """
     db = get_db()
-    finished = await db.matches.find(
-        {"status": {"$in": ["FT", "AET", "PEN"]}},
+    pending = await db.predictions.find(
+        {"settled_at": None}, {"_id": 0},
+    ).to_list(length=20000)
+    if not pending:
+        return {"settled": 0}
+    match_ids = list({p["match_id"] for p in pending})
+    finished_matches = await db.matches.find(
+        {"id": {"$in": match_ids}, "status": {"$in": ["FT", "AET", "PEN"]}},
         {"_id": 0},
-    ).to_list(length=5000)
+    ).to_list(length=len(match_ids))
+    by_id = {m["id"]: m for m in finished_matches}
     settled = 0
-    for m in finished:
-        preds = await db.predictions.find({"match_id": m["id"], "settled_at": None}, {"_id": 0}).to_list(length=1000)
-        for p in preds:
-            # Compute current streak BEFORE settling this prediction
-            streak = await _outcome_streak(db, p["user_id"])
-            result = score_prediction(
-                predicted={"home_score_predicted": p["home_score_predicted"], "away_score_predicted": p["away_score_predicted"]},
-                match=m,
-                streak_count=streak + 1,
-                applied_cards=[],  # Cards apply to fantasy ONLY, not predictions
-            )
-            await db.predictions.update_one(
-                {"id": p["id"]},
-                {"$set": {
-                    "points_awarded": result["points_awarded"],
-                    "base_points": result["base_points"],
-                    "stage": result["stage"],
-                    "stage_multiplier": result["stage_multiplier"],
-                    "streak_bonus": result["streak_bonus"],
-                    "exact_score_hit": result["exact_score_hit"],
-                    "outcome_correct": result["outcome_correct"],
-                    "diff_correct": result["diff_correct"],
-                    "settled_at": utcnow_iso(),
-                }},
-            )
-            settled += 1
+    for p in pending:
+        m = by_id.get(p["match_id"])
+        if not m:
+            continue  # Match not yet final — skip; settler will catch it later.
+        streak = await _outcome_streak(db, p["user_id"])
+        result = score_prediction(
+            predicted={"home_score_predicted": p["home_score_predicted"], "away_score_predicted": p["away_score_predicted"]},
+            match=m,
+            streak_count=streak + 1,
+            applied_cards=[],  # Cards apply to fantasy ONLY, not predictions
+        )
+        await db.predictions.update_one(
+            {"id": p["id"]},
+            {"$set": {
+                "points_awarded": result["points_awarded"],
+                "base_points": result["base_points"],
+                "stage": result["stage"],
+                "stage_multiplier": result["stage_multiplier"],
+                "streak_bonus": result["streak_bonus"],
+                "exact_score_hit": result["exact_score_hit"],
+                "outcome_correct": result["outcome_correct"],
+                "diff_correct": result["diff_correct"],
+                "settled_at": utcnow_iso(),
+            }},
+        )
+        settled += 1
     return {"settled": settled}
