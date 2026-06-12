@@ -424,24 +424,101 @@ function GameEntryView({ game, onClose, onSaved }) {
   );
 }
 
+function PastGameCard({ g }) {
+  const navigate = useNavigate();
+  const entry = g.my_entry || {};
+  const settled = g.status === "settled";
+  const points = entry.points_scored ?? 0;
+  const rank = entry.rank_in_game;
+  const handleClick = () => {
+    if (settled) navigate(`/wc/games/${g.id}/entries`);
+  };
+  const headline = (() => {
+    if (g.game_type === "match" && g.match_info?.home_team_name) {
+      return `${g.match_info.home_team_name} vs ${g.match_info.away_team_name}`;
+    }
+    if (g.title) return g.title;
+    if (g.game_type === "group") return `Group ${g.group_letter || ""}${g.matchday ? ` · MD${g.matchday}` : ""}`;
+    if (g.game_type === "round")  return `${STAGE_LABEL[g.stage] || g.stage} — tournament-wide`;
+    return "Mini-game";
+  })();
+  const m = g.match_info;
+  return (
+    <button
+      onClick={handleClick}
+      className="cp-surface p-3 text-left w-full hover:bg-white/5 transition flex flex-col gap-2 disabled:opacity-60"
+      disabled={!settled}
+      data-testid={`wc-past-game-${g.id}`}
+    >
+      <div className="flex items-center justify-between">
+        <span className="cp-pill text-[10px] font-bold" style={{ background: "var(--cp-surface-2)", color: "var(--cp-text)" }}>
+          {TYPE_LABEL[g.game_type]}
+        </span>
+        <span className="cp-pill text-[10px] font-bold inline-flex items-center gap-1" style={{ background: settled ? "rgba(163,230,53,0.15)" : "var(--cp-surface-2)", color: settled ? "#A3E635" : "var(--cp-text-muted)" }}>
+          {settled ? "Settled" : g.status === "settling" ? "Settling…" : "Closed"}
+        </span>
+      </div>
+
+      <div className="text-sm font-bold leading-tight truncate">{headline}</div>
+
+      {m && (m.home_score != null || m.away_score != null) && (
+        <div className="flex items-center gap-2 text-xs">
+          {m.home_team_logo && <img src={m.home_team_logo} alt="" className="w-4 h-4 object-contain" onError={(e) => { e.target.style.display = "none"; }}/>}
+          <span className="font-bold truncate">{m.home_team_name}</span>
+          <span className="cp-pill !text-[10px] !font-extrabold tabular-nums" style={{ background: "var(--cp-surface-2)" }}>{m.home_score ?? 0}–{m.away_score ?? 0}</span>
+          <span className="font-bold truncate">{m.away_team_name}</span>
+          {m.away_team_logo && <img src={m.away_team_logo} alt="" className="w-4 h-4 object-contain" onError={(e) => { e.target.style.display = "none"; }}/>}
+        </div>
+      )}
+
+      <div className="grid grid-cols-3 gap-2 text-center mt-1 pt-1.5 border-t" style={{ borderColor: "var(--cp-border)" }}>
+        <div>
+          <div className="text-[9px] uppercase opacity-60">Picks</div>
+          <div className="font-extrabold tabular-nums">{(entry.player_picks || []).length}</div>
+        </div>
+        <div>
+          <div className="text-[9px] uppercase opacity-60">Rank</div>
+          <div className="font-extrabold tabular-nums">{rank ? `#${rank}` : "—"}</div>
+        </div>
+        <div>
+          <div className="text-[9px] uppercase opacity-60">Points</div>
+          <div className="font-extrabold tabular-nums text-cp-lime" data-testid={`wc-past-points-${g.id}`}>{points}</div>
+        </div>
+      </div>
+
+      {settled && (
+        <div className="text-[10px] text-right" style={{ color: "var(--cp-text-muted)" }}>
+          Tap to view all entries →
+        </div>
+      )}
+    </button>
+  );
+}
+
+
 export const WcGamesPanel = ({ user }) => {
   const [today, setToday] = useState([]);
   const [upcoming, setUpcoming] = useState([]);
+  const [past, setPast] = useState([]);
   const [tab, setTab] = useState("open");
   const [active, setActive] = useState(null);
   const [tick, setTick] = useState(0);
 
   const load = async () => {
     try {
-      const [t, u] = await Promise.all([api.get("/wc/games/today"), api.get("/wc/games/upcoming?limit=80")]);
+      const calls = [api.get("/wc/games/today"), api.get("/wc/games/upcoming?limit=80")];
+      if (user) calls.push(api.get("/wc/games/mine/past?limit=100"));
+      const results = await Promise.all(calls);
+      const [t, u, p] = results;
       setToday(t.data.games || []);
       setUpcoming(u.data.games || []);
+      if (p) setPast(p.data.games || []);
     } catch (_) {}
   };
 
-  useEffect(() => { load(); }, [tick]);
+  useEffect(() => { load(); /* eslint-disable-next-line */ }, [tick, user?.id]);
 
-  const list = tab === "open" ? today : upcoming;
+  const list = tab === "open" ? today : tab === "upcoming" ? upcoming : past;
   const empty = list.length === 0;
 
   return (
@@ -453,16 +530,27 @@ export const WcGamesPanel = ({ user }) => {
         <div className="flex gap-1 cp-surface p-1">
           <button onClick={() => setTab("open")} className={`px-3 py-1.5 text-sm rounded ${tab === "open" ? "bg-cp-lime text-cp-forest font-bold" : "hover:bg-white/5"}`} data-testid="wc-tab-open">Open ({today.length})</button>
           <button onClick={() => setTab("upcoming")} className={`px-3 py-1.5 text-sm rounded ${tab === "upcoming" ? "bg-cp-lime text-cp-forest font-bold" : "hover:bg-white/5"}`} data-testid="wc-tab-upcoming">Upcoming ({upcoming.length})</button>
+          {user && (
+            <button onClick={() => setTab("past")} className={`px-3 py-1.5 text-sm rounded ${tab === "past" ? "bg-cp-lime text-cp-forest font-bold" : "hover:bg-white/5"}`} data-testid="wc-tab-past">Past ({past.length})</button>
+          )}
         </div>
       </div>
 
       {empty ? (
         <div className="cp-surface p-8 text-center" data-testid="wc-empty">
           <Trophy size={36} className="mx-auto text-cp-lime opacity-60"/>
-          <h3 className="text-base font-bold mt-3">No games {tab === "open" ? "open" : "scheduled"} yet</h3>
+          <h3 className="text-base font-bold mt-3">
+            {tab === "past" ? "No closed entries yet" : `No games ${tab === "open" ? "open" : "scheduled"} yet`}
+          </h3>
           <p className="text-xs mt-1 max-w-md mx-auto" style={{ color: "var(--cp-text-muted)" }}>
-            Match Games open 7 days before kickoff, Group Games 24h before, Round Games 48h before. Check back as June 11, 2026 approaches.
+            {tab === "past"
+              ? "Once a mini-game you entered closes, it'll appear here with the points you scored."
+              : "Match Games open 7 days before kickoff, Group Games 24h before, Round Games 48h before. Check back as June 11, 2026 approaches."}
           </p>
+        </div>
+      ) : tab === "past" ? (
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
+          {list.map(g => <PastGameCard key={g.id} g={g}/>)}
         </div>
       ) : (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">

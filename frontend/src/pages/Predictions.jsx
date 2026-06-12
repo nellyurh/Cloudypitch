@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useState } from "react";
 import api from "../lib/api";
 import { useAuth, formatApiErr } from "../lib/auth";
 import { Link } from "react-router-dom";
-import { Trophy, Check, AlertTriangle, Lock, Award, Crown } from "lucide-react";
+import { Trophy, Check, AlertTriangle, Lock, Award, Crown, History, X } from "lucide-react";
 import RewardedVideoButton from "../components/RewardedVideoButton";
 
 const TeamLogo = ({ src, name }) => {
@@ -25,6 +25,119 @@ function groupByDate(matches) {
   return Object.entries(groups);
 }
 
+const STATUS_PILL = (s) => {
+  if (["FT", "AET", "PEN"].includes(s)) return { label: "FT", color: "#A3E635", bg: "rgba(163,230,53,0.15)" };
+  if (["1H", "2H", "HT", "LIVE", "ET"].includes(s)) return { label: "LIVE", color: "#FF3D52", bg: "rgba(255,61,82,0.15)" };
+  return { label: "Soon", color: "var(--cp-text-muted)", bg: "var(--cp-surface-2)" };
+};
+
+function MyPredictionsList({ data }) {
+  const list = data?.predictions || [];
+  if (list.length === 0) {
+    return (
+      <div className="cp-surface p-8 text-center" data-testid="my-predictions-empty">
+        <History size={36} className="mx-auto text-cp-lime opacity-60"/>
+        <h3 className="text-base font-bold mt-3">No predictions yet</h3>
+        <p className="text-xs mt-1" style={{ color: "var(--cp-text-muted)" }}>Switch to <b>Upcoming</b> and make your first picks.</p>
+      </div>
+    );
+  }
+  return (
+    <div data-testid="my-predictions-list">
+      <div className="cp-surface p-3 mb-3 grid grid-cols-3 gap-3 text-center">
+        <div>
+          <div className="text-[10px] uppercase tracking-widest" style={{ color: "var(--cp-text-muted)" }}>Total Picks</div>
+          <div className="text-2xl font-extrabold tabular-nums">{list.length}</div>
+        </div>
+        <div>
+          <div className="text-[10px] uppercase tracking-widest" style={{ color: "var(--cp-text-muted)" }}>Settled</div>
+          <div className="text-2xl font-extrabold tabular-nums">{data.settled_count || 0}</div>
+        </div>
+        <div>
+          <div className="text-[10px] uppercase tracking-widest" style={{ color: "var(--cp-text-muted)" }}>Total Points</div>
+          <div className="text-2xl font-extrabold tabular-nums text-cp-lime">{data.total_points || 0}</div>
+        </div>
+      </div>
+      <div className="cp-surface divide-y" style={{ borderColor: "var(--cp-border)" }}>
+        {list.map(p => {
+          const m = p.match || {};
+          const settled = !!p.settled_at;
+          const pill = STATUS_PILL(m.status);
+          const correctOutcome = !!p.outcome_correct;
+          const exact = !!p.exact_score_hit;
+          return (
+            <div key={p.id} className="px-3 py-3" data-testid={`my-pred-${p.match_id}`}>
+              <div className="flex items-center justify-between text-[10px] uppercase tracking-widest mb-2" style={{ color: "var(--cp-text-muted)" }}>
+                <span className="truncate">{m.league_country || ""}{m.league_country ? " · " : ""}{m.league_name || "World Cup 2026"}</span>
+                <span className="cp-pill !text-[9px] !font-bold" style={{ background: pill.bg, color: pill.color }}>{pill.label}</span>
+              </div>
+              <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-3">
+                <div className="flex items-center gap-2 justify-end min-w-0">
+                  <span className="truncate font-medium text-right">{m.home_team_name || "Home"}</span>
+                  <TeamLogo src={m.home_team_logo} name={m.home_team_name}/>
+                </div>
+                <div className="flex flex-col items-center gap-0.5 min-w-[80px]">
+                  {/* Actual result if available */}
+                  {(m.status && ["FT","AET","PEN","1H","2H","HT","LIVE","ET"].includes(m.status)) ? (
+                    <div className="text-base font-extrabold tabular-nums" data-testid={`my-pred-result-${p.match_id}`}>
+                      {m.home_score ?? 0}–{m.away_score ?? 0}
+                    </div>
+                  ) : (
+                    <div className="text-[10px]" style={{ color: "var(--cp-text-muted)" }}>
+                      {m.scheduled_at ? new Date(m.scheduled_at).toLocaleString([], { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" }) : "TBD"}
+                    </div>
+                  )}
+                  <div className="text-[10px]" style={{ color: "var(--cp-text-muted)" }}>your pick</div>
+                  <div className="text-sm font-bold tabular-nums" style={{ color: exact ? "#A3E635" : correctOutcome ? "#FBBF24" : settled ? "#FF3D52" : "var(--cp-text)" }} data-testid={`my-pred-pick-${p.match_id}`}>
+                    {p.home_score_predicted}–{p.away_score_predicted}
+                  </div>
+                </div>
+                <div className="flex items-center gap-2 min-w-0">
+                  <TeamLogo src={m.away_team_logo} name={m.away_team_name}/>
+                  <span className="truncate font-medium">{m.away_team_name || "Away"}</span>
+                </div>
+              </div>
+              <div className="flex items-center justify-between mt-2 flex-wrap gap-2">
+                <div className="flex items-center gap-2 text-[11px]">
+                  {settled ? (
+                    exact ? (
+                      <span className="cp-pill !text-[10px] !font-bold inline-flex items-center gap-1" style={{ background: "rgba(163,230,53,0.18)", color: "#A3E635" }}>
+                        <Check size={11}/> Exact score!
+                      </span>
+                    ) : correctOutcome ? (
+                      <span className="cp-pill !text-[10px] !font-bold inline-flex items-center gap-1" style={{ background: "rgba(251,191,36,0.18)", color: "#FBBF24" }}>
+                        <Check size={11}/> Outcome correct
+                      </span>
+                    ) : (
+                      <span className="cp-pill !text-[10px] !font-bold inline-flex items-center gap-1" style={{ background: "rgba(255,61,82,0.15)", color: "#FF3D52" }}>
+                        <X size={11}/> Missed
+                      </span>
+                    )
+                  ) : (
+                    <span className="cp-pill !text-[10px] !font-bold inline-flex items-center gap-1" style={{ background: "var(--cp-surface-2)", color: "var(--cp-text-muted)" }}>
+                      <Lock size={10}/> Pending settlement
+                    </span>
+                  )}
+                  {p.stage && p.stage !== "any" && (
+                    <span className="text-[10px]" style={{ color: "var(--cp-text-muted)" }}>{p.stage} ×{p.stage_multiplier || 1}</span>
+                  )}
+                  {p.streak_bonus > 0 && (
+                    <span className="text-[10px]" style={{ color: "#A3E635" }}>+{p.streak_bonus} streak</span>
+                  )}
+                </div>
+                <div className="text-right">
+                  <span className="text-[10px] uppercase tracking-widest mr-1" style={{ color: "var(--cp-text-muted)" }}>Points</span>
+                  <span className="text-base font-extrabold tabular-nums text-cp-lime" data-testid={`my-pred-points-${p.match_id}`}>{p.points_awarded || 0}</span>
+                </div>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 export const PredictionsHub = () => {
   const { user } = useAuth();
   const [matches, setMatches] = useState([]);
@@ -34,15 +147,22 @@ export const PredictionsHub = () => {
   const [saving, setSaving] = useState({});
   const [savedMatch, setSavedMatch] = useState(null);
   const [err, setErr] = useState("");
+  // 'upcoming' = make new picks. 'mine' = review my closed/past predictions.
+  const [tab, setTab] = useState("upcoming");
+  const [mine, setMine] = useState({ predictions: [], total_points: 0, exact_count: 0, settled_count: 0 });
 
   const load = async () => {
     try {
-      const [u, b] = await Promise.all([
+      const calls = [
         api.get("/predictions/upcoming?limit=80"),
         api.get(`/predictions/leaderboard?limit=10&scope=${boardScope}`),
-      ]);
+      ];
+      if (user) calls.push(api.get("/predictions/me?limit=200"));
+      const results = await Promise.all(calls);
+      const [u, b, me] = results;
       setMatches(u.data.matches || []);
       setBoard(b.data.leaderboard || []);
+      if (me) setMine(me.data || { predictions: [] });
       const init = {};
       for (const m of u.data.matches || []) {
         if (m.my_prediction) init[m.id] = { home: m.my_prediction.home_score_predicted, away: m.my_prediction.away_score_predicted };
@@ -51,7 +171,7 @@ export const PredictionsHub = () => {
     } catch (_) {}
   };
 
-  useEffect(() => { load(); /* eslint-disable-next-line */ }, [boardScope]);
+  useEffect(() => { load(); /* eslint-disable-next-line */ }, [boardScope, user?.id]);
 
   const submit = async (matchId) => {
     const p = picks[matchId];
@@ -123,6 +243,32 @@ export const PredictionsHub = () => {
         </div>
 
         {err && <div className="cp-surface p-3 text-sm mb-3 flex items-center gap-2" style={{ borderColor: "#FF3D52", color: "#FF3D52" }}><AlertTriangle size={14}/>{err}</div>}
+
+        {user && (
+          <div className="flex gap-1 cp-surface p-1 mb-3 w-fit" data-testid="pred-tabs">
+            <button
+              onClick={() => setTab("upcoming")}
+              className={`px-3 py-1.5 text-xs rounded font-bold inline-flex items-center gap-1.5 ${tab === "upcoming" ? "bg-cp-lime text-cp-forest" : "hover:bg-white/5"}`}
+              style={{ color: tab === "upcoming" ? "#064E3B" : "var(--cp-text)" }}
+              data-testid="pred-tab-upcoming"
+            >
+              <Award size={12}/> Upcoming
+            </button>
+            <button
+              onClick={() => setTab("mine")}
+              className={`px-3 py-1.5 text-xs rounded font-bold inline-flex items-center gap-1.5 ${tab === "mine" ? "bg-cp-lime text-cp-forest" : "hover:bg-white/5"}`}
+              style={{ color: tab === "mine" ? "#064E3B" : "var(--cp-text)" }}
+              data-testid="pred-tab-mine"
+            >
+              <History size={12}/> My Picks ({mine.predictions.length})
+            </button>
+          </div>
+        )}
+
+        {tab === "mine" && user ? (
+          <MyPredictionsList data={mine}/>
+        ) : (
+        <>
         {matches.length === 0 && (
           <div className="cp-surface p-8 text-center" data-testid="predictions-empty">
             <Trophy size={36} className="mx-auto text-cp-lime opacity-60"/>
@@ -206,6 +352,8 @@ export const PredictionsHub = () => {
             </section>
           ))}
         </div>
+        </>
+        )}
       </div>
 
       <aside className="cp-surface h-fit lg:sticky lg:top-[110px]" data-testid="pred-leaderboard">

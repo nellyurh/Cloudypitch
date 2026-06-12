@@ -9,6 +9,12 @@ Global multi-sport livescore + predictions + fantasy platform launching for FIFA
 - Opaque cookie auth
 - Sportmonks (football), API-Sports (other sports), Trybit/CryptoCloud (crypto deposits), PocketFi (NGN), Google AdSense
 
+
+### 2026-02-12 (My Picks visibility + Past mini-games tab)
+- **🆕 Predictions "My Picks" tab** — Users can now see all their predictions (including settled ones with points) on `/predictions`. Previously only NS/TBD upcoming matches were shown so settled picks vanished. New `MyPredictionsList` component shows actual result vs user's pick, points earned, streak bonus, stage multiplier, and outcome badges (Exact/Outcome correct/Missed/Pending).
+- **🆕 WC Mini-Games "Past" tab** — New backend endpoint `GET /api/wc/games/mine/past` returns the user's entries for `closed`/`settling`/`settled` games with attached `match_info`. Frontend `WcGamesPanel` now has an "Open / Upcoming / **Past**" tab. Each past card shows headline, match score, picks count, rank-in-game, and points scored. Tapping a settled card opens `/wc/games/:id/entries`.
+- Notes: the prediction settler loop (`ingestion.py:wc_games_settler_loop` every 5 min) already credits the predictions leaderboard for FT matches via `settled_at`. UI gap was the only blocker.
+
 ## Implemented (rolling)
 ### 2026-02-11 (Player season points + PropellerAds + admin rename)
 - **🆕 Player Season Points (admin pricing tool)** — New `GET /api/admin/players/season-points` aggregates every WC2026 player's total fantasy points across every settled match (uses the same scoring engine as `wc_settler`). Returns `season_points`, `matches_played`, `ppg`, and a `suggested_price`. New "Player Points" admin tab with sortable table (Total / Per-match / Suggested-current delta) and 1-click **Apply** to write the price via the existing `PATCH /api/admin/players/{id}/price` endpoint.

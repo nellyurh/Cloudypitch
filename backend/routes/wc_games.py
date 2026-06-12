@@ -70,6 +70,50 @@ async def games_upcoming(limit: int = 50, user: dict = Depends(a.get_optional_us
     return {"games": rows}
 
 
+@router.get("/games/mine/past")
+async def my_past_games(limit: int = 100, user: dict = Depends(a.get_current_user)):
+    """Return the user's entries for games that are CLOSED or SETTLED, so the
+    user can review what they picked + the points they scored.
+
+    Output ordering: most-recently-updated game first."""
+    db = get_db()
+    # Pull all of the user's entries (most recent first), then join the game.
+    entries = await db.wc_game_entries.find(
+        {"user_id": user["id"]}, {"_id": 0},
+    ).sort("updated_at", -1).to_list(length=500)
+    if not entries:
+        return {"games": []}
+    game_ids = [e["wc_game_id"] for e in entries]
+    games = await db.wc_games.find(
+        {"id": {"$in": game_ids}, "status": {"$in": ["closed", "settling", "settled"]}},
+        {"_id": 0},
+    ).to_list(length=500)
+    by_id = {g["id"]: g for g in games}
+    out = []
+    for e in entries:
+        g = by_id.get(e["wc_game_id"])
+        if not g:
+            continue
+        # If the underlying mini-game is a single-match game, attach match info
+        # (final score, kickoff time, etc.) so the UI can show "Canada 1-1 Bosnia · 32pts".
+        match_meta = None
+        if g.get("game_type") == "match" and g.get("match_id"):
+            m = await db.matches.find_one(
+                {"id": g["match_id"]},
+                {"_id": 0, "home_team_name": 1, "away_team_name": 1,
+                 "home_team_logo": 1, "away_team_logo": 1,
+                 "scheduled_at": 1, "status": 1,
+                 "home_score": 1, "away_score": 1},
+            )
+            if m:
+                match_meta = m
+        g_out = {**g, "my_entry": e, "match_info": match_meta}
+        out.append(g_out)
+        if len(out) >= limit:
+            break
+    return {"games": out}
+
+
 @router.get("/games/{game_id}")
 async def game_detail(game_id: str, user: dict = Depends(a.get_optional_user)):
     db = get_db()
