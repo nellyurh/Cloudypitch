@@ -10,6 +10,13 @@ Global multi-sport livescore + predictions + fantasy platform launching for FIFA
 - Sportmonks (football), API-Sports (other sports), Trybit/CryptoCloud (crypto deposits), PocketFi (NGN), Google AdSense
 
 
+### 2026-02-13 (Recursive coin sweep + admin pricing in coins)
+- **Wallet page** rewritten to lead with **Coin Balance** in 🪙 emoji + tabular nums. Legacy NGN/USD balances shown only as a small "Legacy balances (mini-games / withdrawals)" footnote so they don't dominate.
+- **Admin → Card Prices tab** rewritten: bulk-price + per-card editor both in coins, with Legendary/Elite/Star tier labels. Backend `PATCH /api/admin/cards/{id}` + `POST /api/admin/cards/bulk-price` now accept `price_coins` (preferred). Legacy `price_usd_cents` still accepted for backwards compat.
+- **Transfer cards** (5-pack for fantasy transfers) re-priced from $2 → 🪙 300 coins. Updated in `/api/fantasy/transfers` (`card_price_coins` field), `MyTeams.jsx`, and `BuildTeam.jsx` confirm modal.
+- **WC duplicate cleanup**: ran `POST /api/admin/cleanup/wc-duplicates` on preview → deleted 3 stale non-Sportmonks WC matches. User must run the same on prod once after deploy.
+
+
 ### 2026-02-13 (Coin economy + free-drops off + QualifyProgress + ad/match fixes)
 - **🪙 New coin economy** — Cards now priced in coins, not USD:
   - Legendary (tier 1) = 1,000 coins

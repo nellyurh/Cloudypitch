@@ -21,6 +21,7 @@ export const WalletPage = () => {
   const { user } = useAuth();
   const [wallet, setWallet] = useState(null);
   const [walletUsdCents, setWalletUsdCents] = useState(0);
+  const [coins, setCoins] = useState(0);
   const [txs, setTxs] = useState([]);
   const [compliance, setCompliance] = useState(null);
   const [amount, setAmount] = useState(500);  // $5.00 default deposit (stored as cents)
@@ -30,13 +31,11 @@ export const WalletPage = () => {
   const [msg, setMsg] = useState("");
   const [kycOpen, setKycOpen] = useState(false);
   const [kycStatus, setKycStatus] = useState(null);
-  // `balance_ngn` is a WHOLE NGN amount (e.g. 99 = ₦99). It was previously
-  // being passed through `fmtUsd` which divides by 100 — turning ₦99 into
-  // a misleading "$0.99". Fixed: render NGN as NGN, with a small USD
-  // equivalent shown below using the live exchange rate.
+  // Coins are the primary spendable balance. NGN/USD are kept as legacy
+  // top-up trails (1 NGN top-up = 1 coin; 1 USD = 1,370 coins; 5% crypto bonus).
+  const fmtCoins = (c) => `🪙 ${Number(c || 0).toLocaleString()}`;
   const fmtNgn = (ngn) => `₦${Number(ngn || 0).toLocaleString(undefined, { maximumFractionDigits: 0 })}`;
   const fmtUsdCents = (cents) => `$${((cents || 0) / 100).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-  // Keep legacy alias name so the older deposit-status toast still works.
   const fmtUsd = fmtUsdCents;
 
   const load = async () => {
@@ -49,6 +48,7 @@ export const WalletPage = () => {
       ]);
       setWallet(w.data.wallet);
       setWalletUsdCents(w.data.wallet_balance_usd_cents || 0);
+      setCoins(w.data.coins || 0);
       setTxs(t.data.transactions || []);
       setCompliance(c.data.profile);
       setKycStatus(k.data.kyc?.status || null);
@@ -142,11 +142,14 @@ export const WalletPage = () => {
           <div className="flex items-center gap-3">
             <WalletIcon size={28} className="text-cp-lime"/>
             <div className="flex-1">
-              <div className="text-[10px] uppercase tracking-widest" style={{ color: "var(--cp-text-muted)" }}>Wallet Balance</div>
-              <div className="text-3xl font-extrabold tabular-nums text-cp-lime" data-testid="wallet-balance-ngn">{fmtNgn(wallet.balance_ngn || 0)}</div>
-              {walletUsdCents > 0 && (
-                <div className="text-[11px] mt-0.5 tabular-nums" style={{ color: "var(--cp-text-muted)" }} data-testid="wallet-balance-usd">
-                  ≈ {fmtUsdCents(walletUsdCents)} <span className="opacity-60">· spendable on cards & mini-games</span>
+              <div className="text-[10px] uppercase tracking-widest" style={{ color: "var(--cp-text-muted)" }}>Coin Balance</div>
+              <div className="text-3xl font-extrabold tabular-nums text-cp-lime" data-testid="wallet-balance-coins">{fmtCoins(coins)}</div>
+              <div className="text-[11px] mt-0.5" style={{ color: "var(--cp-text-muted)" }}>
+                Spendable on Legend Cards · 1 ₦ top-up = 1 🪙 · $1 ≈ 🪙 1,370 (+5% crypto bonus)
+              </div>
+              {(wallet.balance_ngn > 0 || walletUsdCents > 0) && (
+                <div className="text-[10px] mt-2 opacity-70" data-testid="wallet-legacy" style={{ color: "var(--cp-text-muted)" }}>
+                  Legacy balances (mini-games / withdrawals): {fmtNgn(wallet.balance_ngn || 0)}{walletUsdCents > 0 ? ` · ${fmtUsdCents(walletUsdCents)}` : ""}
                 </div>
               )}
             </div>

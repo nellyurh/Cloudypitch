@@ -1067,11 +1067,11 @@ function ListView({ squad, counts, onPick, onRemove, posLimit, captainId, viceId
 function TransferModal({ count, transfersInfo, busy, cur, onClose, onChoice }) {
   const remaining = transfersInfo?.remaining || 0;
   const cardPack = transfersInfo?.card_uses || 5;
-  const packCents = transfersInfo?.card_price_usd_cents || 200;
+  const packCoins = transfersInfo?.card_price_coins || 300;
   const penaltyPer = transfersInfo?.point_penalty_per_transfer || 4;
   const totalPenalty = penaltyPer * count;
   const canUseCards = remaining >= count;
-  const packPrice = cur?.formatCents ? cur.formatCents(packCents) : `$${(packCents / 100).toFixed(2)}`;
+  const packPrice = `🪙 ${packCoins.toLocaleString()}`;
   return (
     <div className="fixed inset-0 z-[10001] flex items-end md:items-center justify-center p-0 md:p-4" data-testid="transfer-modal">
       <div className="absolute inset-0" onClick={onClose} style={{ background: "rgba(0,0,0,0.7)" }}/>

@@ -465,15 +465,28 @@ async def admin_list_cards(user: dict = Depends(a.require_admin), tier: Optional
 
 @router.patch("/cards/{card_id}")
 async def admin_update_card(card_id: str, payload: dict, user: dict = Depends(a.require_admin)):
-    """Edit price (USD cents) and/or position lock of a single legend card.
-    Supported fields: `price_usd_cents` (50-10000), `position` (GK/DEF/MID/FWD/ANY),
-    `description` (free text, ≤200 chars).
+    """Edit price (in COINS, was USD cents) and/or position lock of a single
+    legend card.
+
+    Supported fields:
+      * `price_coins` (1-1_000_000) ← preferred, COIN units.
+      * `price_usd_cents` (10-100000) ← legacy, kept for backwards compat.
+      * `position` (GK/DEF/MID/FWD/ANY)
+      * `description` (free text, ≤200 chars)
     """
     db = get_db()
     old = await db.legend_cards.find_one({"id": card_id}, {"_id": 0})
     if not old:
         raise HTTPException(404, "Card not found")
     upd: dict = {}
+    if "price_coins" in payload and payload["price_coins"] is not None:
+        try:
+            c = int(payload["price_coins"])
+        except (TypeError, ValueError):
+            raise HTTPException(400, "price_coins must be an integer")
+        if not (1 <= c <= 1_000_000):
+            raise HTTPException(400, "price_coins must be 1-1,000,000")
+        upd["price_coins"] = c
     if "price_usd_cents" in payload and payload["price_usd_cents"] is not None:
         try:
             p = int(payload["price_usd_cents"])
@@ -508,26 +521,47 @@ async def admin_update_card(card_id: str, payload: dict, user: dict = Depends(a.
 @router.post("/cards/bulk-price")
 async def admin_bulk_set_card_price(payload: dict, user: dict = Depends(a.require_admin)):
     """Bulk-update all cards of a tier to a new price.
-    Body: {tier: 1|2|3, price_usd_cents: int}
+
+    Body: `{tier: 1|2|3, price_coins?: int, price_usd_cents?: int}`
+    Either `price_coins` (preferred) OR legacy `price_usd_cents` accepted.
     """
     try:
         tier = int(payload.get("tier"))
-        price = int(payload.get("price_usd_cents"))
     except (TypeError, ValueError):
-        raise HTTPException(400, "tier and price_usd_cents are required integers")
+        raise HTTPException(400, "tier is required (1, 2, or 3)")
     if tier not in (1, 2, 3):
         raise HTTPException(400, "tier must be 1, 2 or 3")
-    if not (10 <= price <= 100000):
-        raise HTTPException(400, "price_usd_cents must be 10-100000")
+
+    coins = payload.get("price_coins")
+    cents = payload.get("price_usd_cents")
+    if coins is None and cents is None:
+        raise HTTPException(400, "price_coins (preferred) or price_usd_cents required")
+
+    set_doc: dict = {"updated_at": utcnow_iso(), "updated_by": user["id"]}
+    if coins is not None:
+        try:
+            c = int(coins)
+        except (TypeError, ValueError):
+            raise HTTPException(400, "price_coins must be an integer")
+        if not (1 <= c <= 1_000_000):
+            raise HTTPException(400, "price_coins must be 1-1,000,000")
+        set_doc["price_coins"] = c
+    if cents is not None:
+        try:
+            p = int(cents)
+        except (TypeError, ValueError):
+            raise HTTPException(400, "price_usd_cents must be an integer")
+        if not (10 <= p <= 100000):
+            raise HTTPException(400, "price_usd_cents must be 10-100000")
+        set_doc["price_usd_cents"] = p
+
     db = get_db()
-    res = await db.legend_cards.update_many(
-        {"tier": tier},
-        {"$set": {"price_usd_cents": price, "updated_at": utcnow_iso(), "updated_by": user["id"]}},
-    )
+    res = await db.legend_cards.update_many({"tier": tier}, {"$set": set_doc})
     await db.audit_log.insert_one({
         "id": __import__("uuid").uuid4().hex, "user_id": user["id"], "email": user.get("email"),
         "action": "legend_card_bulk_price",
-        "metadata": {"tier": tier, "price_usd_cents": price, "matched": res.matched_count, "modified": res.modified_count},
+        "metadata": {"tier": tier, **{k: set_doc[k] for k in set_doc if k.startswith("price_")},
+                     "matched": res.matched_count, "modified": res.modified_count},
         "created_at": utcnow_iso(),
     })
     return {"ok": True, "tier": tier, "modified": res.modified_count}

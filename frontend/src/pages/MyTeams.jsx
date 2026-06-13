@@ -66,7 +66,7 @@ export default function MyTeams() {
             style={{ background: "var(--cp-lime)", color: "var(--cp-forest)" }}
             data-testid="buy-transfer-pack"
           >
-            <Coins size={12}/> ${(transfers.card_price_usd_cents / 100).toFixed(2)} · +{transfers.card_uses} transfers
+            <Coins size={12}/> 🪙 {(transfers.card_price_coins || 300).toLocaleString()} · +{transfers.card_uses} transfers
           </button>
         </div>
       )}

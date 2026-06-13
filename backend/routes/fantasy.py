@@ -402,20 +402,25 @@ async def my_teams(user: dict = Depends(a.get_current_user)):
 
 
 # ---------- Transfer cards (5 transfers across all teams) ----------
-TRANSFER_CARD_PRICE_USD_CENTS = 200  # $2 per pack
+# Priced in COINS (2026-02-13). Was $2 (200 USD cents) = 1370 × 2 × 1.05 ≈
+# 2,877 coins at the crypto-bonus rate; we round to a clean 300 coins
+# (≈ ₦300) to keep it accessible for NGN funders.
+TRANSFER_CARD_PRICE_COINS = 300
 TRANSFER_CARD_USES = 5
 POINT_PENALTY_PER_TRANSFER = 4       # FPL-style penalty when paying with leaderboard points
 
 
 @router.get("/transfers")
 async def get_my_transfers(user: dict = Depends(a.get_current_user)):
-    """Return remaining transfers + price for refill."""
+    """Return remaining transfers + coin price for refill."""
     db = get_db()
     doc = await db.user_transfers.find_one({"user_id": user["id"]}, {"_id": 0}) or {}
     return {
         "remaining": int(doc.get("remaining", 0)),
         "total_used": int(doc.get("total_used", 0)),
-        "card_price_usd_cents": TRANSFER_CARD_PRICE_USD_CENTS,
+        "card_price_coins": TRANSFER_CARD_PRICE_COINS,
+        # Legacy alias for any old FE caches still reading this field.
+        "card_price_usd_cents": int(TRANSFER_CARD_PRICE_COINS * 0.073),
         "card_uses": TRANSFER_CARD_USES,
         "point_penalty_per_transfer": POINT_PENALTY_PER_TRANSFER,
     }
@@ -423,13 +428,18 @@ async def get_my_transfers(user: dict = Depends(a.get_current_user)):
 
 @router.post("/transfers/buy")
 async def buy_transfer_card(user: dict = Depends(a.get_current_user)):
-    """Spend $2 wallet balance for a 5-transfer pack."""
+    """Spend 🪙 300 coins for a 5-transfer pack."""
     db = get_db()
     udoc = await db.users.find_one({"id": user["id"]}, {"_id": 0})
-    bal = int(udoc.get("wallet_balance_usd_cents") or 0)
-    if bal < TRANSFER_CARD_PRICE_USD_CENTS:
-        raise HTTPException(402, f"Insufficient wallet balance. Need ${TRANSFER_CARD_PRICE_USD_CENTS/100:.2f}, have ${bal/100:.2f}.")
-    await db.users.update_one({"id": user["id"]}, {"$inc": {"wallet_balance_usd_cents": -TRANSFER_CARD_PRICE_USD_CENTS}})
+    bal = int(udoc.get("coins") or 0)
+    if bal < TRANSFER_CARD_PRICE_COINS:
+        raise HTTPException(402, f"Insufficient coins. Need 🪙 {TRANSFER_CARD_PRICE_COINS}, have 🪙 {bal}.")
+    debit = await db.users.update_one(
+        {"id": user["id"], "coins": {"$gte": TRANSFER_CARD_PRICE_COINS}},
+        {"$inc": {"coins": -TRANSFER_CARD_PRICE_COINS}},
+    )
+    if debit.modified_count != 1:
+        raise HTTPException(402, "Insufficient coins.")
     await db.user_transfers.update_one(
         {"user_id": user["id"]},
         {"$inc": {"remaining": TRANSFER_CARD_USES},
@@ -438,7 +448,7 @@ async def buy_transfer_card(user: dict = Depends(a.get_current_user)):
     )
     await db.wallet_transactions.insert_one({
         "id": new_id(), "user_id": user["id"], "kind": "transfer_card_purchase",
-        "amount_usd_cents": TRANSFER_CARD_PRICE_USD_CENTS, "created_at": utcnow_iso(),
+        "amount_coins": TRANSFER_CARD_PRICE_COINS, "created_at": utcnow_iso(),
         "metadata": {"uses_added": TRANSFER_CARD_USES},
     })
     doc = await db.user_transfers.find_one({"user_id": user["id"]}, {"_id": 0})

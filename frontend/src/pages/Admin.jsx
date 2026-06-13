@@ -639,12 +639,12 @@ function CardPricesTab({ onMessage }) {
   };
 
   const bulkApply = async (tier) => {
-    const cents = parseInt(bulkPrice[tier] || "0", 10);
-    if (!cents || cents < 10) return onMessage("Bulk price must be ≥ 10¢");
-    if (!confirm(`Set every Tier-${tier} card to ${(cents/100).toFixed(2)} USD?`)) return;
+    const coins = parseInt(bulkPrice[tier] || "0", 10);
+    if (!coins || coins < 1) return onMessage("Bulk price must be ≥ 1 coin");
+    if (!confirm(`Set every Tier-${tier} card to 🪙 ${coins.toLocaleString()} coins?`)) return;
     try {
-      const { data } = await api.post("/admin/cards/bulk-price", { tier, price_usd_cents: cents });
-      onMessage(`✓ Tier ${tier}: ${data.modified} cards re-priced to $${(cents/100).toFixed(2)}`);
+      const { data } = await api.post("/admin/cards/bulk-price", { tier, price_coins: coins });
+      onMessage(`✓ Tier ${tier}: ${data.modified} cards re-priced to 🪙 ${coins.toLocaleString()}`);
       load();
     } catch (e) {
       onMessage(`✗ ${e?.response?.data?.detail || e.message}`);
@@ -654,7 +654,7 @@ function CardPricesTab({ onMessage }) {
   return (
     <div className="space-y-3" data-testid="admin-cards">
       <div className="cp-surface p-3 flex flex-wrap gap-2 items-center">
-        {[{id:0,label:"All"},{id:1,label:"GOAT"},{id:2,label:"Elite"},{id:3,label:"Star"}].map(f => (
+        {[{id:0,label:"All"},{id:1,label:"Legendary"},{id:2,label:"Elite"},{id:3,label:"Star"}].map(f => (
           <button
             key={f.id}
             onClick={() => setFilter(f.id)}
@@ -665,19 +665,19 @@ function CardPricesTab({ onMessage }) {
         ))}
       </div>
 
-      {/* Bulk tier-pricing */}
+      {/* Bulk tier-pricing — in COINS */}
       <div className="cp-surface p-3" data-testid="admin-cards-bulk">
-        <h3 className="text-sm font-extrabold mb-2">Bulk re-price by tier</h3>
+        <h3 className="text-sm font-extrabold mb-2">Bulk re-price by tier (coins)</h3>
         <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
           {[1,2,3].map(tier => (
             <div key={tier} className="flex items-center gap-2" data-testid={`admin-cards-bulk-tier-${tier}`}>
-              <span className="text-xs font-bold w-12">Tier {tier}</span>
-              <span className="text-[10px] opacity-60">cents</span>
+              <span className="text-xs font-bold w-16">{tier === 1 ? "Legendary" : tier === 2 ? "Elite" : "Star"}</span>
+              <span className="text-[10px] opacity-60">🪙</span>
               <input
-                type="number" min="10" max="100000"
+                type="number" min="1" max="1000000"
                 value={bulkPrice[tier]}
                 onChange={e => setBulkPrice(bp => ({...bp, [tier]: e.target.value}))}
-                placeholder="e.g. 250"
+                placeholder={tier === 1 ? "1000" : tier === 2 ? "500" : "200"}
                 className="cp-input flex-1 text-xs"
                 data-testid={`admin-cards-bulk-input-${tier}`}
               />
@@ -689,7 +689,7 @@ function CardPricesTab({ onMessage }) {
             </div>
           ))}
         </div>
-        <p className="text-[10px] opacity-60 mt-2">Use for surge pricing during high-demand windows (Final week, knockouts). Individual edits below.</p>
+        <p className="text-[10px] opacity-60 mt-2">Defaults: Legendary 🪙 1,000 · Elite 🪙 500 · Star 🪙 200. Surge-price during finals.</p>
       </div>
 
       <div className="cp-surface overflow-hidden" data-testid="admin-cards-table">
@@ -700,12 +700,12 @@ function CardPricesTab({ onMessage }) {
         ) : (
           <ul className="divide-y" style={{ borderColor: "var(--cp-border)" }}>
             {cards.map(c => {
-              const tierLabel = c.tier === 1 ? "GOAT" : c.tier === 2 ? "Elite" : "Star";
+              const tierLabel = c.tier === 1 ? "Legendary" : c.tier === 2 ? "Elite" : "Star";
               const tierColor = c.tier === 1 ? "#FFD27A" : c.tier === 2 ? "#A3E635" : "#F25C1B";
-              const usd = ((c.price_usd_cents || 0) / 100).toFixed(2);
+              const coins = c.price_coins || (c.tier === 1 ? 1000 : c.tier === 2 ? 500 : 200);
               return (
                 <li key={c.id} className="flex items-center gap-3 px-3 py-2 flex-wrap" data-testid={`admin-card-row-${c.id}`}>
-                  <span className="text-[10px] font-extrabold uppercase px-1.5 py-0.5 rounded" style={{ background: tierColor, color: "#0F1115", minWidth: 38, textAlign: "center" }}>
+                  <span className="text-[10px] font-extrabold uppercase px-1.5 py-0.5 rounded" style={{ background: tierColor, color: "#0F1115", minWidth: 60, textAlign: "center" }}>
                     {tierLabel}
                   </span>
                   <div className="flex-1 min-w-[160px]">
@@ -722,24 +722,24 @@ function CardPricesTab({ onMessage }) {
                   >
                     {POS_OPTIONS.map(p => <option key={p} value={p}>{p}</option>)}
                   </select>
-                  {/* Price (cents) */}
+                  {/* Price (coins) */}
                   <div className="flex items-center gap-1">
-                    <span className="text-[10px] opacity-60">¢</span>
+                    <span className="text-[10px] opacity-60">🪙</span>
                     <input
                       id={`admin-card-price-input-${c.id}`}
-                      type="number" step="10" min="10" max="100000"
-                      defaultValue={c.price_usd_cents}
-                      onKeyDown={e => e.key === "Enter" && patch(c.id, { price_usd_cents: parseInt(e.currentTarget.value, 10) })}
+                      type="number" step="50" min="1" max="1000000"
+                      defaultValue={coins}
+                      onKeyDown={e => e.key === "Enter" && patch(c.id, { price_coins: parseInt(e.currentTarget.value, 10) })}
                       className="cp-input text-xs tabular-nums"
-                      style={{ width: 80 }}
+                      style={{ width: 96 }}
                       data-testid={`admin-card-price-${c.id}`}
                     />
-                    <span className="text-[10px] opacity-60 tabular-nums" style={{ minWidth: 38 }}>${usd}</span>
+                    <span className="text-[10px] opacity-60 tabular-nums" style={{ minWidth: 38 }}>coins</span>
                   </div>
                   <button
                     onClick={() => {
                       const el = document.getElementById(`admin-card-price-input-${c.id}`);
-                      patch(c.id, { price_usd_cents: parseInt(el.value, 10) });
+                      patch(c.id, { price_coins: parseInt(el.value, 10) });
                     }}
                     className="cp-btn-primary !py-1 !px-2 text-[10px] font-extrabold"
                     data-testid={`admin-card-save-${c.id}`}
@@ -751,7 +751,7 @@ function CardPricesTab({ onMessage }) {
         )}
       </div>
       <div className="text-[10px] opacity-60">
-        Press <b>Enter</b> in the price field (or <b>Save</b>) to commit. Position locks restrict which players a card can boost. Every change is logged in Audit.
+        Press <b>Enter</b> (or <b>Save</b>) to commit. Position locks restrict which players a card can boost. Every change is logged in Audit.
       </div>
     </div>
   );
