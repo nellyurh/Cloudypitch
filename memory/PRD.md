@@ -10,6 +10,14 @@ Global multi-sport livescore + predictions + fantasy platform launching for FIFA
 - Sportmonks (football), API-Sports (other sports), Trybit/CryptoCloud (crypto deposits), PocketFi (NGN), Google AdSense
 
 
+### 2026-02-13 (Count-based eligibility)
+- Switched prize-pool eligibility from **points** to **counts**:
+  - Must have made **≥ 20 predictions** (any predictions, settled or pending — settler lag never blocks)
+  - Must have entered **≥ 50 WC mini-games**
+- Env vars renamed: `PRIZE_POOL_MIN_PREDICTIONS=20` (was `MIN_PRED_POINTS=10`), `PRIZE_POOL_MIN_WC_GAMES=50` (was `MIN_FANTASY_POINTS=10`).
+- Response now includes `prediction_count` / `wc_game_count` per row + `min_predictions` / `min_wc_games`. Frontend NOT YET tooltip + modal warning show current counts vs targets.
+
+
 ### 2026-02-12 (Unified leaderboard + eligibility + 24h sessions + public profile)
 - **🛡️ 24-hour session expiry** — `SESSION_TTL_DAYS=30` → `SESSION_TTL_HOURS=24`. Both the cookie max-age AND the DB-side `expires_at` are now checked on every request (previously only the browser cookie was checked, so a leaked raw cookie could be replayed indefinitely against the API). Expired session rows are deleted on first 401.
 - **🏆 Prize-pool eligibility gate** — Users must have `prediction_points ≥ 10` AND `(fantasy_points + wc_fantasy_points) ≥ 10` to receive a prize-pool payout. Configurable via `PRIZE_POOL_MIN_PRED_POINTS` / `PRIZE_POOL_MIN_FANTASY_POINTS` env vars. Ineligible users keep their rank on the leaderboard but `potential_prize_usd_cents = 0`. Slot does NOT roll over to next eligible user (no whiplash mid-tournament).

@@ -3,13 +3,16 @@
 ONE leaderboard combining fantasy + predictions points.
 Referrals stay on their own separate leaderboard.
 
-Eligibility (2026-02-12)
-------------------------
-Users must have BOTH ≥ `PRIZE_POOL_MIN_PRED_POINTS` prediction points AND
-≥ `PRIZE_POOL_MIN_FANTASY_POINTS` fantasy points (main squad OR WC mini-games)
-to receive a prize-pool payout. They still appear on the leaderboard with
-their rank, but their `potential_prize_usd_cents` is 0 until they qualify in
-both pillars. This prevents bots that game one pillar from extracting the pool.
+Eligibility (2026-02-12, updated 2026-02-13)
+-------------------------------------------
+Users must satisfy BOTH gates to receive a prize-pool payout:
+  · Made at least `PRIZE_POOL_MIN_PREDICTIONS` predictions (default **20**)
+  · Entered at least `PRIZE_POOL_MIN_WC_GAMES` WC mini-games (default **50**)
+
+Counts use ALL submitted entries — settled or not — so users can't be
+blocked from eligibility by the settler being behind. They still appear on
+the leaderboard with their rank but `potential_prize_usd_cents = 0` until
+qualified. This prevents bots that grind one pillar from extracting the pool.
 
 Prize structure
 ---------------
@@ -39,9 +42,9 @@ BASE_POOL_USD_CENTS = 250_000
 TOP4_USD_CENTS = [100_000, 50_000, 30_000, 20_000]
 POS_5_20_REMAINING = BASE_POOL_USD_CENTS - sum(TOP4_USD_CENTS)  # $500
 
-# Anti-bot minimums to qualify for any prize-pool payout.
-PRIZE_POOL_MIN_PRED_POINTS = int(os.environ.get("PRIZE_POOL_MIN_PRED_POINTS", "10"))
-PRIZE_POOL_MIN_FANTASY_POINTS = int(os.environ.get("PRIZE_POOL_MIN_FANTASY_POINTS", "10"))
+# Anti-bot minimums to qualify for any prize-pool payout (count-based).
+PRIZE_POOL_MIN_PREDICTIONS = int(os.environ.get("PRIZE_POOL_MIN_PREDICTIONS", "20"))
+PRIZE_POOL_MIN_WC_GAMES = int(os.environ.get("PRIZE_POOL_MIN_WC_GAMES", "50"))
 
 
 def compute_prize_split(base_usd_cents: int, cards_cut_usd_cents: int):
@@ -104,6 +107,16 @@ async def unified_leaderboard(scope: str = "global", limit: int = 100):
     wc = await db.wc_game_entries.aggregate(wc_pipeline).to_list(length=5000)
     wc_by = {w["_id"]: w["wc_pts"] for w in wc}
 
+    # Count predictions made + WC mini-game entries per user — drives eligibility.
+    pred_count_agg = await db.predictions.aggregate([
+        {"$group": {"_id": "$user_id", "n": {"$sum": 1}}},
+    ]).to_list(length=10000)
+    pred_count_by = {r["_id"]: r["n"] for r in pred_count_agg}
+    wc_count_agg = await db.wc_game_entries.aggregate([
+        {"$group": {"_id": "$user_id", "n": {"$sum": 1}}},
+    ]).to_list(length=10000)
+    wc_count_by = {r["_id"]: r["n"] for r in wc_count_agg}
+
     # Hard requirement: only show users who actually HAVE a squad (main 15-man
     # OR at least one WC mini-game entry). Users who only signed up but never
     # built a team shouldn't pollute the leaderboard with 0-point rows.
@@ -136,10 +149,13 @@ async def unified_leaderboard(scope: str = "global", limit: int = 100):
         fan_pts = int(fan_by.get(uid, 0) or 0)
         wc_pts = int(wc_by.get(uid, 0) or 0)
         total = pred_pts + fan_pts + wc_pts
-        # Total "fantasy" includes BOTH main squad and WC mini-games for eligibility.
+        # Eligibility = made enough predictions AND entered enough mini-games.
+        # Count-based (NOT points-based) so the settler lag never blocks anyone.
+        pred_count = int(pred_count_by.get(uid, 0) or 0)
+        wc_count = int(wc_count_by.get(uid, 0) or 0)
         is_eligible = (
-            pred_pts >= PRIZE_POOL_MIN_PRED_POINTS
-            and (fan_pts + wc_pts) >= PRIZE_POOL_MIN_FANTASY_POINTS
+            pred_count >= PRIZE_POOL_MIN_PREDICTIONS
+            and wc_count >= PRIZE_POOL_MIN_WC_GAMES
         )
         combined.append({
             "user_id": uid,
@@ -150,9 +166,11 @@ async def unified_leaderboard(scope: str = "global", limit: int = 100):
             "fantasy_points": fan_pts,
             "wc_fantasy_points": wc_pts,
             "total_points": int(total),
+            "prediction_count": pred_count,
+            "wc_game_count": wc_count,
             "is_eligible": is_eligible,
-            "min_pred_points": PRIZE_POOL_MIN_PRED_POINTS,
-            "min_fantasy_points": PRIZE_POOL_MIN_FANTASY_POINTS,
+            "min_predictions": PRIZE_POOL_MIN_PREDICTIONS,
+            "min_wc_games": PRIZE_POOL_MIN_WC_GAMES,
         })
     combined.sort(key=lambda x: -x["total_points"])
 
@@ -188,12 +206,12 @@ async def unified_leaderboard(scope: str = "global", limit: int = 100):
         },
         "scope": scope,
         "eligibility": {
-            "min_prediction_points": PRIZE_POOL_MIN_PRED_POINTS,
-            "min_fantasy_points": PRIZE_POOL_MIN_FANTASY_POINTS,
+            "min_predictions": PRIZE_POOL_MIN_PREDICTIONS,
+            "min_wc_games": PRIZE_POOL_MIN_WC_GAMES,
             "rule": (
-                f"Must score ≥ {PRIZE_POOL_MIN_PRED_POINTS} prediction points "
-                f"AND ≥ {PRIZE_POOL_MIN_FANTASY_POINTS} fantasy points "
-                "(main squad + WC mini-games combined) to receive a prize-pool payout."
+                f"Must have made ≥ {PRIZE_POOL_MIN_PREDICTIONS} predictions "
+                f"AND entered ≥ {PRIZE_POOL_MIN_WC_GAMES} WC mini-games "
+                "to receive a prize-pool payout."
             ),
         },
     }
@@ -255,14 +273,23 @@ async def public_user_profile(user_id: str, limit: int = 50):
     pred_pts = sum((p.get("points_awarded") or 0) for p in preds if p.get("settled_at"))
     fan_pts = int((squad or {}).get("total_points", 0) or 0)
     wc_pts = sum((e.get("points_scored") or 0) for e in wc_entries if e.get("settled_at"))
+    # Count-based eligibility check — count ALL submitted entries, not just
+    # the most-recent N we returned to the caller.
+    total_pred_count = await db.predictions.count_documents({"user_id": user_id})
+    total_wc_count = await db.wc_game_entries.count_documents({"user_id": user_id})
     totals = {
         "prediction_points": int(pred_pts),
         "fantasy_points": int(fan_pts),
         "wc_fantasy_points": int(wc_pts),
         "total_points": int(pred_pts + fan_pts + wc_pts),
-        "is_eligible": pred_pts >= PRIZE_POOL_MIN_PRED_POINTS and (fan_pts + wc_pts) >= PRIZE_POOL_MIN_FANTASY_POINTS,
-        "min_prediction_points": PRIZE_POOL_MIN_PRED_POINTS,
-        "min_fantasy_points": PRIZE_POOL_MIN_FANTASY_POINTS,
+        "prediction_count": int(total_pred_count),
+        "wc_game_count": int(total_wc_count),
+        "is_eligible": (
+            total_pred_count >= PRIZE_POOL_MIN_PREDICTIONS
+            and total_wc_count >= PRIZE_POOL_MIN_WC_GAMES
+        ),
+        "min_predictions": PRIZE_POOL_MIN_PREDICTIONS,
+        "min_wc_games": PRIZE_POOL_MIN_WC_GAMES,
     }
     return {
         "user": user,

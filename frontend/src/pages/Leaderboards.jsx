@@ -130,7 +130,7 @@ export const Leaderboards = () => {
                       </span>
                     )}
                     {!isReferrals && !r.is_eligible && r.total_points > 0 && (
-                      <span className="cp-pill !text-[8px] !font-bold inline-flex items-center gap-0.5" style={{ background: "var(--cp-surface-2)", color: "var(--cp-text-muted)" }} title={`Needs ≥${r.min_pred_points || 10} pred AND ≥${r.min_fantasy_points || 10} fantasy points`}>
+                      <span className="cp-pill !text-[8px] !font-bold inline-flex items-center gap-0.5" style={{ background: "var(--cp-surface-2)", color: "var(--cp-text-muted)" }} title={`Needs ≥${r.min_predictions || 20} predictions AND ≥${r.min_wc_games || 50} WC mini-games (currently ${r.prediction_count || 0} preds, ${r.wc_game_count || 0} mini)`}>
                         <AlertCircle size={9}/> NOT YET
                       </span>
                     )}
@@ -255,7 +255,7 @@ function UserDetailModal({ userId, onClose }) {
             {!totals.is_eligible && (
               <div className="cp-surface p-2 text-[11px] flex items-start gap-2" style={{ borderColor: "#FBBF24" }} data-testid="user-detail-ineligible">
                 <AlertCircle size={12} className="mt-0.5 shrink-0" style={{ color: "#FBBF24" }}/>
-                <span>Not yet eligible for prize-pool payout — needs ≥ {totals.min_prediction_points} prediction points AND ≥ {totals.min_fantasy_points} fantasy points (main + WC mini combined).</span>
+                <span>Not yet eligible for prize-pool payout — needs ≥ {totals.min_predictions} predictions AND ≥ {totals.min_wc_games} WC mini-games (currently {totals.prediction_count || 0} / {totals.wc_game_count || 0}).</span>
               </div>
             )}
 
