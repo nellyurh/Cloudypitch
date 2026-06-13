@@ -1765,6 +1765,20 @@ async def sync_statpal_football():
                 "primary_provider": "statpal", "statpal_id": mid,
                 "is_live": is_live, "last_polled_at": utcnow_iso(),
             }
+            # 🛡️ Skip if a Sportmonks WC2026 match already exists for the same
+            # teams + scheduled day. Without this guard, StatPal silently
+            # creates duplicate WC fixtures under its own `statpal_id`, which
+            # then appear/disappear from the football tab depending on which
+            # provider's poll won the last race. WC matches are Sportmonks-only.
+            wc_dup = await db.matches.find_one(
+                {"is_world_cup": True,
+                 "home_team_name": home_name, "away_team_name": away_name,
+                 "scheduled_at": {"$regex": f"^{sched_iso[:10]}"}},
+                {"_id": 0, "id": 1},
+            )
+            if wc_dup:
+                # Don't insert/overwrite — the canonical Sportmonks doc wins.
+                continue
             await db.matches.update_one({"statpal_id": mid, "sport_slug": "football"}, {"$set": doc}, upsert=True)
             seen += 1
     # Enrich StatPal football matches with logos from existing teams index (API-Sports/Sportmonks have logos for many overlapping clubs)

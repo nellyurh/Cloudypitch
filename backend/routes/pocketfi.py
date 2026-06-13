@@ -371,11 +371,21 @@ async def pocketfi_webhook(request: Request):
             {"$set": {"id": new_id(), "user_id": deposit["user_id"], "total_won": 0, "total_spent": 0, "kyc_verified": False, "bank_account": None}},
         )
 
-    # Also mirror into the USD wallet (used by card purchases + USD mini-games).
+    # Also mirror into the USD wallet (kept for legacy mini-games / NGN-USD
+    # conversion display only — cards are now coin-priced).
     if usd_cents_credit > 0:
         await db.users.update_one(
             {"id": deposit["user_id"]},
             {"$inc": {"wallet_balance_usd_cents": usd_cents_credit}},
+        )
+
+    # 🪙 Coin credit (2026-02-13): 1 NGN = 1 coin for new top-ups. Cards are
+    # bought with coins, so this is the balance users actually spend.
+    coin_credit_ngn = credit_amount
+    if coin_credit_ngn > 0:
+        await db.users.update_one(
+            {"id": deposit["user_id"]},
+            {"$inc": {"coins": coin_credit_ngn}},
         )
 
     wallet = await db.user_wallets.find_one({"user_id": deposit["user_id"]}, {"_id": 0})

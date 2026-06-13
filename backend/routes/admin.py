@@ -696,3 +696,181 @@ async def admin_backfill_usd_wallet(payload: dict, user: dict = Depends(a.requir
         })
     return {"ok": True, "dry_run": dry, "ngn_per_usd": ngn_per_usd,
             "users_affected": len(plan), "plan": plan[:50]}
+
+
+
+@router.post("/cleanup/wc-duplicates")
+async def cleanup_wc_duplicates(admin: dict = Depends(a.require_admin)):
+    """One-shot: remove every StatPal/api-sports match whose home+away+date
+    collides with an existing Sportmonks WC2026 fixture. Fixes the "match
+    appears, then disappears, then appears" flicker the user saw on the
+    football tab — root cause was multiple providers writing the same fixture
+    under different IDs."""
+    db = get_db()
+    wc_matches = await db.matches.find(
+        {"is_world_cup": True},
+        {"_id": 0, "home_team_name": 1, "away_team_name": 1, "scheduled_at": 1},
+    ).to_list(length=1000)
+    removed = 0
+    for wc in wc_matches:
+        day_prefix = (wc.get("scheduled_at") or "")[:10]
+        if not day_prefix:
+            continue
+        res = await db.matches.delete_many({
+            "is_world_cup": {"$ne": True},
+            "home_team_name": wc["home_team_name"],
+            "away_team_name": wc["away_team_name"],
+            "scheduled_at": {"$regex": f"^{day_prefix}"},
+        })
+        removed += res.deleted_count
+    await db.audit_log.insert_one({
+        "user_id": admin["id"], "email": admin.get("email"),
+        "action": "cleanup_wc_duplicates",
+        "metadata": {"removed": removed, "wc_count": len(wc_matches)},
+        "created_at": utcnow_iso(),
+    })
+    return {"ok": True, "removed": removed, "wc_count": len(wc_matches)}
+
+
+
+# ─────────────────────────────────────────────────────────────────────────
+# Admin: manual card grants + coin grants
+# ─────────────────────────────────────────────────────────────────────────
+class CardGrantIn(BaseModel):
+    user_id: str
+    card_id: Optional[str] = None  # if omitted, server picks a random card of `tier`
+    tier: Optional[int] = None     # 1=Legendary, 2=Elite, 3=Star (required if card_id omitted)
+    quantity: int = 1
+    note: Optional[str] = None
+
+
+@router.post("/cards/grant")
+async def admin_grant_card(body: CardGrantIn, admin: dict = Depends(a.require_admin)):
+    """Manually grant a Legend Card to a user. Use this as a replacement for
+    the (now-disabled) automatic free-drop mechanic — e.g. for tournament
+    winners, support refunds, or VIP gifts.
+
+    Either `card_id` OR `tier` must be supplied. With `tier` and no `card_id`,
+    a random active card of that tier is picked.
+    """
+    if body.quantity < 1 or body.quantity > 50:
+        raise HTTPException(status_code=400, detail="quantity must be 1..50")
+    db = get_db()
+    target = await db.users.find_one({"id": body.user_id}, {"_id": 0, "id": 1, "email": 1, "display_name": 1})
+    if not target:
+        raise HTTPException(status_code=404, detail="user not found")
+
+    card = None
+    if body.card_id:
+        card = await db.legend_cards.find_one({"id": body.card_id}, {"_id": 0})
+        if not card:
+            raise HTTPException(status_code=404, detail="card not found")
+    elif body.tier in (1, 2, 3):
+        import random
+        pool = await db.legend_cards.find(
+            {"tier": body.tier, "is_active": {"$ne": False}}, {"_id": 0},
+        ).to_list(length=500)
+        if not pool:
+            raise HTTPException(status_code=404, detail=f"no active cards in tier {body.tier}")
+        card = random.choice(pool)
+    else:
+        raise HTTPException(status_code=400, detail="provide card_id OR a valid tier (1, 2, or 3)")
+
+    uses_granted = (card.get("uses_granted") or 1) * body.quantity
+    now_iso = utcnow_iso()
+    existing = await db.user_cards.find_one(
+        {"user_id": body.user_id, "card_id": card["id"]}, {"_id": 0},
+    )
+    if existing:
+        await db.user_cards.update_one(
+            {"id": existing["id"]},
+            {"$inc": {"uses_remaining": uses_granted, "uses_left": uses_granted},
+             "$set": {"last_admin_grant_at": now_iso}},
+        )
+        uc_id = existing["id"]
+    else:
+        uc_id = a.new_session_token.__module__  # placeholder; replaced below
+        from models import new_id as _new_id
+        uc_id = _new_id()
+        await db.user_cards.insert_one({
+            "id": uc_id, "user_id": body.user_id, "card_id": card["id"],
+            "uses_remaining": uses_granted, "uses_left": uses_granted,
+            "obtained_via": "admin_grant",
+            "created_at": now_iso, "last_admin_grant_at": now_iso,
+        })
+
+    await db.audit_log.insert_one({
+        "user_id": admin["id"], "email": admin.get("email"),
+        "action": "admin_card_grant",
+        "metadata": {
+            "target_user_id": body.user_id,
+            "target_email": target.get("email"),
+            "card_id": card["id"],
+            "card_name": card.get("name"),
+            "tier": card.get("tier"),
+            "quantity": body.quantity,
+            "uses_granted": uses_granted,
+            "note": body.note,
+        },
+        "created_at": now_iso,
+    })
+
+    return {
+        "ok": True,
+        "user_card_id": uc_id,
+        "card": {"id": card["id"], "name": card.get("name"), "tier": card.get("tier")},
+        "uses_granted": uses_granted,
+        "target": target,
+    }
+
+
+class CoinGrantIn(BaseModel):
+    user_id: str
+    coins: int
+    note: Optional[str] = None
+
+
+@router.post("/coins/grant")
+async def admin_grant_coins(body: CoinGrantIn, admin: dict = Depends(a.require_admin)):
+    """Credit (or debit, with a negative `coins`) the user's coin balance.
+
+    Audit logged. Use for refunds, support adjustments, or seeding test users.
+    """
+    if body.coins == 0:
+        raise HTTPException(status_code=400, detail="coins must be non-zero")
+    db = get_db()
+    target = await db.users.find_one({"id": body.user_id}, {"_id": 0, "id": 1, "email": 1, "coins": 1})
+    if not target:
+        raise HTTPException(status_code=404, detail="user not found")
+    if body.coins < 0 and (target.get("coins") or 0) + body.coins < 0:
+        raise HTTPException(status_code=400, detail="would result in negative balance")
+    await db.users.update_one({"id": body.user_id}, {"$inc": {"coins": body.coins}})
+    fresh = await db.users.find_one({"id": body.user_id}, {"_id": 0, "coins": 1})
+    await db.audit_log.insert_one({
+        "user_id": admin["id"], "email": admin.get("email"),
+        "action": "admin_coins_grant",
+        "metadata": {
+            "target_user_id": body.user_id,
+            "target_email": target.get("email"),
+            "delta_coins": body.coins,
+            "new_balance": int((fresh or {}).get("coins") or 0),
+            "note": body.note,
+        },
+        "created_at": utcnow_iso(),
+    })
+    return {"ok": True, "coins": int((fresh or {}).get("coins") or 0), "delta": body.coins}
+
+
+@router.get("/users/search")
+async def admin_search_users(q: str = "", limit: int = 20, _: dict = Depends(a.require_admin)):
+    """Lightweight user search by email/display_name for the admin grant UI."""
+    db = get_db()
+    if not q or len(q) < 2:
+        return {"users": []}
+    rx = {"$regex": q, "$options": "i"}
+    users = await db.users.find(
+        {"$or": [{"email": rx}, {"display_name": rx}]},
+        {"_id": 0, "id": 1, "email": 1, "display_name": 1, "country_code": 1,
+         "coins": 1, "is_premium": 1},
+    ).limit(limit).to_list(length=limit)
+    return {"users": users}

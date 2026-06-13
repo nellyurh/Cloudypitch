@@ -105,6 +105,8 @@ def public_user(user: dict | None) -> dict | None:
         "is_premium": user.get("is_premium", False),
         "premium_until": user.get("premium_until"),
         "referral_code": user.get("referral_code"),
+        "coins": int(user.get("coins") or 0),
+        "wallet_balance_usd_cents": int(user.get("wallet_balance_usd_cents") or 0),
         "created_at": user.get("created_at"),
         "last_login_at": user.get("last_login_at"),
     }

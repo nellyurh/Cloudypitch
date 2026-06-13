@@ -6,6 +6,7 @@ import {
   Trophy, Target, Sparkles, ShieldCheck, LogOut, Wallet, Users,
   Crown, Coins, ShoppingCart, Award, Gift, ShieldAlert, Settings,
 } from "lucide-react";
+import QualifyProgress from "../components/QualifyProgress";
 
 /** Profile screen — also the central nav surface for signed-in users.
  *  All menu items previously living in the burger drawer are surfaced here
@@ -87,6 +88,11 @@ export const Profile = () => {
             </div>
           </div>
         </div>
+      </div>
+
+      {/* Prize-pool qualification progress */}
+      <div className="mt-3">
+        <QualifyProgress/>
       </div>
 
       {/* Stat grid */}

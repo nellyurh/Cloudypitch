@@ -18,6 +18,9 @@ async def my_stats(user: dict = Depends(a.get_current_user)):
     fantasy_squad = await db.fantasy_squads.find_one({"user_id": user["id"]}, {"_id": 0})
     cards_count = await db.user_cards.count_documents({"user_id": user["id"]})
     favs = await db.favorites.count_documents({"user_id": user["id"]})
+    wc_entries_count = await db.wc_game_entries.count_documents({"user_id": user["id"]})
+    # Eligibility thresholds — mirror routes/leaderboard.py.
+    from routes.leaderboard import PRIZE_POOL_MIN_PREDICTIONS, PRIZE_POOL_MIN_WC_GAMES
     return {
         "user": public_user(user),
         "stats": {
@@ -27,6 +30,21 @@ async def my_stats(user: dict = Depends(a.get_current_user)):
             "fantasy_total_points": (fantasy_squad or {}).get("total_points", 0),
             "cards_owned": cards_count,
             "favorites": favs,
+            "wc_games_played": wc_entries_count,
+        },
+        "eligibility": {
+            "min_predictions": PRIZE_POOL_MIN_PREDICTIONS,
+            "min_wc_games": PRIZE_POOL_MIN_WC_GAMES,
+            "predictions_made": pred_count,
+            "wc_games_played": wc_entries_count,
+            "is_eligible": (
+                pred_count >= PRIZE_POOL_MIN_PREDICTIONS
+                and wc_entries_count >= PRIZE_POOL_MIN_WC_GAMES
+            ),
+            "progress_pct": min(100, int(round(
+                (min(pred_count, PRIZE_POOL_MIN_PREDICTIONS) / max(PRIZE_POOL_MIN_PREDICTIONS, 1) * 50)
+                + (min(wc_entries_count, PRIZE_POOL_MIN_WC_GAMES) / max(PRIZE_POOL_MIN_WC_GAMES, 1) * 50)
+            ))),
         },
         "fantasy_squad": fantasy_squad,
     }

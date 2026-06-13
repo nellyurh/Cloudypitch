@@ -134,8 +134,19 @@ async def serve_ad(
     pa_q: dict = {"placement_key": placement_key, "is_active": True,
                   # 🚫 Skip popunder/onclick/vignette formats — they hijack taps.
                   "format": {"$nin": ["popunder", "onclick", "vignette", "interstitial"]}}
-    if viewport in ("mobile", "desktop"):
-        pa_q["$or"] = [{"target_viewport": viewport}, {"target_viewport": "both"}, {"target_viewport": {"$exists": False}}]
+    # 🛡️ Viewport gating — STRICT. We used to allow `target_viewport: "both"`
+    # AND missing-field zones to serve to either viewport, which meant a mobile
+    # 300×600 portrait creative (e.g. XM Trading) was rendering on desktop too.
+    # Now: desktop requests get ONLY zones explicitly tagged "desktop";
+    # mobile requests get zones tagged "mobile" OR "both" (mobile is more
+    # forgiving — a "both" creative usually means responsive 320×50).
+    if viewport == "desktop":
+        pa_q["target_viewport"] = "desktop"
+    elif viewport == "mobile":
+        pa_q["$or"] = [
+            {"target_viewport": "mobile"},
+            {"target_viewport": "both"},
+        ]
     pa = await db.propellerads_zones.find_one(pa_q, {"_id": 0})
     if pa and (pa.get("snippet_html") or pa.get("zone_id")):
         candidates.append({"network": "propellerads", "zone": pa, "collection": "propellerads_zones"})

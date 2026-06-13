@@ -10,6 +10,27 @@ Global multi-sport livescore + predictions + fantasy platform launching for FIFA
 - Sportmonks (football), API-Sports (other sports), Trybit/CryptoCloud (crypto deposits), PocketFi (NGN), Google AdSense
 
 
+### 2026-02-13 (Coin economy + free-drops off + QualifyProgress + ad/match fixes)
+- **🪙 New coin economy** — Cards now priced in coins, not USD:
+  - Legendary (tier 1) = 1,000 coins
+  - Elite (tier 2) = 500 coins
+  - Star (tier 3) = 200 coins
+  - Recharge = 100 coins (+1 use)
+  - Conversion: `1 NGN = 1 coin`, `1 USD = 1,370 coins` (+5% crypto bonus on Trybit), `1 coin = $0.00073`.
+  - Existing wallet balances are FROZEN — only NEW top-ups credit coins. Old USD wallet remains for legacy mini-games.
+  - 50% of every coin spend still flows to the prize pool (converted back to USD-cents at the same rate).
+- **🚫 Free card drops disabled** — `/api/cards/check-drop` + `/api/cards/daily-drop` now return `{disabled: true}`. Action-logging stub kept for analytics + future re-enable.
+- **🆕 Admin manual grants**:
+  - `POST /api/admin/cards/grant` (user_id + card_id OR tier + quantity + note) → audit-logged.
+  - `POST /api/admin/coins/grant` (user_id + coins delta + note) → audit-logged, can be negative for refunds.
+  - `GET /api/admin/users/search?q=` → lightweight user search for the grant UI.
+- **🆕 QualifyProgress component** — Gamified prize-pool progress bar on `/profile`. Shows `X/20 predictions · Y/50 mini-games · 50% to eligible`. New backend field `eligibility.progress_pct` on `/api/users/me/stats`.
+- **🛡️ Ad viewport filter — STRICT** — Desktop requests now ONLY match zones explicitly tagged `target_viewport: "desktop"`. Mobile creative zones (e.g. XM Trading 300×600 portrait) no longer leak onto desktop pages. Mobile is more forgiving — allows `"mobile"` OR `"both"`.
+- **🛡️ WC fixture duplicates killed** — StatPal football sync now refuses to insert/upsert any fixture whose home+away+date collides with an existing Sportmonks WC2026 match. Sportmonks is canonical for WC; StatPal/api-sports can only own non-WC fixtures.
+- **🧹 New admin cleanup**: `POST /api/admin/cleanup/wc-duplicates` — deletes every non-Sportmonks WC duplicate already in the DB (one-shot).
+- Verified end-to-end: card catalog returns `currency: COINS`, `tier 1 price 1000`, `tier 3 price 200`. `/wallet/me` returns `coins`. Free-drop endpoints return `{disabled: true}`. Admin coin grant credits successfully.
+
+
 ### 2026-02-13 (Count-based eligibility)
 - Switched prize-pool eligibility from **points** to **counts**:
   - Must have made **≥ 20 predictions** (any predictions, settled or pending — settler lag never blocks)

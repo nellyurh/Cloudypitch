@@ -273,6 +273,15 @@ async def trybit_webhook(request: Request):
             {"$set": {"id": new_id(), "user_id": invoice["user_id"], "total_won": 0, "total_spent": 0, "kyc_verified": False, "bank_account": None}},
         )
 
+    # 🪙 Coin credit (2026-02-13): crypto/USD top-ups credit COINS at the rate
+    # `1 USD = 1370 coins` + a 5% bonus for crypto funders.
+    coins_credit = int(round(amount_usd * 1370 * 1.05))
+    if coins_credit > 0:
+        await db.users.update_one(
+            {"id": invoice["user_id"]},
+            {"$inc": {"coins": coins_credit}},
+        )
+
     wallet = await db.user_wallets.find_one({"user_id": invoice["user_id"]}, {"_id": 0})
     new_balance = (wallet or {}).get("balance_ngn", credit_ngn)
 
@@ -285,6 +294,7 @@ async def trybit_webhook(request: Request):
         "reference": invoice_uuid or order_id,
         "provider": "trybit",
         "amount_usd": amount_usd,
+        "amount_coins": coins_credit,
         "usd_to_ngn_rate": rate,
         "created_at": now,
     })

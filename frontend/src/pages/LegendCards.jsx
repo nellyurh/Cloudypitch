@@ -50,7 +50,7 @@ function CatalogTab() {
   return (
     <>
       <div className="flex gap-2 mb-4 flex-wrap">
-        {[{ id: 0, label: "All" }, { id: 1, label: "GOAT · $2.00" }, { id: 2, label: "Elite · $1.00" }, { id: 3, label: "Star · $0.50" }].map(f => (
+        {[{ id: 0, label: "All" }, { id: 1, label: "Legendary · 🪙 1,000" }, { id: 2, label: "Elite · 🪙 500" }, { id: 3, label: "Star · 🪙 200" }].map(f => (
           <button key={f.id} onClick={() => setFilter(f.id)} className={`px-3 py-1.5 rounded text-xs font-bold ${filter === f.id ? "bg-cp-lime text-cp-forest" : "cp-surface hover:bg-white/5"}`} data-testid={`tier-filter-${f.id}`}>{f.label}</button>
         ))}
       </div>
@@ -81,9 +81,8 @@ function BuyCardModal({ card, onClose }) {
     api.get("/wallet").then(({ data }) => setWallet(data)).catch(() => {});
   }, []);
 
-  const unitUsdCents = card.price_usd_cents || 0;
-  const totalUsdCents = unitUsdCents * qty;
-  const usdCost = (totalUsdCents / 100).toFixed(2);
+  const unitCoins = card.price_coins || 0;
+  const totalCoins = unitCoins * qty;
 
   const tierArt = TIER_ART[card.tier] || "epic";
 
@@ -122,21 +121,21 @@ function BuyCardModal({ card, onClose }) {
               <span className="font-extrabold tabular-nums w-8 text-center" data-testid="buy-qty">{qty}</span>
               <button onClick={() => setQty(q => Math.min(10, q + 1))} disabled={busy} className="cp-btn-ghost !p-1.5" data-testid="buy-qty-plus">+</button>
             </div>
-            <div className="text-[11px] opacity-70">{qty} card{qty === 1 ? "" : "s"} · ${(unitUsdCents / 100).toFixed(2)} each · one use each</div>
+            <div className="text-[11px] opacity-70">{qty} card{qty === 1 ? "" : "s"} · 🪙 {unitCoins.toLocaleString()} coins each · one use each</div>
             {wallet && (
               <div className="text-[11px] flex items-center gap-1.5" style={{ color: "var(--cp-text-muted)" }}>
-                <Wallet size={11}/> Balance: ${((wallet.balance_usd_cents || 0) / 100).toFixed(2)}
+                <Wallet size={11}/> Balance: 🪙 {(wallet.coins || 0).toLocaleString()} coins
               </div>
             )}
             <div className="rounded p-2 flex items-center justify-between" style={{ background: "var(--cp-surface-2)" }}>
               <span className="text-xs opacity-70">Total</span>
-              <span className="font-extrabold text-cp-lime text-base tabular-nums">${usdCost}</span>
+              <span className="font-extrabold text-cp-lime text-base tabular-nums" data-testid="buy-total">🪙 {totalCoins.toLocaleString()}</span>
             </div>
             {msg && <div className="text-[11px] text-cp-lime" data-testid="buy-success">{msg}</div>}
             {err && <div className="text-[11px] text-rose-400" data-testid="buy-error">{err}</div>}
             <button onClick={buy} disabled={busy} className="cp-btn-primary w-full inline-flex items-center justify-center gap-2 disabled:opacity-50" data-testid="buy-confirm">
               {busy ? <Loader2 size={14} className="animate-spin"/> : <Crown size={14}/>}
-              {busy ? "Processing…" : `Buy for $${usdCost}`}
+              {busy ? "Processing…" : `Buy for 🪙 ${totalCoins.toLocaleString()}`}
             </button>
           </div>
         </div>
