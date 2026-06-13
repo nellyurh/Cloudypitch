@@ -10,6 +10,16 @@ Global multi-sport livescore + predictions + fantasy platform launching for FIFA
 - Sportmonks (football), API-Sports (other sports), Trybit/CryptoCloud (crypto deposits), PocketFi (NGN), Google AdSense
 
 
+### 2026-02-12 (Unified leaderboard + eligibility + 24h sessions + public profile)
+- **🛡️ 24-hour session expiry** — `SESSION_TTL_DAYS=30` → `SESSION_TTL_HOURS=24`. Both the cookie max-age AND the DB-side `expires_at` are now checked on every request (previously only the browser cookie was checked, so a leaked raw cookie could be replayed indefinitely against the API). Expired session rows are deleted on first 401.
+- **🏆 Prize-pool eligibility gate** — Users must have `prediction_points ≥ 10` AND `(fantasy_points + wc_fantasy_points) ≥ 10` to receive a prize-pool payout. Configurable via `PRIZE_POOL_MIN_PRED_POINTS` / `PRIZE_POOL_MIN_FANTASY_POINTS` env vars. Ineligible users keep their rank on the leaderboard but `potential_prize_usd_cents = 0`. Slot does NOT roll over to next eligible user (no whiplash mid-tournament).
+- **🆕 `GET /api/leaderboard/user/{user_id}`** — Public endpoint returning anyone's predictions (incl. matches with result), main squad summary, WC mini-game entries with points, and totals. No auth required. Sensitive fields (email, IP, IP-hash, sessions) NEVER included.
+- **🆕 Clickable leaderboard rows on `/leaderboards`** — each row opens a `UserDetailModal` showing: totals breakdown (Total / Pred / Fantasy / WC Mini), eligibility status, main-squad stats, last 20 predictions (pick → actual → points), last 20 WC mini-game entries.
+- **♻️ Replaced separate prediction & fantasy boards with the unified leaderboard everywhere** — `RightRail.jsx` previously showed two side-by-side widgets ("World Cup Points" + "Predictions Top 5"); now a single "Prize-Pool Leaderboard" widget with a green dot next to eligible users. `Predictions.jsx` switched from `/predictions/leaderboard` to `/leaderboard`. Old endpoints kept alive (used by tests).
+- **🆕 ELIGIBLE / NOT YET pills** on every unified-board row + a top-of-page rule banner explaining the threshold.
+- Verified via Playwright: row click → modal renders with totals/squad/predictions correctly; backend curl confirmed `Session TTL: 24.0 hours`.
+
+
 ### 2026-02-12 (Samsung S22 blank/scanline fix + prediction settler unblock)
 - **🐛 Samsung S22 was rendering blank `/build-team` + scanline corruption on `/profile`.** Root cause: our previous "Samsung hardening" CSS promoted **every** `.cp-surface` / `.sticky` element to its own GPU compositor layer via `transform: translateZ(0)`. Samsung S22 has a smaller texture-cache than Chrome's reference Pixel — 50+ promoted layers per page overflows it, and the GPU either renders a black/white blank or partial textures (scanlines). Removed the global GPU-promotion rule; only safe viewport/overflow rules remain.
 - **🐛 Prediction auto-settler was permanently dead.** Two compounding bugs:

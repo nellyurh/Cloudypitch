@@ -16,7 +16,13 @@ from db import get_db, utcnow, utcnow_iso
 from models import new_id, public_user
 
 COOKIE_NAME = "cp_session"
-SESSION_TTL_DAYS = int(os.environ.get("SESSION_TTL_DAYS", "30"))
+# 🛡️ Hard 24-hour session expiry (2026-02-12). Was 30 days; we now log users
+# out automatically after 24h to limit blast radius if a cookie is stolen.
+# Both the cookie max-age AND the DB row's `expires_at` are enforced — and
+# `get_current_user` rejects expired sessions, which previously was ONLY checked
+# implicitly via the cookie (an attacker with the raw cookie could replay it
+# indefinitely against the API).
+SESSION_TTL_HOURS = int(os.environ.get("SESSION_TTL_HOURS", "24"))
 COOKIE_SECURE = os.environ.get("COOKIE_SECURE", "true").lower() == "true"
 COOKIE_SAMESITE = os.environ.get("COOKIE_SAMESITE", "lax")
 BCRYPT_ROUNDS = 12
@@ -57,7 +63,7 @@ def set_session_cookie(response: Response, raw_token: str):
     response.set_cookie(
         key=COOKIE_NAME,
         value=raw_token,
-        max_age=SESSION_TTL_DAYS * 24 * 3600,
+        max_age=SESSION_TTL_HOURS * 3600,
         httponly=True,
         secure=COOKIE_SECURE,
         samesite=COOKIE_SAMESITE,
@@ -147,7 +153,7 @@ async def create_session(user_id: str, request: Request) -> str:
         "user_agent": request.headers.get("user-agent", "")[:300],
         "ip_address": get_ip(request),
         "created_at": utcnow_iso(),
-        "expires_at": utcnow() + timedelta(days=SESSION_TTL_DAYS),
+        "expires_at": (utcnow() + timedelta(hours=SESSION_TTL_HOURS)).isoformat(),
         "revoked_at": None,
     })
     return raw
@@ -167,6 +173,23 @@ async def get_current_user(request: Request) -> dict:
     sess = await db.sessions.find_one({"token_hash": hash_token(raw), "revoked_at": None})
     if not sess:
         raise HTTPException(status_code=401, detail="Invalid session")
+    # 🛡️ Enforce hard expiry — previously only the browser cookie max-age
+    # gated this, so a leaked raw cookie could be replayed against the API
+    # indefinitely. Now the DB-side `expires_at` is the source of truth.
+    exp = sess.get("expires_at")
+    if exp:
+        try:
+            from datetime import datetime as _dt
+            exp_dt = _dt.fromisoformat(exp.replace("Z", "+00:00")) if isinstance(exp, str) else exp
+            if exp_dt and exp_dt < utcnow():
+                # Best-effort cleanup so the row doesn't pile up forever.
+                await db.sessions.delete_one({"token_hash": hash_token(raw)})
+                raise HTTPException(status_code=401, detail="Session expired")
+        except HTTPException:
+            raise
+        except Exception:
+            # Don't lock users out on a malformed `expires_at` — just continue.
+            pass
     user = await db.users.find_one({"id": sess["user_id"]})
     if not user or not user.get("is_active", True):
         raise HTTPException(status_code=401, detail="User inactive")

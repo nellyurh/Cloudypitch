@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
-import { Trophy, Flame, ChevronRight, Coins } from "lucide-react";
+import { Trophy, ChevronRight, Coins } from "lucide-react";
 import api from "../lib/api";
 import { FavoritesTicker } from "./FavoritesTicker";
 import AdSlot from "./AdSlot";
@@ -36,19 +36,16 @@ function Countdown({ to }) {
 export const RightRail = () => {
   const [board, setBoard] = useState([]);
   const [pool, setPool] = useState(null);
-  const [wcBoard, setWcBoard] = useState([]);
 
   useEffect(() => {
     (async () => {
       try {
-        const [lb, pools, fLb] = await Promise.all([
-          api.get("/predictions/leaderboard?limit=5"),
+        const [lb, pools] = await Promise.all([
+          api.get("/leaderboard?limit=5"),
           api.get("/prize-pools"),
-          api.get("/fantasy/leaderboard?limit=5"),
         ]);
         setBoard(lb.data.leaderboard || []);
         setPool((pools.data.pools || []).find(p => p.kind === "fantasy_wc2026") || (pools.data.pools || [])[0] || null);
-        setWcBoard(fLb.data.leaderboard || []);
       } catch (_e) { /* ignore */ }
     })();
   }, []);
@@ -58,25 +55,28 @@ export const RightRail = () => {
       {/* Ad slot above the leaderboard — sponsor first, AdSense fallback. */}
       <AdSlot placement="leaderboard_above" minHeight={0}/>
 
-      {/* WC 2026 points leaderboard — sits on top, above Pinned */}
+      {/* Unified WC + Predictions leaderboard preview */}
       <div className="cp-surface overflow-hidden" data-testid="rail-wc-leaderboard">
         <div className="cp-card-header normal-case">
           <span className="flex items-center gap-2 font-bold tracking-wide" style={{ color: "var(--cp-text)" }}>
             <Trophy size={14} className="text-cp-lime" />
-            World Cup Points Leaderboard
+            Prize-Pool Leaderboard
           </span>
           <Link to="/leaderboards" className="text-[10px] uppercase tracking-wider hover:text-cp-lime" data-testid="rail-wc-leaderboard-all">All →</Link>
         </div>
         <ul className="divide-y" style={{ borderColor: "var(--cp-border)" }}>
-          {wcBoard.length === 0 && (
+          {board.length === 0 && (
             <li className="px-3 py-3 text-xs" style={{ color: "var(--cp-text-muted)" }}>
               Be first on the board — <Link to="/build-team" className="text-cp-lime font-bold hover:underline">Build a team</Link>.
             </li>
           )}
-          {wcBoard.map((r) => (
+          {board.map((r) => (
             <li key={r.user_id} className="px-3 py-2 flex items-center gap-2 text-sm" data-testid={`rail-wc-row-${r.rank}`}>
               <span className="cp-logo-circle text-[10px]" style={{ width: 22, height: 22 }}>{r.rank}</span>
-              <span className="truncate flex-1">{r.display_name}</span>
+              <span className="truncate flex-1 flex items-center gap-1">
+                {r.display_name}
+                {r.is_eligible && <span className="text-cp-lime text-[9px]" title="Eligible for prize-pool payout">●</span>}
+              </span>
               <span className="tabular-nums font-bold text-cp-lime">{r.total_points}</span>
             </li>
           ))}
@@ -107,29 +107,6 @@ export const RightRail = () => {
             <Trophy size={14} /> Explore WC Hub
           </Link>
         </div>
-      </div>
-
-      {/* Predictions leaderboard preview */}
-      <div className="cp-surface overflow-hidden">
-        <div className="cp-card-header normal-case">
-          <span className="flex items-center gap-2 font-bold tracking-wide" style={{ color: "var(--cp-text)" }}>
-            <Flame size={14} className="text-cp-lime" />
-            Predictions Top 5
-          </span>
-          <Link to="/leaderboards" className="text-[10px] uppercase tracking-wider hover:text-cp-lime">All →</Link>
-        </div>
-        <ul className="divide-y" style={{ borderColor: "var(--cp-border)" }}>
-          {board.length === 0 && (
-            <li className="px-3 py-3 text-xs" style={{ color: "var(--cp-text-muted)" }}>Be the first to predict!</li>
-          )}
-          {board.map((r) => (
-            <li key={r.user_id} className="px-3 py-2 flex items-center gap-2 text-sm">
-              <span className="cp-logo-circle text-[10px]" style={{ width: 22, height: 22 }}>{r.rank}</span>
-              <span className="truncate flex-1">{r.display_name}</span>
-              <span className="tabular-nums font-bold text-cp-lime">{r.total_points}</span>
-            </li>
-          ))}
-        </ul>
       </div>
 
       {/* Prize pool */}

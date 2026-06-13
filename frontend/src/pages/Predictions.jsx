@@ -155,7 +155,7 @@ export const PredictionsHub = () => {
     try {
       const calls = [
         api.get("/predictions/upcoming?limit=80"),
-        api.get(`/predictions/leaderboard?limit=10&scope=${boardScope}`),
+        api.get(`/leaderboard?limit=10&scope=${boardScope}`),
       ];
       if (user) calls.push(api.get("/predictions/me?limit=200"));
       const results = await Promise.all(calls);
