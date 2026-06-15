@@ -121,6 +121,11 @@ html, body, #root {
   }
   .cp-divider { border-color: var(--cp-border); }
 
+  /* Semantic text-color utilities that auto-switch with light/dark themes.
+   * Use these instead of `text-slate-*` literals which don't theme-switch. */
+  .text-cp { color: var(--cp-text); }
+  .text-cp-muted { color: var(--cp-text-muted); }
+
   .cp-live-dot {
     @apply inline-block rounded-full;
     width: 8px; height: 8px;

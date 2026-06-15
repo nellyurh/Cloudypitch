@@ -75,13 +75,13 @@ export default function H2HCard({ h2h, homeTeamId, awayTeamId, homeName, awayNam
       {/* Scoreline header — Sofascore mini panel */}
       <div className="grid grid-cols-[1fr_auto_1fr] items-center text-center pb-4 mb-3 border-b" style={{ borderColor: "var(--cp-border)" }}>
         <div className="flex items-center justify-end gap-2">
-          <span className="text-sm font-bold text-slate-100">{homeName}</span>
+          <span className="text-sm font-bold text-cp">{homeName}</span>
           <span className="text-lg font-extrabold tabular-nums" style={{ color: "#A3E635" }}>{homeWins}</span>
         </div>
         <span className="px-3 text-sm font-bold" style={{ color: "var(--cp-text-muted)" }}>{draws}</span>
         <div className="flex items-center justify-start gap-2">
           <span className="text-lg font-extrabold tabular-nums" style={{ color: "#7DD3FC" }}>{awayWins}</span>
-          <span className="text-sm font-bold text-slate-100">{awayName}</span>
+          <span className="text-sm font-bold text-cp">{awayName}</span>
         </div>
       </div>
 
@@ -106,9 +106,9 @@ export default function H2HCard({ h2h, homeTeamId, awayTeamId, homeName, awayNam
                     <span className="text-[10px] tabular-nums w-14 shrink-0" style={{ color: "var(--cp-text-muted)" }}>
                       {date ? date.toLocaleDateString([], { day: "2-digit", month: "short", year: "2-digit" }) : "—"}
                     </span>
-                    <span className="flex-1 truncate text-slate-200">
+                    <span className="flex-1 truncate text-cp">
                       <span className={p.home_team_id === homeTeamId ? "font-semibold" : ""}>{p.home_team_name}</span>
-                      <b className="mx-1.5 tabular-nums text-slate-100">{hs}-{as}</b>
+                      <b className="mx-1.5 tabular-nums text-cp">{hs}-{as}</b>
                       <span className={p.away_team_id === homeTeamId ? "font-semibold" : ""}>{p.away_team_name}</span>
                     </span>
                     <OutcomePill outcome={outcome} />
@@ -131,12 +131,12 @@ export default function H2HCard({ h2h, homeTeamId, awayTeamId, homeName, awayNam
           <div className="flex bg-white/5 rounded-full p-0.5 w-fit mx-auto mb-3 text-[11px]" data-testid="matches-team-toggle">
             <button
               onClick={() => setMatchesTeam("home")}
-              className={`px-3 py-1 rounded-full transition ${matchesTeam === "home" ? "bg-cp-lime text-cp-forest font-bold" : "text-slate-300"}`}
+              className={`px-3 py-1 rounded-full transition ${matchesTeam === "home" ? "bg-cp-lime text-cp-forest font-bold" : "text-cp-muted"}`}
               data-testid="toggle-home"
             >{homeName}</button>
             <button
               onClick={() => setMatchesTeam("away")}
-              className={`px-3 py-1 rounded-full transition ${matchesTeam === "away" ? "bg-cp-lime text-cp-forest font-bold" : "text-slate-300"}`}
+              className={`px-3 py-1 rounded-full transition ${matchesTeam === "away" ? "bg-cp-lime text-cp-forest font-bold" : "text-cp-muted"}`}
               data-testid="toggle-away"
             >{awayName}</button>
           </div>
@@ -204,14 +204,14 @@ function MatchRow({ p, pivotTeamId, upcoming }) {
       <span className="text-[10px] tabular-nums w-14 shrink-0" style={{ color: "var(--cp-text-muted)" }}>
         {date ? date.toLocaleDateString([], { day: "2-digit", month: "short", year: "2-digit" }) : "—"}
       </span>
-      <span className="flex-1 truncate text-slate-200">
+      <span className="flex-1 truncate text-cp">
         <span>{p.home_team_name}</span>
         {upcoming ? (
           <b className="mx-1.5 tabular-nums" style={{ color: "var(--cp-text-muted)" }}>
             {date ? date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : "vs"}
           </b>
         ) : (
-          <b className="mx-1.5 tabular-nums text-slate-100">{hs}-{as}</b>
+          <b className="mx-1.5 tabular-nums text-cp">{hs}-{as}</b>
         )}
         <span>{p.away_team_name}</span>
       </span>
@@ -241,7 +241,7 @@ function Streak({ label, value, accent }) {
   const accentColor = accent === "home" ? "#A3E635" : accent === "away" ? "#7DD3FC" : "#F8FAFC";
   return (
     <div className="flex items-center justify-between py-1 text-[12px]">
-      <span className="text-slate-300 truncate">{label}</span>
+      <span className="text-cp-muted truncate">{label}</span>
       <span className="font-bold tabular-nums shrink-0 ml-2" style={{ color: accentColor }}>{value}</span>
     </div>
   );

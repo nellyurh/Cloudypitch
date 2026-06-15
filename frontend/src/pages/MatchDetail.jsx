@@ -83,7 +83,7 @@ function MatchHero({ m, finished }) {
         <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-3 md:gap-6">
           {/* Home */}
           <div className="flex items-center justify-end gap-3 text-right">
-            <div className="text-sm md:text-base font-bold text-slate-100">{m.home_team_name}</div>
+            <div className="text-sm md:text-base font-bold text-cp">{m.home_team_name}</div>
             {m.home_team_logo ? (
               <img src={m.home_team_logo} alt="" className="w-10 h-10 md:w-12 md:h-12 object-contain shrink-0" onError={(e)=>{e.target.style.display="none"}}/>
             ) : <div className="w-10 h-10 md:w-12 md:h-12 cp-logo-circle text-xs font-extrabold shrink-0">{m.home_short}</div>}
@@ -92,9 +92,9 @@ function MatchHero({ m, finished }) {
           {/* Score & status */}
           <div className="text-center min-w-[90px]">
             <div className="text-3xl md:text-4xl font-extrabold tabular-nums tracking-tight leading-none">
-              <span className={m.home_score > m.away_score ? "text-cp-lime" : "text-slate-100"}>{m.home_score ?? "—"}</span>
+              <span className={m.home_score > m.away_score ? "text-cp-lime" : "text-cp"}>{m.home_score ?? "—"}</span>
               <span className="mx-1.5 opacity-40">-</span>
-              <span className={m.away_score > m.home_score ? "text-cp-lime" : "text-slate-100"}>{m.away_score ?? "—"}</span>
+              <span className={m.away_score > m.home_score ? "text-cp-lime" : "text-cp"}>{m.away_score ?? "—"}</span>
             </div>
             <div className="mt-1.5 text-[10px] font-bold uppercase tracking-widest" style={{ color: "var(--cp-text-muted)" }} data-testid="match-status-label">
               {m.is_live && <span className="inline-block w-1.5 h-1.5 rounded-full bg-rose-500 mr-1 animate-pulse align-middle" />}
@@ -109,7 +109,7 @@ function MatchHero({ m, finished }) {
             {m.away_team_logo ? (
               <img src={m.away_team_logo} alt="" className="w-10 h-10 md:w-12 md:h-12 object-contain shrink-0" onError={(e)=>{e.target.style.display="none"}}/>
             ) : <div className="w-10 h-10 md:w-12 md:h-12 cp-logo-circle text-xs font-extrabold shrink-0">{m.away_short}</div>}
-            <div className="text-sm md:text-base font-bold text-slate-100">{m.away_team_name}</div>
+            <div className="text-sm md:text-base font-bold text-cp">{m.away_team_name}</div>
           </div>
         </div>
 

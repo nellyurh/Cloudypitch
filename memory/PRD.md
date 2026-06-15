@@ -10,6 +10,14 @@ Global multi-sport livescore + predictions + fantasy platform launching for FIFA
 - Sportmonks (football), API-Sports (other sports), Trybit/CryptoCloud (crypto deposits), PocketFi (NGN), Google AdSense
 
 
+### 2026-02-15 (Light-mode contrast + bench polish + data-restore)
+- **🎨 Light-mode text fixed across all new components** — Replaced all `text-slate-100/200/300` hardcodes (which only theme-switched in dark mode) with semantic `text-cp` / `text-cp-muted` utility classes wired to `var(--cp-text)` / `var(--cp-text-muted)`. Defined the two utilities in `index.css @layer components`. Fixed in `MatchDetail.jsx` (hero), `H2HCard.jsx`, `EventsList.jsx` — 16 instances. Light mode now legibly renders the entire Match Detail page.
+- **🪑 Bench / Substitutions split (Sofascore parity)** — `LineupPitch.jsx` Bench component rewritten to split into two sections:
+  - **Substitutions** — players who came on (sub_in_minute set): green ↑ pill + minute + name + rating chip.
+  - **{Team} · Bench** — unused subs as a numbered list with position pill (GOA/MID/DEF/ATT) and rating chip when available. Right-side bench mirrors text alignment for the Tunisia column (visual parity).
+- **📊 Trends / Commentary / Events data restored** — Confirmed not a code regression; Sportmonks doc was stale. Pulling `?refresh=1` re-ingested 95 commentary entries, 60 matchfacts (trends), tv stations, referees. UI components were correct.
+- **📐 Right-rail ads aligned** — 2 stacked sidebar AdSlots persist across all tabs (already in place, confirmed parallels the Attack Momentum vertical position on the left).
+
 ### 2026-02-15 (Sofascore parity v4 — H2H Matches sidebar + Goal distribution)
 - **🤝 H2HCard rewrite to Sofascore Côte d'Ivoire vs Ecuador reference**:
   - Top **scoreline header** "Home 5 - 0 Away" showing total wins (W/D/W).

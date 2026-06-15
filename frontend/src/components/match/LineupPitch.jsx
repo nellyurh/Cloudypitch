@@ -92,26 +92,68 @@ function PlayerChip({ player, color, size = "md" }) {
   );
 }
 
-function Bench({ team, label }) {
+function ratingChip(rating) {
+  if (rating == null || typeof rating !== "number") return null;
+  const c = rating >= 8 ? "#A3E635" : rating >= 7 ? "#FBBF24" : rating >= 6 ? "#94A3B8" : "#FB7185";
+  return (
+    <span className="ml-auto text-[10px] font-extrabold px-1.5 py-0.5 rounded tabular-nums" style={{ background: c, color: "#0a0a0a" }}>
+      {rating.toFixed(1)}
+    </span>
+  );
+}
+
+function PlayerRow({ p, side = "left" }) {
+  const alignClass = side === "right" ? "flex-row-reverse text-right" : "";
+  return (
+    <li className={`flex items-center gap-2 py-1.5 text-xs ${alignClass}`} data-testid={`bench-row-${p.player_name}`}>
+      <span className="w-6 text-center font-bold tabular-nums shrink-0" style={{ color: "var(--cp-text-muted)" }}>
+        {p.player_number ?? "—"}
+      </span>
+      <span className="flex-1 truncate text-cp">{p.player_name}</span>
+      {p.position_code && (
+        <span className="text-[9px] px-1 rounded uppercase shrink-0" style={{ background: "var(--cp-surface-2)", color: "var(--cp-text-muted)" }}>
+          {p.position_code.slice(0, 3)}
+        </span>
+      )}
+      {ratingChip(p.rating)}
+    </li>
+  );
+}
+
+function Bench({ team, label, side = "left" }) {
   if (!team || team.bench.length === 0) return null;
+  // Split bench into "made a sub appearance" (sub_in/sub_out present) vs "unused bench"
+  const subs = team.bench.filter((p) => p.sub_in_minute != null || p.sub_out_minute != null || p.minutes_played);
+  const unused = team.bench.filter((p) => !(p.sub_in_minute != null || p.sub_out_minute != null || p.minutes_played));
   return (
     <div className="mt-3" data-testid={`bench-${label}`}>
-      <div className="text-[10px] uppercase tracking-widest mb-1.5" style={{ color: "var(--cp-text-muted)" }}>
-        {label} Bench
+      {subs.length > 0 && (
+        <>
+          <div className="text-[10px] uppercase tracking-widest mb-2 text-center font-bold text-cp">
+            Substitutions
+          </div>
+          <ul className="space-y-0 divide-y mb-3" style={{ borderColor: "var(--cp-border)" }}>
+            {subs.map((p, i) => (
+              <li key={`s-${i}`} className={`flex items-center gap-2 py-1.5 text-xs ${side === "right" ? "flex-row-reverse text-right" : ""}`} data-testid={`sub-row-${p.player_name}`}>
+                <span className={`shrink-0 inline-flex items-center justify-center w-5 h-5 rounded-full text-[10px] font-bold`} style={{ background: "rgba(34,197,94,0.18)", color: "#22C55E" }}>
+                  ↑
+                </span>
+                <span className="text-[10px] font-bold tabular-nums shrink-0 w-9" style={{ color: "var(--cp-text-muted)" }}>
+                  {p.sub_in_minute != null ? `${p.sub_in_minute}'` : "—"}
+                </span>
+                <span className="flex-1 truncate text-cp">{p.player_name}</span>
+                {ratingChip(p.rating)}
+              </li>
+            ))}
+          </ul>
+        </>
+      )}
+      <div className="text-[10px] uppercase tracking-widest mb-1.5 text-center font-bold text-cp">
+        {label} · Bench
       </div>
-      <ul className="grid grid-cols-1 sm:grid-cols-2 gap-x-3 gap-y-0.5 text-xs">
-        {team.bench.map((p, i) => (
-          <li key={i} className="flex items-center gap-2 truncate">
-            <span className="w-5 text-center font-bold tabular-nums" style={{ color: "var(--cp-text-muted)" }}>
-              {p.player_number ?? "—"}
-            </span>
-            <span className="truncate">{p.player_name}</span>
-            {p.position_code && (
-              <span className="text-[9px] px-1 rounded uppercase" style={{ background: "var(--cp-surface-2)", color: "var(--cp-text-muted)" }}>
-                {p.position_code.slice(0, 3)}
-              </span>
-            )}
-          </li>
+      <ul className="grid grid-cols-1 divide-y" style={{ borderColor: "var(--cp-border)" }}>
+        {(unused.length ? unused : team.bench).map((p, i) => (
+          <PlayerRow key={i} p={p} side={side} />
         ))}
       </ul>
     </div>
@@ -267,8 +309,8 @@ export default function LineupPitch({ lineups, homeTeamId, awayTeamId, homeName,
       )}
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-3">
-        <Bench team={home} label={homeName || "Home"}/>
-        <Bench team={away} label={awayName || "Away"}/>
+        <Bench team={home} label={homeName || "Home"} side="left"/>
+        <Bench team={away} label={awayName || "Away"} side="right"/>
       </div>
     </div>
   );

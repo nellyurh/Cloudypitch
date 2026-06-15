@@ -62,7 +62,7 @@ export default function EventsList({ events, homeTeamId, awayTeamId, homeName, a
               <span className="tabular-nums text-right pt-px" style={{ color: "var(--cp-text-muted)" }}>{minuteLabel}</span>
               <span className="pt-px flex justify-center">{iconFor(typeName)}</span>
               <span className="min-w-0">
-                <span className={`block truncate ${goal ? "font-bold text-cp-lime" : (isHome ? "text-slate-100" : "text-slate-300")}`}>
+                <span className={`block truncate ${goal ? "font-bold text-cp-lime" : (isHome ? "text-cp" : "text-cp-muted")}`}>
                   {displayPlayer}
                 </span>
                 {e.assist_player_name && (
@@ -118,7 +118,7 @@ export default function EventsList({ events, homeTeamId, awayTeamId, homeName, a
                   {isHome && (
                     <div className="inline-flex items-start gap-2 justify-end max-w-full" title={typeName}>
                       <div className="text-right min-w-0">
-                        <div className={`font-semibold text-sm truncate ${goal ? "text-cp-lime" : "text-slate-100"}`}>
+                        <div className={`font-semibold text-sm truncate ${goal ? "text-cp-lime" : "text-cp"}`}>
                           {displayPlayer}
                         </div>
                         {assist ? (
@@ -156,7 +156,7 @@ export default function EventsList({ events, homeTeamId, awayTeamId, homeName, a
                     <div className="inline-flex items-start gap-2 max-w-full" title={typeName}>
                       <span className="shrink-0 mt-0.5">{iconFor(typeName)}</span>
                       <div className="text-left min-w-0">
-                        <div className={`font-semibold text-sm truncate ${goal ? "text-cp-lime" : "text-slate-100"}`}>
+                        <div className={`font-semibold text-sm truncate ${goal ? "text-cp-lime" : "text-cp"}`}>
                           {displayPlayer}
                         </div>
                         {assist ? (
