@@ -10,6 +10,22 @@ Global multi-sport livescore + predictions + fantasy platform launching for FIFA
 - Sportmonks (football), API-Sports (other sports), Trybit/CryptoCloud (crypto deposits), PocketFi (NGN), Google AdSense
 
 
+### 2026-02-15 (🐛 FPL-exact scoring + WC settler GK/DEF stat fixes)
+- **🐛 Mini-game settler was dropping all GK/DEF stats** — `wc_settler.py` only read `goals/assists/cards/own_goals/missed_pens/minutes` from events. `saves`, `penalty_saves`, `goals_conceded`, and the defensive-stat block (`clearances/blocks/interceptions/tackles/recoveries`) were never aggregated → GK got 0 save points, DEF got 0 clean-sheet bonus credit for 60+ min, GK/DEF never lost points for goals conceded. Main-squad settler was already correct.
+- **🛠️ Fixed `wc_settler.py`** to mirror `settle_gameweek`:
+  - Pulls per-player `clearances/blocks/interceptions/tackles/recoveries/saves/penalty_saves` from `lineup.stats`.
+  - Computes `goals_conceded` from team match score for GK/DEF.
+  - Passes everything to `compute_player_points`.
+- **🛠️ `fantasy_scoring.py` rebuilt to EXACT FPL spec** per user request:
+  - Removed CBIT (DEF +2 per 10) and CBIRT (MID/FWD +2 per 12) defensive contribution bonuses — these were a Cloudy-Pitch extension, not canonical FPL. Backwards-compat shim: the function still accepts the legacy params but ignores them.
+  - Confirmed canonical: 1-59 min → +1, 60+ → +2; goals GK/DEF +6, MID +5, FWD +4; assist +3; CS GK/DEF +4, MID +1; 3 saves +1; pen save +5; yellow -1; red -3; OG -2; pen miss -2; 2 conceded GK/DEF -1; MOTM/BPS bonus +3 (kept as `is_motm` flag).
+- **Sanity tests verified**:
+  - DEF 90 min CS → 6 pts (2+4) ✓
+  - DEF 90 min 2 conceded → 1 pt (2-1) ✓
+  - GK 90 min 5 saves CS → 7 pts (2+4+1) ✓
+  - FWD 70 min goal+yellow → 5 pts (2+4-1) ✓
+- **Live rebuilds executed**: 6 squads reset / 8 settled (main) + 18 mini-games re-settled (0 failures).
+
 ### 2026-02-15 (🐛 Duplicate-league norm() fix + bulk match dedupe)
 - **🐛 Root cause**: `cleanup_duplicate_leagues` `norm()` was stripping at BOTH `:` AND ` - `. The ` - ` split mass-collapsed unrelated leagues — every "Brazil: Copa Espirito Santo - Play Offs", "Brazil: Paraibano U20 - Play Offs", etc. flattened to just `"play offs"`. To avoid destroying real data, the cleanup had to under-match — leaving real dupes like `"Brazil: Carioca C"` vs `"Carioca C"` and `"Argentina: Primera C"` vs `"Primera C"` un-merged.
 - **🛠️ Fixed `norm()`** in `routes/admin_cleanup.py`:

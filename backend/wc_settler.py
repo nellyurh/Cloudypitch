@@ -188,7 +188,9 @@ async def settle_wc_game(game_id: str, *, force: bool = False) -> dict:
 
             agg = {"goals": 0, "assists": 0, "yellow_cards": 0, "red_cards": 0,
                    "own_goals": 0, "missed_penalties": 0, "minutes": 0,
-                   "saves": 0, "penalty_saves": 0}
+                   "saves": 0, "penalty_saves": 0, "goals_conceded": 0,
+                   "clearances": 0, "blocks": 0, "interceptions": 0,
+                   "tackles": 0, "recoveries": 0}
             had_cs = False
             for m in matches:
                 if team_id not in (m.get("home_team_id"), m.get("away_team_id")):
@@ -204,8 +206,26 @@ async def settle_wc_game(game_id: str, *, force: bool = False) -> dict:
                     agg["minutes"] += 90 if lin.get("starter") else 30
                     if s.get("substituted_out"):
                         agg["minutes"] = max(0, agg["minutes"] - 30)
+                    # 🐛 Fix 2026-02-15: pull per-player defensive + GK stats
+                    # from `lineup.stats` so DEF clean sheets, CBIT bonuses,
+                    # GK saves & penalty saves are credited. Was silently
+                    # dropping all of these → DEF/GK under-scored.
+                    pstats = (lin.get("stats") or {})
+                    for k in ("clearances", "blocks", "interceptions", "tackles", "recoveries", "saves"):
+                        v = pstats.get(k)
+                        if isinstance(v, (int, float)):
+                            agg[k] += int(v)
+                    pen_saves = pstats.get("penalty_saves") or pstats.get("saves_penalty")
+                    if isinstance(pen_saves, (int, float)):
+                        agg["penalty_saves"] += int(pen_saves)
                 for k in ("goals", "assists", "yellow_cards", "red_cards", "own_goals", "missed_penalties"):
                     agg[k] += int(s.get(k, 0))
+                # 🐛 Fix 2026-02-15: team goals conceded for GK/DEF deduction.
+                if position in ("GK", "DEF"):
+                    if m.get("home_team_id") == team_id:
+                        agg["goals_conceded"] += int(m.get("away_score") or 0)
+                    else:
+                        agg["goals_conceded"] += int(m.get("home_score") or 0)
                 if cs_map.get((m["id"], team_id), False):
                     had_cs = True
 
@@ -217,6 +237,10 @@ async def settle_wc_game(game_id: str, *, force: bool = False) -> dict:
                 own_goals=agg["own_goals"], missed_penalties=agg["missed_penalties"],
                 saves=agg["saves"], penalty_saves=agg["penalty_saves"],
                 team_clean_sheet=had_cs,
+                goals_conceded=agg["goals_conceded"],
+                clearances=agg["clearances"], blocks=agg["blocks"],
+                interceptions=agg["interceptions"], tackles=agg["tackles"],
+                recoveries=agg["recoveries"],
             )
             base_pts = int(res["points"])
 

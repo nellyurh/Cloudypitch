@@ -1,33 +1,36 @@
 """Fantasy points engine — computes per-player gameweek points from match events/stats.
 
-Scoring spec (canonical 2026-02-13):
-─────────────────────────────────────
+Canonical FPL scoring (rebuilt 2026-02-15 to match user spec exactly):
+─────────────────────────────────────────────────────────────────────
 Core match
-  · Minutes ≤ 60      → +1
-  · Minutes ≥ 60      → +2 (excludes stoppage time)
-  · Goal — GK / DEF   → +6
-  · Goal — MID        → +5
-  · Goal — FWD        → +4
-  · Assist            → +3
-  · Clean sheet GK/DEF→ +4
-  · Clean sheet MID   → +1
-  · Every 3 GK saves  → +1
-  · Penalty save      → +5
-
-Defensive contributions
-  · DEF: +2 for every 10 CBIT  (Clearances + Blocks + Interceptions + Tackles)
-  · MID/FWD: +2 for every 12 CBIRT (CBIT + Recoveries)
+  · Minutes 1-59          → +1
+  · Minutes 60+           → +2  (excludes stoppage time)
+  · Goal — GK / DEF       → +6
+  · Goal — MID            → +5
+  · Goal — FWD            → +4
+  · Assist                → +3
+  · Clean sheet GK/DEF    → +4
+  · Clean sheet MID       → +1
+  · Every 3 GK saves      → +1
+  · Penalty save          → +5
+  · BPS / MOTM bonus      → +1, +2 or +3 (set via is_motm flag externally)
 
 Deductions
-  · Yellow card                 → -1
-  · Red card                    → -3
-  · Own goal                    → -2
-  · Penalty miss                → -2
+  · Yellow card                  → -1
+  · Red card                     → -3
+  · Own goal                     → -2
+  · Penalty miss                 → -2
   · Every 2 goals conceded GK/DEF → -1
 
 Special
   · Captain ×2 (vice ×2 fallback if captain didn't play)
-  · MOTM bonus +3 (kept for future use; not in the canonical spec)
+
+Removed in this version (2026-02-15):
+  · CBIT defensive contribution bonus for DEF
+  · CBIRT defensive contribution bonus for MID/FWD
+  → not part of the canonical FPL spec. The compute_player_points signature
+    still accepts the parameters (`clearances`, `blocks`, `interceptions`,
+    `tackles`, `recoveries`) for backwards compatibility but ignores them.
 """
 from collections import defaultdict
 
@@ -39,14 +42,9 @@ YELLOW = -1
 RED = -3
 OWN_GOAL = -2
 MISSED_PEN = -2
-MOTM = 3
+MOTM = 3   # BPS-style bonus top-1 — set via is_motm
 PEN_SAVE = 5
 SAVE_TIER = 3  # +1 per 3 saves (GK only)
-
-# Defensive contribution thresholds — every N actions = +2 pts.
-DEF_CBIT_THRESHOLD = 10   # for Defenders
-MIDFWD_CBIRT_THRESHOLD = 12  # for MID/FWD
-DEFENSIVE_BONUS_POINTS = 2
 
 # Every 2 goals conceded → -1 point (GK/DEF only)
 GOALS_CONCEDED_TIER = 2
@@ -66,74 +64,79 @@ def compute_player_points(
     is_motm: bool = False,
     team_clean_sheet: bool = False,
     goals_conceded: int = 0,
+    # ── Accepted for backwards-compat but ignored under canonical FPL ──
     clearances: int = 0,
     blocks: int = 0,
     interceptions: int = 0,
     tackles: int = 0,
     recoveries: int = 0,
 ) -> dict:
-    """Return points + breakdown for one player."""
-    breakdown = {}
+    """Return points + breakdown for one player using canonical FPL rules."""
+    # Backwards-compat shim — accept but ignore the legacy defensive params.
+    _ = (clearances, blocks, interceptions, tackles, recoveries)
+
+    breakdown: dict[str, int] = {}
     pts = 0
 
-    # Minutes
+    # Minutes (1-59 → +1, ≥60 → +2)
     if minutes_played >= 60:
-        breakdown["minutes_60+"] = 2; pts += 2
+        breakdown["minutes_60+"] = 2
+        pts += 2
     elif minutes_played > 0:
-        breakdown["minutes_<60"] = 1; pts += 1
+        breakdown["minutes_<60"] = 1
+        pts += 1
 
     # Goals / assists
     if goals:
         gp = GOAL_POINTS.get(position, 4)
-        breakdown[f"goals_x{goals}"] = goals * gp; pts += goals * gp
+        breakdown[f"goals_x{goals}"] = goals * gp
+        pts += goals * gp
     if assists:
-        breakdown[f"assists_x{assists}"] = assists * ASSIST_POINTS; pts += assists * ASSIST_POINTS
+        breakdown[f"assists_x{assists}"] = assists * ASSIST_POINTS
+        pts += assists * ASSIST_POINTS
 
-    # Clean sheet (requires ≥60 min)
+    # Clean sheet — only credited if player played ≥60 min.
     if team_clean_sheet and minutes_played >= 60:
         cs = CLEAN_SHEET_POINTS.get(position, 0)
         if cs:
-            breakdown["clean_sheet"] = cs; pts += cs
+            breakdown["clean_sheet"] = cs
+            pts += cs
 
     # GK-only: saves & penalty saves
     if position == "GK" and saves:
         sp = saves // SAVE_TIER
         if sp:
-            breakdown[f"saves_x{saves}"] = sp; pts += sp
+            breakdown[f"saves_x{saves}"] = sp
+            pts += sp
     if penalty_saves:
-        breakdown[f"pen_saves_x{penalty_saves}"] = penalty_saves * PEN_SAVE; pts += penalty_saves * PEN_SAVE
+        breakdown[f"pen_saves_x{penalty_saves}"] = penalty_saves * PEN_SAVE
+        pts += penalty_saves * PEN_SAVE
 
-    # ── Defensive contributions (NEW 2026-02-13) ───────────────────────
-    # DEF earns +2 per 10 CBIT; MID/FWD earn +2 per 12 CBIRT.
-    cbit = (clearances or 0) + (blocks or 0) + (interceptions or 0) + (tackles or 0)
-    if position == "DEF" and cbit >= DEF_CBIT_THRESHOLD:
-        units = cbit // DEF_CBIT_THRESHOLD
-        bonus = units * DEFENSIVE_BONUS_POINTS
-        breakdown[f"cbit_{cbit}"] = bonus; pts += bonus
-    elif position in ("MID", "FWD"):
-        cbirt = cbit + (recoveries or 0)
-        if cbirt >= MIDFWD_CBIRT_THRESHOLD:
-            units = cbirt // MIDFWD_CBIRT_THRESHOLD
-            bonus = units * DEFENSIVE_BONUS_POINTS
-            breakdown[f"cbirt_{cbirt}"] = bonus; pts += bonus
-
-    # ── Goals-conceded penalty (NEW 2026-02-13) ────────────────────────
-    # GK and DEF lose 1 point per 2 goals conceded by their team.
+    # ── Goals-conceded penalty (GK + DEF, -1 per 2 conceded) ───────────
     if position in ("GK", "DEF") and goals_conceded >= GOALS_CONCEDED_TIER:
         penalty = -(goals_conceded // GOALS_CONCEDED_TIER)
-        breakdown[f"goals_conceded_{goals_conceded}"] = penalty; pts += penalty
+        breakdown[f"goals_conceded_{goals_conceded}"] = penalty
+        pts += penalty
 
     # Deductions
     if yellow_cards:
-        breakdown[f"yellow_x{yellow_cards}"] = yellow_cards * YELLOW; pts += yellow_cards * YELLOW
+        breakdown[f"yellow_x{yellow_cards}"] = yellow_cards * YELLOW
+        pts += yellow_cards * YELLOW
     if red_cards:
-        breakdown[f"red_x{red_cards}"] = red_cards * RED; pts += red_cards * RED
+        breakdown[f"red_x{red_cards}"] = red_cards * RED
+        pts += red_cards * RED
     if own_goals:
-        breakdown[f"own_goals_x{own_goals}"] = own_goals * OWN_GOAL; pts += own_goals * OWN_GOAL
+        breakdown[f"own_goals_x{own_goals}"] = own_goals * OWN_GOAL
+        pts += own_goals * OWN_GOAL
     if missed_penalties:
-        breakdown[f"missed_pen_x{missed_penalties}"] = missed_penalties * MISSED_PEN; pts += missed_penalties * MISSED_PEN
+        breakdown[f"missed_pen_x{missed_penalties}"] = missed_penalties * MISSED_PEN
+        pts += missed_penalties * MISSED_PEN
+
+    # BPS / MOTM bonus (+3 for top performer in match — externally flagged)
     if is_motm:
-        breakdown["motm"] = MOTM; pts += MOTM
+        breakdown["motm_bonus"] = MOTM
+        pts += MOTM
+
     return {"points": pts, "breakdown": breakdown}
 
 
