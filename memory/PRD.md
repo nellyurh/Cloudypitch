@@ -10,6 +10,13 @@ Global multi-sport livescore + predictions + fantasy platform launching for FIFA
 - Sportmonks (football), API-Sports (other sports), Trybit/CryptoCloud (crypto deposits), PocketFi (NGN), Google AdSense
 
 
+### 2026-02-13 (Budget bump · alert → toast · fantasy auto-credit · 30m lock fix)
+- **20-man squad budget bumped €120M → €150M** for all mini-game types (`group`, `round`, `matchday`). Single-match games still cap at €100M / 15-man. Updated in `routes/fantasy.py` (`_pick_rules_for_game`, `create_or_update_squad`) AND `BuildTeam.jsx` (`SQUAD_PROFILES["20"].budget`). Verified via `/api/fantasy/game-rules/{id}` → `{total: 20, budget: 150}`.
+- **🐛 30-minute team-lock false-positive** — A team whose group-stage match had already finished (FT) was being permanently locked from later round/matchday mini-games. Root cause: the lock query was `scheduled_at ≤ now+30m` with no upper bound on age and no status filter, so a finished match in the past matched forever. **Fix**: added `scheduled_at ≥ now-4h` floor + `status ∉ [FT, AET, PEN, AWARDED, CANC, POSTP, ABAN]`. Now a team is locked ONLY if it has a NON-finished match starting within 30 min or currently in-play.
+- **🆕 Native browser `alert()` → custom toast (Sonner)** — All 13 `alert()` calls in `BuildTeam.jsx` + 2 in `MyTeams.jsx` migrated to `toast.error()` / `toast.success()`. The toast container was already mounted in `Layout.jsx`. No more "cloudypitch.com says…" OS popups breaking the immersive UI.
+- **🆕 Main fantasy team auto-credit loop** — Squad `total_points` weren't growing because `settle_gameweek` was admin-only. Wired into the existing `wc_games_settler_loop` (every 5 min) so every FT match auto-credits all 15-man and 20-man squads. Verified via manual `POST /api/fantasy/settle/gameweek?gameweek=1` → `{settled: 8}` squads re-scored.
+
+
 ### 2026-02-13 (Recursive coin sweep + admin pricing in coins)
 - **Wallet page** rewritten to lead with **Coin Balance** in 🪙 emoji + tabular nums. Legacy NGN/USD balances shown only as a small "Legacy balances (mini-games / withdrawals)" footnote so they don't dominate.
 - **Admin → Card Prices tab** rewritten: bulk-price + per-card editor both in coins, with Legendary/Elite/Star tier labels. Backend `PATCH /api/admin/cards/{id}` + `POST /api/admin/cards/bulk-price` now accept `price_coins` (preferred). Legacy `price_usd_cents` still accepted for backwards compat.

@@ -2402,6 +2402,21 @@ async def start_background_jobs():
                     log.info(f"predictions settler: settled {p_count} predictions")
             except Exception as e:
                 log.warning(f"predictions settler: {e}")
+            # Re-credit the main fantasy squads from the latest match events.
+            # Was previously admin-only via /api/fantasy/settle/gameweek so
+            # squad points never grew automatically. Now runs every 5 min.
+            try:
+                from routes.fantasy import settle_gameweek
+                # `settle_gameweek` is the admin endpoint — but it only needs
+                # the `gameweek` param + a user with `is_admin=True`. Cheat
+                # and pass a system-admin shim so the loop can call it.
+                # Each iteration re-scores ALL squads against all FT matches;
+                # idempotent so safe to re-run.
+                result = await settle_gameweek(gameweek=1, user={"id": "system", "is_admin": True})
+                if (result or {}).get("settled"):
+                    log.info(f"fantasy settler: re-scored {result['settled']} squads")
+            except Exception as e:
+                log.warning(f"fantasy settler: {e}")
             await asyncio.sleep(300)
 
     async def live_poller():

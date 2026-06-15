@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
+import { toast } from "sonner";
 import api from "../lib/api";
 import AdSlot from "../components/AdSlot";
 import { Trophy, Plus, ArrowRight, Star, Repeat, Coins } from "lucide-react";
@@ -27,10 +28,10 @@ export default function MyTeams() {
   const buyTransferCard = async () => {
     try {
       const { data } = await api.post("/fantasy/transfers/buy");
-      alert(`✓ Transfer pack bought. You now have ${data.remaining} transfers.`);
+      toast.success(`Transfer pack bought · ${data.remaining} transfers available`);
       loadAll();
     } catch (e) {
-      alert(`✗ ${e?.response?.data?.detail || e.message}`);
+      toast.error(e?.response?.data?.detail || e.message);
     }
   };
 

@@ -141,12 +141,12 @@ def _pick_rules_for_game(g: dict) -> dict:
                 "slots": {"GK": 2, "DEF": 5, "MID": 5, "FWD": 3}}
     if gt == "group":
         # 4 teams in the group, 20-man squad, 5 per country max.
-        return {"total": 20, "budget": 120, "max_per_country": 5,
+        return {"total": 20, "budget": 150, "max_per_country": 5,
                 "slots": {"GK": 3, "DEF": 7, "MID": 6, "FWD": 4}}
     if gt in ("matchday", "round"):
         # Many teams playing → 20-man with hard 2-per-country cap so no single
         # nation dominates.
-        return {"total": 20, "budget": 120, "max_per_country": 2,
+        return {"total": 20, "budget": 150, "max_per_country": 2,
                 "slots": {"GK": 3, "DEF": 7, "MID": 6, "FWD": 4}}
     return {"total": 15, "budget": 100, "max_per_country": 2,
             "slots": {"GK": 2, "DEF": 5, "MID": 5, "FWD": 3}}
@@ -188,7 +188,7 @@ async def create_or_update_squad(payload: FantasySquadIn, user: dict = Depends(a
     # Honor explicit mode (15-man £100m vs 20-man £120m). Fall back to comp config.
     mode = payload.mode or "15"
     max_size = 20 if mode == "20" else 15
-    budget = 120.0 if mode == "20" else 100.0
+    budget = 150.0 if mode == "20" else 100.0
     if len(payload.players) > max_size:
         raise HTTPException(status_code=400, detail=f"Squad too large; max {max_size}")
     total_cost = sum(p.price_paid for p in payload.players)

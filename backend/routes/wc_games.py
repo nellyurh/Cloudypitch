@@ -258,9 +258,18 @@ async def enter_game(game_id: str, body: GameEntryIn, user: dict = Depends(a.get
         if team_ids:
             now_dt = datetime.now(timezone.utc)
             cutoff = (now_dt + timedelta(minutes=30)).isoformat()
+            floor_iso = (now_dt - timedelta(hours=4)).isoformat()
+            # 🛡️ Only lock teams whose match is upcoming-and-imminent
+            # (kickoff ≤ now + 30 min) OR currently in-play. Already-finished
+            # matches (FT/AET/PEN) AND old fixtures (> 4 h ago) MUST NOT lock
+            # the team — otherwise a team's group-stage match in the past
+            # would permanently block them from ever being picked again in a
+            # later round mini-game (root cause of "Spain locked 4 hours
+            # before kickoff" report 2026-02-13).
             q = {
                 "is_world_cup": True,
-                "scheduled_at": {"$lte": cutoff},
+                "scheduled_at": {"$lte": cutoff, "$gte": floor_iso},
+                "status": {"$nin": ["FT", "AET", "PEN", "AWARDED", "CANC", "POSTP", "ABAN"]},
             }
             if g["game_type"] in ("group", "matchday"):
                 q["home_team_id"] = {"$in": team_ids}

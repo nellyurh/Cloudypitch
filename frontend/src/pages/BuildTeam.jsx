@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { useSearchParams, Link } from "react-router-dom";
+import { toast } from "sonner";
 import api from "../lib/api";
 import { useAuth } from "../lib/auth";
 import { useCurrency } from "../lib/currency";
@@ -8,9 +9,11 @@ import PlayerDetailSheet from "../components/PlayerDetailSheet";
 import { CheckCircle2, X, Search, ChevronLeft, Trophy, Save, Zap, AlertTriangle, CreditCard, MinusCircle, ShoppingCart, Info, Repeat } from "lucide-react";
 
 const POSITIONS = ["GK", "DEF", "MID", "FWD"];
+// Mini-game 20-man budget bumped to €150M (2026-02-13) — gives users room
+// to field marquee players AND respect the 2-per-country cap.
 const SQUAD_PROFILES = {
   "15": { total: 15, budget: 100, slots: { GK: 2, DEF: 5, MID: 5, FWD: 3 } },
-  "20": { total: 20, budget: 120, slots: { GK: 3, DEF: 7, MID: 6, FWD: 4 } },
+  "20": { total: 20, budget: 150, slots: { GK: 3, DEF: 7, MID: 6, FWD: 4 } },
 };
 const POS_LABEL = { GK: "Goalkeepers", DEF: "Defenders", MID: "Midfielders", FWD: "Forwards" };
 const POS_COLOR = { GK: "#FFC857", DEF: "#A3E635", MID: "#7DD3FC", FWD: "#FB7185" };
@@ -472,7 +475,7 @@ export default function BuildTeam() {
     // Hard country cap — keeps users from stacking one nation on the main team
     // (anti-stacking) and follows the per-game caps for mini-games.
     if ((countryCounts[p.country] || 0) >= MAX_PER_COUNTRY) {
-      alert(`Max ${MAX_PER_COUNTRY} player${MAX_PER_COUNTRY === 1 ? "" : "s"} from ${p.country} allowed${gameRules ? " in this game" : " in your main squad"}.`);
+      toast.error(`Max ${MAX_PER_COUNTRY} player${MAX_PER_COUNTRY === 1 ? "" : "s"} from ${p.country} allowed${gameRules ? " in this game" : " in your main squad"}.`);
       return;
     }
     setSquad([...squad, p]);
@@ -510,7 +513,7 @@ export default function BuildTeam() {
         squad.forEach(x => { if (!next.has(x.id)) startersByPos[x.position] += 1; });
         if (next.has(p.id)) {
           if (startersByPos[p.position] >= startersNeeded[p.position]) {
-            alert(`${formation} formation already has ${startersNeeded[p.position]} starting ${p.position}. Bench another ${p.position} first.`);
+            toast.error(`${formation} formation already has ${startersNeeded[p.position]} starting ${p.position}. Bench another ${p.position} first.`);
             return prev;
           }
           next.delete(p.id);
@@ -518,7 +521,7 @@ export default function BuildTeam() {
           if (startersByPos[p.position] <= startersNeeded[p.position] && (startersByPos[p.position] - 1) < startersNeeded[p.position]) {
             const benchedSamePos = squad.find(x => x.position === p.position && next.has(x.id));
             if (!benchedSamePos) {
-              alert(`Cannot bench: formation ${formation} needs ${startersNeeded[p.position]} starting ${p.position}.`);
+              toast.error(`Cannot bench: formation ${formation} needs ${startersNeeded[p.position]} starting ${p.position}.`);
               return prev;
             }
             next.add(p.id);
@@ -526,7 +529,7 @@ export default function BuildTeam() {
             return next;
           }
           if (next.size >= benchTarget) {
-            alert(`Bench is full (${benchTarget}). Promote someone first.`);
+            toast.error(`Bench is full (${benchTarget}). Promote someone first.`);
             return prev;
           }
           next.add(p.id);
@@ -549,7 +552,7 @@ export default function BuildTeam() {
 
   const saveSquad = async () => {
     if (isFull && !captainId) {
-      alert("Pick a captain (2× points) before saving. Tap a player on the pitch.");
+      toast.error("Pick a captain (2× points) before saving. Tap a player on the pitch.");
       setArmbandStep(true);
       return;
     }
@@ -559,7 +562,7 @@ export default function BuildTeam() {
       squad.forEach(p => { if (!benchIds.has(p.id)) startersByPos[p.position] += 1; });
       const wrong = POSITIONS.filter(pos => startersByPos[pos] !== startersNeeded[pos]);
       if (wrong.length) {
-        alert(`Formation ${formation} needs ${startersNeeded.GK}-${startersNeeded.DEF}-${startersNeeded.MID}-${startersNeeded.FWD} starters. Fix ${wrong.join(", ")} before saving.`);
+        toast.error(`Formation ${formation} needs ${startersNeeded.GK}-${startersNeeded.DEF}-${startersNeeded.MID}-${startersNeeded.FWD} starters. Fix ${wrong.join(", ")} before saving.`);
         return;
       }
     }
@@ -574,7 +577,7 @@ export default function BuildTeam() {
   const persistSquad = async () => {
     // Refuse to save if any applied card hasn't been targeted yet.
     if (appliedCards.some(c => !c.target_player_id)) {
-      alert("One of your applied cards has no target player. Tap the card and pick a player.");
+      toast.error("One of your applied cards has no target player. Tap the card and pick a player.");
       return;
     }
     setSaving(true);
@@ -619,7 +622,7 @@ export default function BuildTeam() {
       setSavedAt(new Date());
       setOriginalIds(new Set(squad.map(p => p.id))); // reset transfer baseline
     } catch (e) {
-      alert(e?.response?.data?.detail || "Save failed");
+      toast.error(e?.response?.data?.detail || "Save failed");
     }
     setSaving(false);
   };
@@ -648,7 +651,7 @@ export default function BuildTeam() {
       setTransferModal(null);
       await persistSquad();
     } catch (e) {
-      alert(`✗ ${e?.response?.data?.detail || e.message}`);
+      toast.error(`✗ ${e?.response?.data?.detail || e.message}`);
     }
     setTransferBusy(false);
   };
