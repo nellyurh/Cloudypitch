@@ -1,0 +1,38 @@
+{
+  "summary": "Validated all 5 redesigned Match Detail components on Sweden vs Tunisia (id 7d238631-6ab0-4706-875f-8ab307aaf1fd, status FT). MatchHero, EventsList, StatsBars (DualProgressBar), H2HCard, and StandingsTable all render with correct data-testids and Sofascore-parity styling. Mobile viewport (390x844) renders correctly with horizontally-scrollable tabs.",
+  "backend_issues": { "critical": [], "minor": [] },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "MatchHero (football)", "issues": ["Stadium background layer is present and renders with backgroundImage URL set, but at opacity 0.28 + heavy dark gradient overlay the stadium imagery is barely perceptible on the dark theme — visually almost invisible. Consider raising opacity to ~0.4 or lightening the top of the gradient if the design intent was for the stadium to be a recognizable backdrop."]}
+    ]
+  },
+  "validation_details": {
+    "match_hero": "PASS — data-testid='match-hero' visible, stadium background div rendered (1 layer with background-image style), status pill shows 'Full Time' (data-testid='match-status-pill'), both team logos (Sweden flag, Tunisia flag) + names render, meta strip shows date 'Jun 15, 2026, 02:00 AM' and venue 'Monterrey Stadium, Guadalupe'.",
+    "events_tab": "PASS — data-testid='events-list' renders. Header row: 'Sweden' (lime) / 'MIN' / 'Tunisia'. 18 event rows rendered with minute pills at center (first pill='7''). Vertical rail line + minute pills layout verified.",
+    "stats_tab": "PASS — data-testid='stats-bars' renders with 42 [data-testid='dual-progress'] rows. Screenshot confirms single dual-progress bar per row, center divider notch present, winning side lime / losing slate, numeric values above each side (e.g., '13 Shots Total 6', '4 Big Chances Created 0').",
+    "h2h_tab": "PASS (empty state) — no h2h data for this match → data-testid='h2h-empty' renders 'No prior head-to-head found.' as designed. Could not verify aggregate W/D/L badge rendering on this match because no h2h rows exist. Code review confirms data-testid='h2h-card', 'h2h-wins', 'h2h-draws', 'h2h-losses' are wired correctly in /app/frontend/src/components/match/H2HCard.jsx.",
+    "standings_tab": "PASS (empty state) — no standings ingested → data-testid='standings-empty' renders 'Standings not yet ingested for this competition.' Code review confirms left-lime border applied via boxShadow:'inset 2px 0 0 0 var(--cp-lime)' for rows whose team_id is in highlight_team_ids.",
+    "mobile_390x844": "PASS — match-hero centered, score '5 : 1' readable, status pill 'Full Time' visible, tabs container scrollWidth=557 / clientWidth=364 confirming horizontal scrollability."
+  },
+  "test_report_links": [],
+  "action_items": [
+    "(Optional, low priority) Consider increasing stadium background opacity from 0.28 → ~0.4 or softening the top of the dark gradient so the stadium imagery is more recognizable; currently the hero looks almost entirely dark.",
+    "(Out of scope of this iteration) Find/seed a finished football match that has populated h2h + standings to fully visually validate aggregate badges and lime-border highlight rows. Empty states already verified."
+  ],
+  "critical_code_review_comments": [
+    "MatchDetail.jsx is 369 lines — fine. EventsList/StatsBars/H2HCard are clean, self-contained, use CSS vars for theming. Good use of data-testids throughout.",
+    "EventsList: events arriving without team_id (neither home nor away) fall back to a plain text row — acceptable but worth noting.",
+    "StatsBars PERCENT_STATS rebalance only triggers when |sum-100|>5 — works for typical possession data.",
+    "Console: a few background 401s observed (auth-gated endpoints used by other components/widgets) — does not affect the redesigned tabs under test."
+  ],
+  "updated_files": [],
+  "success_rate": { "backend": "n/a (skipped per request)", "frontend": "100% (5/5 components verified, 2 via populated data + empty states for h2h/standings)" },
+  "test_credentials": "admin@cloudypitch.com / CloudyAdmin2026! (not used — public match route required no auth)",
+  "seed_data_creation": "None",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Use match id 7d238631-6ab0-4706-875f-8ab307aaf1fd for FT football validation. This match has events (18) and stats (42 keys) populated but NO h2h history and NO standings ingested, so h2h/standings tabs hit empty states. To validate H2HCard populated state + StandingsTable lime-border highlights, find a club-league match (not international friendly) where the league has both h2h rows and a populated standings table — try fetching /api/matches?sport=football and pick one in a populated league.",
+  "rca of the issue": "n/a — no bugs found"
+}

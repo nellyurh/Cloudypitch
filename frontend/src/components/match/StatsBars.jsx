@@ -10,7 +10,6 @@ const PERCENT_STATS = new Set([
   "Successful Headers Percentage",
 ]);
 
-// Pretty-print raw Sportmonks names like "Successful Passes Percentage" → "Pass Accuracy %"
 const PRETTY = {
   "Successful Passes Percentage": "Pass Accuracy %",
   "Successful Long Passes Percentage": "Long Pass Accuracy %",
@@ -30,7 +29,6 @@ const PRETTY = {
 };
 const prettyStat = (k) => PRETTY[k] || k;
 
-// Display order — most important stats first
 const PRIORITY = [
   "Ball Possession %",
   "Shots Total",
@@ -69,16 +67,55 @@ const PRIORITY = [
   "Goal Kicks",
 ];
 
+/**
+ * DualProgressBar — Sofascore-style single bar split at center.
+ * Left half fills right-to-left for home; right half fills left-to-right for away.
+ * The winning side gets the lime accent; losing side stays slate.
+ */
+function DualProgressBar({ homePct, awayPct, homeWinning, awayWinning }) {
+  const LIME = "var(--cp-lime, #A3E635)";
+  const SLATE = "#94A3B8";
+  return (
+    <div className="relative h-1.5 w-full" data-testid="dual-progress">
+      <div className="grid grid-cols-2 gap-0 h-full">
+        {/* Home half: fills from center → left */}
+        <div className="relative h-full rounded-l-full overflow-hidden" style={{ background: "#2A2E36" }}>
+          <div
+            className="absolute right-0 top-0 h-full transition-[width] duration-500 ease-out"
+            style={{
+              width: `${homePct}%`,
+              background: homeWinning ? LIME : SLATE,
+              opacity: homeWinning ? 1 : 0.55,
+            }}
+          />
+        </div>
+        {/* Away half: fills from center → right */}
+        <div className="relative h-full rounded-r-full overflow-hidden" style={{ background: "#2A2E36" }}>
+          <div
+            className="absolute left-0 top-0 h-full transition-[width] duration-500 ease-out"
+            style={{
+              width: `${awayPct}%`,
+              background: awayWinning ? LIME : SLATE,
+              opacity: awayWinning ? 1 : 0.55,
+            }}
+          />
+        </div>
+      </div>
+      {/* Center divider notch */}
+      <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-px h-2.5"
+           style={{ background: "rgba(255,255,255,0.25)" }}/>
+    </div>
+  );
+}
+
 function StatRow({ label, home, away }) {
   const h = Number(home ?? 0) || 0;
   const a = Number(away ?? 0) || 0;
   const total = h + a;
   let homePct = 50, awayPct = 50;
   if (PERCENT_STATS.has(label)) {
-    // values are already percentages
     homePct = Math.max(0, Math.min(100, h));
     awayPct = Math.max(0, Math.min(100, a));
-    // normalise so they sum to 100 if both look like %
     const sum = homePct + awayPct;
     if (sum > 0 && Math.abs(sum - 100) > 5) {
       homePct = (homePct / sum) * 100;
@@ -93,40 +130,24 @@ function StatRow({ label, home, away }) {
   const isHomeWinning = h > a;
   const isAwayWinning = a > h;
   return (
-    <div className="py-2" data-testid={`stat-${label}`}>
-      <div className="grid grid-cols-[1fr_auto_1fr] items-center text-xs mb-1">
-        <div className={`text-right font-bold tabular-nums ${isHomeWinning ? "text-cp-lime" : ""}`}>
+    <div className="py-2.5" data-testid={`stat-${label}`}>
+      <div className="grid grid-cols-[1fr_auto_1fr] items-center text-xs mb-1.5">
+        <div className={`text-right font-bold tabular-nums text-sm ${isHomeWinning ? "text-cp-lime" : "text-slate-200"}`}>
           {home ?? "—"}
         </div>
-        <div className="px-3 text-[10px] uppercase tracking-wider" style={{ color: "var(--cp-text-muted)" }}>
+        <div className="px-3 text-[10px] uppercase tracking-[0.08em] font-semibold" style={{ color: "var(--cp-text-muted)" }}>
           {prettyStat(label)}
         </div>
-        <div className={`text-left font-bold tabular-nums ${isAwayWinning ? "text-cp-lime" : ""}`}>
+        <div className={`text-left font-bold tabular-nums text-sm ${isAwayWinning ? "text-cp-lime" : "text-slate-200"}`}>
           {away ?? "—"}
         </div>
       </div>
-      <div className="grid grid-cols-2 gap-1 h-1.5">
-        {/* Home bar — fills from right */}
-        <div className="relative rounded overflow-hidden" style={{ background: "var(--cp-surface-2)" }}>
-          <div
-            className="absolute right-0 top-0 h-full transition-all"
-            style={{
-              width: `${homePct}%`,
-              background: isHomeWinning ? "var(--cp-lime)" : "rgba(180,180,180,0.6)",
-            }}
-          />
-        </div>
-        {/* Away bar — fills from left */}
-        <div className="relative rounded overflow-hidden" style={{ background: "var(--cp-surface-2)" }}>
-          <div
-            className="absolute left-0 top-0 h-full transition-all"
-            style={{
-              width: `${awayPct}%`,
-              background: isAwayWinning ? "var(--cp-lime)" : "rgba(180,180,180,0.6)",
-            }}
-          />
-        </div>
-      </div>
+      <DualProgressBar
+        homePct={homePct}
+        awayPct={awayPct}
+        homeWinning={isHomeWinning}
+        awayWinning={isAwayWinning}
+      />
     </div>
   );
 }
@@ -135,15 +156,12 @@ export default function StatsBars({ statistics, homeTeamId, awayTeamId, homeName
   if (!statistics || statistics.length === 0) {
     return <div className="text-sm" style={{ color: "var(--cp-text-muted)" }}>No stats yet.</div>;
   }
-  // Pick home and away stat blocks
   const homeBlock = statistics.find((s) => s.team_id === homeTeamId) || statistics[0] || {};
   const awayBlock = statistics.find((s) => s.team_id === awayTeamId) || statistics[1] || {};
   const homeStats = homeBlock.stats || {};
   const awayStats = awayBlock.stats || {};
 
-  // Collect all keys
   const allKeys = new Set([...Object.keys(homeStats), ...Object.keys(awayStats)]);
-  // Filter: only render keys that are in our priority list OR have at least one numeric value
   const orderedKeys = [
     ...PRIORITY.filter((k) => allKeys.has(k)),
     ...[...allKeys].filter((k) => !PRIORITY.includes(k)).sort(),
@@ -160,15 +178,16 @@ export default function StatsBars({ statistics, homeTeamId, awayTeamId, homeName
 
   return (
     <div data-testid="stats-bars">
-      {/* Team name header */}
-      <div className="grid grid-cols-[1fr_auto_1fr] items-center text-[11px] uppercase tracking-widest mb-3" style={{ color: "var(--cp-text-muted)" }}>
-        <div className="text-right font-bold">{homeName}</div>
-        <div className="px-3">vs</div>
-        <div className="text-left font-bold">{awayName}</div>
+      <div className="grid grid-cols-[1fr_auto_1fr] items-center text-[10px] uppercase tracking-[0.1em] font-semibold mb-4 pb-3 border-b" style={{ color: "var(--cp-text-muted)", borderColor: "var(--cp-border)" }}>
+        <div className="text-right text-cp-lime">{homeName}</div>
+        <div className="px-3 opacity-60">vs</div>
+        <div className="text-left" style={{ color: "#94A3B8" }}>{awayName}</div>
       </div>
-      {filtered.map((k) => (
-        <StatRow key={k} label={k} home={homeStats[k]} away={awayStats[k]} />
-      ))}
+      <div className="divide-y" style={{ borderColor: "var(--cp-border)" }}>
+        {filtered.map((k) => (
+          <StatRow key={k} label={k} home={homeStats[k]} away={awayStats[k]} />
+        ))}
+      </div>
     </div>
   );
 }

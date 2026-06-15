@@ -15,6 +15,7 @@ import NBABracket from "../components/match/NBABracket";
 import Commentary from "../components/match/Commentary";
 import Trends from "../components/match/Trends";
 import SidelinedCard from "../components/match/SidelinedCard";
+import H2HCard from "../components/match/H2HCard";
 import { AnimatedBrand } from "../components/Brand";
 import AdSlot from "../components/AdSlot";
 
@@ -37,64 +38,126 @@ const SPORT_TABS = {
   default:           [{ k: "events",  l: "Events" }, { k: "stats", l: "Stats" }, { k: "h2h", l: "H2H" }],
 };
 
-function MatchHero({ m, finished }) {
+const STADIUM_BG_URL = "https://images.unsplash.com/photo-1431324155629-1a6deb1dec8d?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjA2ODl8MHwxfHNlYXJjaHwxfHxzdGFkaXVtJTIwYmFja2dyb3VuZCUyMGRhcmt8ZW58MHx8fHwxNzgxNTI2MTE0fDA&ixlib=rb-4.1.0&q=85";
+
+function StatusPill({ m, finished }) {
   const live = m.is_live;
+  let label, bg, fg, border, dot = false;
+  if (live) {
+    label = m.minute != null ? `${m.minute}'` : (m.status === "HT" ? "HT" : "Live");
+    bg = "rgba(239,68,68,0.12)";
+    fg = "#EF4444";
+    border = "rgba(239,68,68,0.35)";
+    dot = true;
+  } else if (finished) {
+    label = m.status_long || m.status || "Finished";
+    bg = "rgba(148,163,184,0.12)";
+    fg = "#CBD5E1";
+    border = "rgba(148,163,184,0.3)";
+  } else {
+    label = m.status_long || m.status || "Scheduled";
+    bg = "rgba(163,230,53,0.10)";
+    fg = "#A3E635";
+    border = "rgba(163,230,53,0.3)";
+  }
   return (
-    <div className="cp-surface p-4 md:p-6" data-testid="match-hero">
-      <div className="text-[10px] uppercase tracking-widest text-center mb-2" style={{ color: "var(--cp-text-muted)" }}>
-        {m.league_country} · {m.league_name}
-      </div>
-      <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-4 md:gap-8">
-        {/* Home */}
-        <div className="flex flex-col items-center md:items-end gap-2 text-center md:text-right">
-          {m.home_team_logo ? (
-            <img src={m.home_team_logo} alt="" className="w-16 h-16 md:w-20 md:h-20 object-contain" onError={(e)=>{e.target.style.display="none"}}/>
-          ) : <div className="w-16 h-16 md:w-20 md:h-20 cp-logo-circle text-lg font-extrabold">{m.home_short}</div>}
-          <div className="text-sm md:text-base font-extrabold">{m.home_team_name}</div>
+    <span
+      className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-bold uppercase tracking-widest border"
+      style={{ background: bg, color: fg, borderColor: border }}
+      data-testid="match-status-pill"
+    >
+      {dot && <span className="inline-block w-1.5 h-1.5 rounded-full bg-rose-500 animate-pulse" />}
+      {label}
+    </span>
+  );
+}
+
+function MatchHero({ m, finished }) {
+  const isFootball = (m.sport_slug || "football") === "football";
+  return (
+    <div className="relative cp-surface overflow-hidden" data-testid="match-hero">
+      {/* Stadium background — football only, dark gradient overlay on top */}
+      {isFootball && (
+        <>
+          <div
+            aria-hidden
+            className="absolute inset-0 pointer-events-none"
+            style={{
+              backgroundImage: `url(${STADIUM_BG_URL})`,
+              backgroundSize: "cover",
+              backgroundPosition: "center",
+              opacity: 0.28,
+              filter: "saturate(0.7) contrast(1.05)",
+            }}
+          />
+          <div
+            aria-hidden
+            className="absolute inset-0 pointer-events-none"
+            style={{
+              background:
+                "linear-gradient(to top, var(--cp-bg, #0F1115) 0%, rgba(15,17,21,0.85) 40%, rgba(15,17,21,0.55) 100%)",
+            }}
+          />
+        </>
+      )}
+
+      <div className="relative z-10 p-4 md:p-6">
+        <div className="text-[10px] uppercase tracking-widest text-center mb-3" style={{ color: "var(--cp-text-muted)" }}>
+          {m.league_country} · {m.league_name}
         </div>
-        {/* Score */}
-        <div className="text-center min-w-[120px]">
-          <div className="text-4xl md:text-5xl font-extrabold tabular-nums tracking-tight">
-            <span className={m.home_score > m.away_score ? "text-cp-lime" : ""}>{m.home_score ?? "—"}</span>
-            <span className="mx-2 opacity-50">:</span>
-            <span className={m.away_score > m.home_score ? "text-cp-lime" : ""}>{m.away_score ?? "—"}</span>
+
+        <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-4 md:gap-8">
+          {/* Home */}
+          <div className="flex flex-col items-center md:items-end gap-2 text-center md:text-right">
+            {m.home_team_logo ? (
+              <img src={m.home_team_logo} alt="" className="w-16 h-16 md:w-20 md:h-20 object-contain drop-shadow-[0_2px_8px_rgba(0,0,0,0.45)]" onError={(e)=>{e.target.style.display="none"}}/>
+            ) : <div className="w-16 h-16 md:w-20 md:h-20 cp-logo-circle text-lg font-extrabold">{m.home_short}</div>}
+            <div className="text-sm md:text-base font-extrabold text-slate-100">{m.home_team_name}</div>
           </div>
-          <div className="mt-2 text-[11px] font-bold uppercase tracking-widest" style={{ color: live ? "#FF3D52" : "var(--cp-text-muted)" }}>
-            {live && <span className="inline-block w-1.5 h-1.5 rounded-full bg-rose-500 mr-1 animate-pulse"/>}
-            {live
-              ? (m.minute != null ? `${m.minute}'` : (m.status === "HT" ? "HT" : "Live"))
-              : (m.status_long || m.status || (finished ? "Finished" : "Scheduled"))}
+
+          {/* Score & status */}
+          <div className="text-center min-w-[120px]">
+            <div className="text-4xl md:text-6xl font-black tabular-nums tracking-tighter leading-none">
+              <span className={m.home_score > m.away_score ? "text-cp-lime" : "text-slate-100"}>{m.home_score ?? "—"}</span>
+              <span className="mx-2 opacity-40">:</span>
+              <span className={m.away_score > m.home_score ? "text-cp-lime" : "text-slate-100"}>{m.away_score ?? "—"}</span>
+            </div>
+            <div className="mt-3 flex items-center justify-center">
+              <StatusPill m={m} finished={finished} />
+            </div>
+          </div>
+
+          {/* Away */}
+          <div className="flex flex-col items-center md:items-start gap-2 text-center md:text-left">
+            {m.away_team_logo ? (
+              <img src={m.away_team_logo} alt="" className="w-16 h-16 md:w-20 md:h-20 object-contain drop-shadow-[0_2px_8px_rgba(0,0,0,0.45)]" onError={(e)=>{e.target.style.display="none"}}/>
+            ) : <div className="w-16 h-16 md:w-20 md:h-20 cp-logo-circle text-lg font-extrabold">{m.away_short}</div>}
+            <div className="text-sm md:text-base font-extrabold text-slate-100">{m.away_team_name}</div>
           </div>
         </div>
-        {/* Away */}
-        <div className="flex flex-col items-center md:items-start gap-2 text-center md:text-left">
-          {m.away_team_logo ? (
-            <img src={m.away_team_logo} alt="" className="w-16 h-16 md:w-20 md:h-20 object-contain" onError={(e)=>{e.target.style.display="none"}}/>
-          ) : <div className="w-16 h-16 md:w-20 md:h-20 cp-logo-circle text-lg font-extrabold">{m.away_short}</div>}
-          <div className="text-sm md:text-base font-extrabold">{m.away_team_name}</div>
+
+        {/* Meta strip */}
+        <div className="mt-4 pt-3 border-t flex flex-wrap items-center justify-center gap-x-5 gap-y-1 text-[11px]" style={{ borderColor: "var(--cp-border)", color: "var(--cp-text-muted)" }}>
+          <span className="inline-flex items-center gap-1"><Calendar size={11}/>{m.scheduled_at && new Date(m.scheduled_at).toLocaleString([], { day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" })}</span>
+          {m.venue_name && <span className="inline-flex items-center gap-1"><MapPin size={11}/>{m.venue_name}{m.venue_city ? `, ${m.venue_city}` : ""}</span>}
+          {m.match_format && <span className="inline-flex items-center gap-1">{m.match_format}</span>}
+          {m.weather && (m.weather.temperature_celcius != null || m.weather.type) && (
+            <span className="inline-flex items-center gap-1" data-testid="hero-weather">
+              <CloudRain size={11}/>
+              {m.weather.temperature_celcius != null ? `${m.weather.temperature_celcius}°C` : m.weather.type}
+            </span>
+          )}
+          {Array.isArray(m.tv_stations) && m.tv_stations.length > 0 && (
+            <span className="inline-flex items-center gap-1" data-testid="hero-tv">
+              <Tv size={11}/>{m.tv_stations.slice(0, 2).join(", ")}{m.tv_stations.length > 2 ? "…" : ""}
+            </span>
+          )}
+          {Array.isArray(m.referees) && m.referees.length > 0 && (
+            <span className="inline-flex items-center gap-1" data-testid="hero-ref">
+              <User2 size={11}/>{m.referees[0]?.name}
+            </span>
+          )}
         </div>
-      </div>
-      {/* Meta strip */}
-      <div className="mt-4 pt-3 border-t flex flex-wrap items-center justify-center gap-x-5 gap-y-1 text-[11px]" style={{ borderColor: "var(--cp-border)", color: "var(--cp-text-muted)" }}>
-        <span className="inline-flex items-center gap-1"><Calendar size={11}/>{m.scheduled_at && new Date(m.scheduled_at).toLocaleString([], { day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" })}</span>
-        {m.venue_name && <span className="inline-flex items-center gap-1"><MapPin size={11}/>{m.venue_name}{m.venue_city ? `, ${m.venue_city}` : ""}</span>}
-        {m.match_format && <span className="inline-flex items-center gap-1">{m.match_format}</span>}
-        {m.weather && (m.weather.temperature_celcius != null || m.weather.type) && (
-          <span className="inline-flex items-center gap-1" data-testid="hero-weather">
-            <CloudRain size={11}/>
-            {m.weather.temperature_celcius != null ? `${m.weather.temperature_celcius}°C` : m.weather.type}
-          </span>
-        )}
-        {Array.isArray(m.tv_stations) && m.tv_stations.length > 0 && (
-          <span className="inline-flex items-center gap-1" data-testid="hero-tv">
-            <Tv size={11}/>{m.tv_stations.slice(0, 2).join(", ")}{m.tv_stations.length > 2 ? "…" : ""}
-          </span>
-        )}
-        {Array.isArray(m.referees) && m.referees.length > 0 && (
-          <span className="inline-flex items-center gap-1" data-testid="hero-ref">
-            <User2 size={11}/>{m.referees[0]?.name}
-          </span>
-        )}
       </div>
     </div>
   );
@@ -277,29 +340,13 @@ export const MatchDetail = () => {
             {tab === "standings" && <StandingsTable matchId={id}/>}
             {tab === "playoffs" && <NBABracket/>}
             {tab === "h2h" && (
-              h2h.length === 0
-                ? <div className="text-center text-sm py-6" style={{ color: "var(--cp-text-muted)" }}>No prior head-to-head found.</div>
-                : (
-                  <>
-                    <div className="text-center text-sm font-extrabold mb-3" data-testid="h2h-header">
-                      Last {h2h.length} meetings
-                    </div>
-                    <ul className="divide-y" style={{ borderColor: "var(--cp-border)" }} data-testid="h2h-list">
-                      {h2h.map(p => {
-                        const winnerHome = (p.home_team_id === m.home_team_id && p.home_score > p.away_score) || (p.away_team_id === m.home_team_id && p.away_score > p.home_score);
-                        return (
-                          <li key={p.id} className="flex items-center gap-2 py-2 text-sm">
-                            <span className="text-[10px] tabular-nums" style={{ color: "var(--cp-text-muted)" }}>{new Date(p.scheduled_at).toLocaleDateString([], { day: "2-digit", month: "short", year: "2-digit" })}</span>
-                            <span className="flex-1 truncate">{p.home_team_name} <b className="tabular-nums">{p.home_score}–{p.away_score}</b> {p.away_team_name}</span>
-                            <span className={`w-5 h-5 rounded text-[10px] font-extrabold inline-flex items-center justify-center ${winnerHome ? "bg-cp-lime text-cp-forest" : ""}`} style={{ background: winnerHome ? undefined : "rgba(255,61,82,0.2)", color: winnerHome ? undefined : "#FF3D52" }}>
-                              {winnerHome ? "W" : "L"}
-                            </span>
-                          </li>
-                        );
-                      })}
-                    </ul>
-                  </>
-                )
+              <H2HCard
+                h2h={h2h}
+                homeTeamId={m.home_team_id}
+                awayTeamId={m.away_team_id}
+                homeName={m.home_team_name}
+                awayName={m.away_team_name}
+              />
             )}
           </div>
         </div>

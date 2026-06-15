@@ -47,14 +47,15 @@ const StandingsTable = ({ matchId }) => {
             return (
               <tr
                 key={r.id || r.team_id}
-                className="border-t"
+                className="border-t transition-colors hover:bg-white/[0.03]"
                 style={{
                   borderColor: "var(--cp-border)",
-                  background: isHighlight ? "rgba(163,230,53,0.08)" : "transparent",
+                  background: isHighlight ? "rgba(163,230,53,0.06)" : "transparent",
+                  boxShadow: isHighlight ? "inset 2px 0 0 0 var(--cp-lime, #A3E635)" : undefined,
                 }}
                 data-testid={`standing-row-${r.team_id || r.position}`}
               >
-                <td className="text-center p-2 tabular-nums font-bold">{r.position}</td>
+                <td className={`text-center p-2 tabular-nums font-bold ${isHighlight ? "text-cp-lime" : ""}`}>{r.position}</td>
                 <td className="text-left flex items-center gap-2 p-2">
                   {r.team_logo && <img src={r.team_logo} className="w-4 h-4 object-contain" alt="" onError={(e)=>{e.target.style.display="none"}}/>}
                   <span className={isHighlight ? "text-cp-lime font-extrabold" : ""}>{r.team_name}</span>
