@@ -10,6 +10,16 @@ Global multi-sport livescore + predictions + fantasy platform launching for FIFA
 - Sportmonks (football), API-Sports (other sports), Trybit/CryptoCloud (crypto deposits), PocketFi (NGN), Google AdSense
 
 
+### 2026-02-15 (Sofascore Statistics tab rebuild)
+- **📊 Statistics tab now matches Sofascore exactly** — `StatsBars.jsx` rewritten with:
+  - **Sectioned blocks**: Match overview / Shots / Attack / Passes / Duels / Defending / Goalkeeping (only sections with data appear).
+  - **2-column responsive grid** on desktop (`md:grid-cols-2`), single column on mobile.
+  - **Home always lime (#A3E635) + Away always sky (#7DD3FC)** — fixed tones, no longer flips based on who's winning.
+  - **Continuous dual bar** that meets in the middle (no notch). Home grows from left edge to center; away grows from right edge to center; widths proportional to value share.
+  - **Donut rings (`<RingPercent>`)** for `Pass Accuracy %`, `Long Pass Accuracy %`, `Dribble Success %`, `Header Success %` — 36px circle, stroke colored to side.
+  - Centered section headers, ring-1 ring-white/5 cards, dot legend in team header.
+  - Verified on Sweden 5-1 Tunisia: 6 sections render correctly with all stats grouped.
+
 ### 2026-02-15 (Sofascore Match Detail blueprint — 5 remaining components)
 - **🎨 Match header stadium background** — `MatchHero` in `MatchDetail.jsx` now layers a Unsplash dark-stadium image (opacity 0.45) with a `linear-gradient` overlay (forest-bg → 75% → 35%) underneath the content. Football matches only. Score scaled to `text-6xl font-black tracking-tighter` per blueprint; added a dedicated `<StatusPill>` (lime/red/slate based on Live/FT/Scheduled) replacing the prior inline label.
 - **⏱️ Events timeline as vertical rail** — `EventsList.jsx` rewritten from a flat divider list to a Sofascore-style vertical rail: a centered 1px line spans the full height, the minute marker is a rounded pill (mono font, lime-tinted ring on goals) on the rail, home events align right, away events align left, goal-scorer names rendered in lime.
