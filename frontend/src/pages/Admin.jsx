@@ -186,6 +186,22 @@ export const AdminPanel = () => {
               </button>
               <button
                 onClick={async () => {
+                  if (!confirm("Rebuild all WC mini-game entries from scratch using the latest CBIT/CBIRT scoring? This will wipe every settled entry and recompute their points + ranks. Idempotent.")) return;
+                  setBusy(true);
+                  try {
+                    const { data } = await api.post("/admin/wc/games/rebuild-settle");
+                    setMsg(`Mini-games rebuild · games=${data.games_targeted} · entries=${data.entries_reset} · re-settled=${data.games_resettled}${data.failed?.length ? ` · failed=${data.failed.length}` : ""} · ${data.scoring_version}`);
+                  } catch (e) { setMsg(e?.response?.data?.detail || "Mini-game rebuild failed"); }
+                  setBusy(false);
+                }}
+                disabled={busy}
+                className="cp-btn-primary text-xs disabled:opacity-50"
+                data-testid="wcgames-rebuild-settle"
+              >
+                {busy ? "Rebuilding…" : "Rebuild all mini-game points"}
+              </button>
+              <button
+                onClick={async () => {
                   setBusy(true);
                   try {
                     const { data } = await api.post("/fantasy/settle/gameweek?gameweek=1");

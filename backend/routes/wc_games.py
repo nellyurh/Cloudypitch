@@ -925,3 +925,73 @@ async def admin_settle_due(admin: dict = Depends(a.require_admin)):
         "metadata": res, "created_at": _now_iso(),
     })
     return res
+
+
+
+@admin_router.post("/games/rebuild-settle")
+async def admin_rebuild_settle_minigames(admin: dict = Depends(a.require_admin)):
+    """🔄 **Wipe + re-settle ALL settled WC mini-games** with the latest
+    CBIT/CBIRT scoring spec.
+
+    Mirrors `/api/fantasy/settle/rebuild` for the main 15-man squad but for
+    mini-game entries. Run after any change to `fantasy_scoring.compute_player_points`.
+
+    Steps per game:
+      1. Reset every entry: `points_scored=None`, `breakdown_by_player=[]`,
+         `rank_in_game=None`, `settled_at=None`.
+      2. Flip the game's status back to `closed` so `settle_wc_game` (called
+         with `force=True`) can re-process it.
+      3. Re-run `settle_wc_game(game_id, force=True)` which idempotently writes
+         the new per-entry points + breakdown using the current scoring engine.
+
+    Idempotent. Safe to run multiple times.
+    """
+    from wc_settler import settle_wc_game
+    db = get_db()
+
+    settled_games = await db.wc_games.find(
+        {"status": "settled"}, {"_id": 0, "id": 1},
+    ).to_list(length=5000)
+    game_ids = [g["id"] for g in settled_games]
+
+    entries_reset = await db.wc_game_entries.update_many(
+        {"wc_game_id": {"$in": game_ids}},
+        {"$set": {
+            "points_scored": None, "raw_points": None,
+            "breakdown_by_player": [], "rank_in_game": None,
+            "settled_at": None,
+        }},
+    )
+
+    await db.wc_games.update_many(
+        {"id": {"$in": game_ids}},
+        {"$set": {"status": "closed", "settled_at": None,
+                  "settled_match_ids": None, "settled_entry_count": None}},
+    )
+
+    re_settled = 0
+    failed = []
+    for gid in game_ids:
+        try:
+            res = await settle_wc_game(gid, force=True)
+            if res.get("ok"):
+                re_settled += 1
+            else:
+                failed.append({"game_id": gid, "reason": res.get("reason")})
+        except Exception as e:
+            failed.append({"game_id": gid, "reason": str(e)})
+
+    summary = {
+        "ok": True,
+        "games_targeted": len(game_ids),
+        "entries_reset": entries_reset.modified_count,
+        "games_resettled": re_settled,
+        "failed": failed,
+        "scoring_version": "v2-2026-02-13",
+    }
+    await db.audit_log.insert_one({
+        "id": new_id(), "user_id": admin["id"], "email": admin.get("email"),
+        "action": "wc_games_rebuild_settle",
+        "metadata": summary, "created_at": _now_iso(),
+    })
+    return summary

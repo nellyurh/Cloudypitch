@@ -10,6 +10,18 @@ Global multi-sport livescore + predictions + fantasy platform launching for FIFA
 - Sportmonks (football), API-Sports (other sports), Trybit/CryptoCloud (crypto deposits), PocketFi (NGN), Google AdSense
 
 
+### 2026-02-15 (🐛 Mini-game settlement rebuild — main team & mini-games)
+- **🐛 Mini-game entries didn't pick up new CBIT/CBIRT scoring** — `settle_wc_game` is idempotent: entries with `settled_at != null` are skipped on re-runs, so old scores stuck around. Main-team `/api/fantasy/settle/rebuild` only resets the main 15-man squad — never touched `wc_game_entries`.
+- **🛠️ New admin endpoint** `POST /api/admin/wc/games/rebuild-settle` — for every `wc_games` row in `status: settled`:
+  1. Reset every entry: `points_scored=None`, `breakdown_by_player=[]`, `rank_in_game=None`, `settled_at=None`.
+  2. Flip the game back to `status: closed`.
+  3. Re-run `settle_wc_game(game_id, force=True)` so the latest scoring engine recomputes every pick + captain × 2 + card boosts + game-level multiplier.
+- **🛠️ Admin Dashboard "Fantasy Settle" card** now has THREE buttons:
+  - **Rebuild all fantasy points** (main 15-man squad) → `/api/fantasy/settle/rebuild`.
+  - **Rebuild all mini-game points** (NEW) → `/api/admin/wc/games/rebuild-settle`.
+  - **Settle now (no wipe)** → incremental fantasy gameweek re-credit.
+- **Verified on preview**: 18 mini-games re-settled, 3 entries reset, 0 failures.
+
 ### 2026-02-15 (Admin "Rebuild" button + Monetag auto-snippet fix)
 - **🛠️ Admin panel: new "Fantasy Settle" card** — `Admin.jsx` dashboard tab now shows a "Fantasy Settle" card with two actions:
   - **Rebuild all fantasy points** → `POST /api/fantasy/settle/rebuild` (confirms first, then wipes snapshots + recomputes every squad with the latest CBIT/CBIRT scoring v2). Returns count of snapshots wiped / squads reset / squads settled.
