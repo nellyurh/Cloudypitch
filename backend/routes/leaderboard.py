@@ -92,9 +92,13 @@ async def unified_leaderboard(scope: str = "global", limit: int = 100):
     preds = await db.predictions.aggregate(pred_pipeline).to_list(length=5000)
     pred_by = {p["_id"]: p["pred_pts"] for p in preds}
 
-    # Sum fantasy points per user (squad total)
+    # Sum MAIN-TEAM fantasy points per user (15-man squad total).
+    # 🐛 Fix 2026-02-15: previously summed "$points" which doesn't exist on the
+    # `fantasy_squads` doc — the canonical field is `total_points` written by
+    # `settle_gameweek`. The bug meant the main 15-man squad never contributed
+    # to the unified leaderboard total. Now correctly summed.
     fan_pipeline = [
-        {"$group": {"_id": "$user_id", "fan_pts": {"$sum": "$points"}}},
+        {"$group": {"_id": "$user_id", "fan_pts": {"$sum": "$total_points"}}},
     ]
     fan = await db.fantasy_squads.aggregate(fan_pipeline).to_list(length=5000)
     fan_by = {f["_id"]: f["fan_pts"] for f in fan}

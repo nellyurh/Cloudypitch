@@ -10,6 +10,13 @@ Global multi-sport livescore + predictions + fantasy platform launching for FIFA
 - Sportmonks (football), API-Sports (other sports), Trybit/CryptoCloud (crypto deposits), PocketFi (NGN), Google AdSense
 
 
+### 2026-02-15 (🐛 Main-team points fix + CBIT/CBIRT backfill)
+- **🐛 Bug fix: main 15-man squad points missing from leaderboard total** — `/api/leaderboard` aggregation on `fantasy_squads` summed a non-existent `$points` field. Canonical field is `total_points` (written by `settle_gameweek`). Now correctly sums it.
+  - Impact: User on production with `total_points=14` had their main-team contribution invisible. With this fix, leaderboard total = `prediction_points + fantasy_points + wc_fantasy_points` instead of `prediction_points + 0 + wc_fantasy_points`.
+- **🔄 Historical backfill executed via `/api/fantasy/settle/rebuild`** — wiped 8 snapshots, reset 6 squads, re-settled 8 with the latest scoring v2 (CBIT/CBIRT defensive contributions + FT bonus + goals-conceded deductions + yellow/red card penalties). Preview now shows correct negative scores for squads where deductions exceed positive contributions.
+- **♻️ Real-time updates already wired** — Background `fantasy settler` loop in `ingestion.py` re-runs `settle_gameweek` every 5 min; each tick recomputes `fantasy_squads.total_points` from snapshots. Next leaderboard GET sees the new value automatically (e.g. user's main team goes 14 → 20, their leaderboard total bumps +6 within ≤5 min of the FT whistle).
+- **On production**: deploy this fix then call `POST /api/fantasy/settle/rebuild` (admin-only) ONCE to backfill all historical points with the new spec.
+
 ### 2026-02-15 (Light-mode contrast + bench polish + data-restore)
 - **🎨 Light-mode text fixed across all new components** — Replaced all `text-slate-100/200/300` hardcodes (which only theme-switched in dark mode) with semantic `text-cp` / `text-cp-muted` utility classes wired to `var(--cp-text)` / `var(--cp-text-muted)`. Defined the two utilities in `index.css @layer components`. Fixed in `MatchDetail.jsx` (hero), `H2HCard.jsx`, `EventsList.jsx` — 16 instances. Light mode now legibly renders the entire Match Detail page.
 - **🪑 Bench / Substitutions split (Sofascore parity)** — `LineupPitch.jsx` Bench component rewritten to split into two sections:
