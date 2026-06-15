@@ -86,8 +86,8 @@ function MatchHero({ m, finished }) {
               backgroundImage: `url(${STADIUM_BG_URL})`,
               backgroundSize: "cover",
               backgroundPosition: "center",
-              opacity: 0.28,
-              filter: "saturate(0.7) contrast(1.05)",
+              opacity: 0.45,
+              filter: "saturate(0.75) contrast(1.05)",
             }}
           />
           <div
@@ -95,7 +95,7 @@ function MatchHero({ m, finished }) {
             className="absolute inset-0 pointer-events-none"
             style={{
               background:
-                "linear-gradient(to top, var(--cp-bg, #0F1115) 0%, rgba(15,17,21,0.85) 40%, rgba(15,17,21,0.55) 100%)",
+                "linear-gradient(to top, var(--cp-bg, #0F1115) 0%, rgba(15,17,21,0.75) 50%, rgba(15,17,21,0.35) 100%)",
             }}
           />
         </>

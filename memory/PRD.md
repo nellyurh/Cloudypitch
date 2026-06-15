@@ -10,6 +10,15 @@ Global multi-sport livescore + predictions + fantasy platform launching for FIFA
 - Sportmonks (football), API-Sports (other sports), Trybit/CryptoCloud (crypto deposits), PocketFi (NGN), Google AdSense
 
 
+### 2026-02-15 (Sofascore Match Detail blueprint — 5 remaining components)
+- **🎨 Match header stadium background** — `MatchHero` in `MatchDetail.jsx` now layers a Unsplash dark-stadium image (opacity 0.45) with a `linear-gradient` overlay (forest-bg → 75% → 35%) underneath the content. Football matches only. Score scaled to `text-6xl font-black tracking-tighter` per blueprint; added a dedicated `<StatusPill>` (lime/red/slate based on Live/FT/Scheduled) replacing the prior inline label.
+- **⏱️ Events timeline as vertical rail** — `EventsList.jsx` rewritten from a flat divider list to a Sofascore-style vertical rail: a centered 1px line spans the full height, the minute marker is a rounded pill (mono font, lime-tinted ring on goals) on the rail, home events align right, away events align left, goal-scorer names rendered in lime.
+- **📊 Dual-progress stats bars** — `StatsBars.jsx` upgraded to a single bar per row split by a tiny center divider notch (`DualProgressBar` component). Home half fills right-to-left, away half fills left-to-right. Winning side `bg-lime`, losing side `bg-slate` at 55% opacity. 500ms ease-out fill animation.
+- **🤝 H2HCard component** — New `components/match/H2HCard.jsx`. Aggregate W/D/L badges (large numeric + colored bg: green/slate/red) computed from the home team's perspective. Match rows now have a left date label, the matchup string with bolded "our team" name, and a per-row outcome pill.
+- **📋 Standings highlight** — `StandingsTable.jsx` rows for the current match's two teams now get `boxShadow: inset 2px 0 0 0 var(--cp-lime)` (left border) + `bg-lime/[0.06]` tint + lime-colored position number. Hover state added.
+- All 5 components validated by testing agent (iteration_24): 100% pass on Sweden 5–1 Tunisia. Mobile 390×844 confirmed responsive.
+
+
 ### 2026-02-13 (Momentum tab + fantasy double-count fix + v2 backfill)
 - **🆕 Attack Momentum tab** added to football match-details. New component uses **Recharts** stacked `BarChart` per minute — home pressure lime `#A3E635` (positive Y), away pressure slate `#94A3B8` (negative Y), HT reference line at 45'. Tooltip on hover shows `Minute X' · Home N% · Away N%`. The tab is **auto-hidden** when `/api/matches/{id}/momentum` returns an empty `momentum[]` array (so it never renders a dead empty tab).
 - **🐛 Fantasy auto-settler was DOUBLE-COUNTING points** — `settle_gameweek` used `$inc total_points` which compounded on every 5-min loop iteration. Fixed by **summing every gameweek snapshot for the squad** and `$set`ing the canonical total. Settler is now safe to run indefinitely. Also disabled card-use consumption inside the auto-loop (would have triple-burned cards); cards still consume via the explicit admin endpoint.
