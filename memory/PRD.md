@@ -10,6 +10,16 @@ Global multi-sport livescore + predictions + fantasy platform launching for FIFA
 - Sportmonks (football), API-Sports (other sports), Trybit/CryptoCloud (crypto deposits), PocketFi (NGN), Google AdSense
 
 
+### 2026-02-15 (Sofascore parity v4 — H2H Matches sidebar + Goal distribution)
+- **🤝 H2HCard rewrite to Sofascore Côte d'Ivoire vs Ecuador reference**:
+  - Top **scoreline header** "Home 5 - 0 Away" showing total wins (W/D/W).
+  - **Left column "Head-to-head"** — actual h2h match list. When empty, friendly "No previous meetings between these teams yet." (instead of a hard-stop empty state).
+  - **Right column "Matches"** — team toggle pill (homeName / awayName) shows each team's recent + upcoming matches from `/api/teams/{id}`. Win/Draw/Loss pill on completed rows; kickoff time on upcoming.
+  - **Streaks card** — Sweden wins / Draws / Tunisia wins / Goals per team / Both teams scored / Over 2.5 goals.
+  - **Goal distribution histogram** — 6 buckets (0-15, 15-30, …, 75-90); per-team scored vs conceded mini bars rendered side-by-side. Uses `goal_events[]` from h2h payload; gracefully renders empty buckets when none.
+- **Right rail kept as ads** (matching Sofascore monetization layout) — 2 sidebar `AdSlot`s stacked on `lg:` desktop, hidden on mobile.
+- **Mobile already correct** — DOM order on `<lg` viewports: hero → left rail (odds + momentum + events) → tabs → right rail. Match summary is the first thing users see, exactly as the reference requires.
+
 ### 2026-02-15 (Sofascore parity v3 — persistent left rail + always-on momentum)
 - **🧹 Match hero simplified** — removed stadium background image + gradient (was too dark / not on Sofascore reference). Logos shrunk from `w-20` → `w-12`, score from `text-6xl` → `text-4xl`, "FINISHED" now plain text label under score instead of a colored pill. Score-side now matches Sofascore's clean white-on-light look (adapted to dark theme).
 - **📌 Persistent left rail across ALL tabs** (Sofascore parity):
