@@ -10,6 +10,12 @@ Global multi-sport livescore + predictions + fantasy platform launching for FIFA
 - Sportmonks (football), API-Sports (other sports), Trybit/CryptoCloud (crypto deposits), PocketFi (NGN), Google AdSense
 
 
+### 2026-02-15 (Admin "Rebuild" button + Monetag auto-snippet fix)
+- **🛠️ Admin panel: new "Fantasy Settle" card** — `Admin.jsx` dashboard tab now shows a "Fantasy Settle" card with two actions:
+  - **Rebuild all fantasy points** → `POST /api/fantasy/settle/rebuild` (confirms first, then wipes snapshots + recomputes every squad with the latest CBIT/CBIRT scoring v2). Returns count of snapshots wiped / squads reset / squads settled.
+  - **Settle now (no wipe)** → `POST /api/fantasy/settle/gameweek?gameweek=1` for incremental re-credit without wipe.
+- **🐛 Monetag (PropellerAds) ads not rendering — FIXED** — Inspection of `propellerads_zones` showed 10 of 11 zones had a `zone_id` saved by admin but the `snippet_html` field was empty. `AdSlot.jsx` requires `snippet_html` to inject the `<script>` tag, so all those zones silently rendered nothing on every page. Fix in `routes/ads.py` `/api/ads/serve/{placement}`: when `snippet_html` is empty but `zone_id` is present, the backend now auto-generates a Monetag tag template (`<script src="https://quge5.com/88/tag.min.js" data-zone="{id}" async data-cfasync="false"></script>`) — same format as the one working zone. Verified: `fantasy_sidebar` (was empty), `wc_hub_top`, `match_list_inline` all now return a usable `snippet_html`. Admins don't need to edit each zone individually anymore.
+
 ### 2026-02-15 (🐛 Main-team points fix + CBIT/CBIRT backfill)
 - **🐛 Bug fix: main 15-man squad points missing from leaderboard total** — `/api/leaderboard` aggregation on `fantasy_squads` summed a non-existent `$points` field. Canonical field is `total_points` (written by `settle_gameweek`). Now correctly sums it.
   - Impact: User on production with `total_points=14` had their main-team contribution invisible. With this fix, leaderboard total = `prediction_points + fantasy_points + wc_fantasy_points` instead of `prediction_points + 0 + wc_fantasy_points`.

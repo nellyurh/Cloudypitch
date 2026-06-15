@@ -158,6 +158,49 @@ export const AdminPanel = () => {
             </div>
             {msg && <div className="text-xs mt-3 font-mono p-2 rounded" style={{ background: "var(--cp-surface-2)", color: "var(--cp-text-muted)" }}>{msg}</div>}
           </div>
+
+          <div className="cp-surface p-4" data-testid="admin-fantasy-settle-card">
+            <h3 className="text-sm font-extrabold mb-1">Fantasy Settle</h3>
+            <p className="text-xs mb-3" style={{ color: "var(--cp-text-muted)" }}>
+              <b>Rebuild</b> wipes every snapshot, resets <code>total_points = 0</code> on every squad, then re-settles
+              every finished WC match using the latest CBIT/CBIRT scoring (FT bonus, defensive contributions,
+              card / own-goal / goals-conceded deductions). Run after any scoring spec change. Idempotent.
+              <br/><b>Settle now</b> re-credits points without wiping — safe to run any time.
+            </p>
+            <div className="flex gap-2 flex-wrap">
+              <button
+                onClick={async () => {
+                  if (!confirm("Rebuild all fantasy points from scratch using the latest CBIT/CBIRT scoring? This will wipe and recompute every snapshot.")) return;
+                  setBusy(true);
+                  try {
+                    const { data } = await api.post("/fantasy/settle/rebuild");
+                    setMsg(`Rebuild ok · wiped ${data.snapshots_wiped} snapshots · reset ${data.squads_reset} squads · settled ${data.settled} · ${data.scoring_version}`);
+                  } catch (e) { setMsg(e?.response?.data?.detail || "Rebuild failed"); }
+                  setBusy(false);
+                }}
+                disabled={busy}
+                className="cp-btn-primary text-xs disabled:opacity-50"
+                data-testid="fantasy-settle-rebuild"
+              >
+                {busy ? "Rebuilding…" : "Rebuild all fantasy points"}
+              </button>
+              <button
+                onClick={async () => {
+                  setBusy(true);
+                  try {
+                    const { data } = await api.post("/fantasy/settle/gameweek?gameweek=1");
+                    setMsg(`Re-settled ${data.settled || 0} squads`);
+                  } catch (e) { setMsg(e?.response?.data?.detail || "Settle failed"); }
+                  setBusy(false);
+                }}
+                disabled={busy}
+                className="cp-btn-ghost text-xs disabled:opacity-50"
+                data-testid="fantasy-settle-now"
+              >
+                Settle now (no wipe)
+              </button>
+            </div>
+          </div>
         </div>
       )}
 
