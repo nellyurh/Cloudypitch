@@ -1,104 +1,127 @@
 {
-  "project_name": "Cloudy Pitch",
-  "theme": {
-    "mode": "dark",
-    "archetype": "The Performance Pro (Modified for Data Dashboard)",
-    "description": "A dense, high-contrast, data-rich layout inspired by Sofascore. Prioritizes scannability, functional utility, and real-time updates over decorative design.",
-    "colors": {
-      "primary": "#A3E635",
-      "primary_hover": "#84CC16",
-      "bg_dark": "#1A1F26",
-      "bg_light": "#F4F6F2",
-      "surface_dark_card": "#064E3B",
-      "surface_light_card": "#FFFFFF",
-      "accent_forest": "#0F6E56",
-      "live_indicator": "#FF3D52",
-      "text_primary_dark": "#F8FAFC",
-      "text_secondary_dark": "#94A3B8",
-      "text_primary_light": "#0F172A",
-      "text_secondary_light": "#475569",
-      "border_dark": "rgba(255, 255, 255, 0.08)",
-      "border_light": "rgba(0, 0, 0, 0.08)"
+  "theme": "dark",
+  "archetype": "2 (Performance Pro)",
+  "design_philosophy": "High-density data visualization, command-center precision, and clear hierarchy. The UI acts as a tactical overlay for the live match.",
+  "colors": {
+    "background": "#0F1115",
+    "surface": "#1C2026",
+    "surface_hover": "#252A32",
+    "surface_pitch": "#121A16",
+    "accent_primary": "#A3E635",
+    "accent_primary_glow": "rgba(163, 230, 53, 0.2)",
+    "accent_secondary": "#FFFFFF",
+    "text_primary": "#F8FAFC",
+    "text_secondary": "#94A3B8",
+    "text_tertiary": "#64748B",
+    "border": "#2A2E36",
+    "live_pulse": "#EF4444",
+    "rating_excellent": "#3B82F6",
+    "rating_good": "#22C55E",
+    "rating_average": "#F59E0B",
+    "rating_poor": "#EF4444"
+  },
+  "typography": {
+    "fonts": {
+      "headings": "Barlow Condensed, sans-serif",
+      "body": "Inter, sans-serif",
+      "mono": "JetBrains Mono, monospace"
     },
-    "typography": {
-      "font_family": "Inter, system-ui, sans-serif",
-      "headings": {
-        "h1": "text-2xl font-bold tracking-tight",
-        "h2": "text-xl font-bold tracking-tight",
-        "h3": "text-lg font-semibold"
-      },
-      "body": "text-sm leading-tight",
-      "small": "text-xs text-secondary",
-      "match_score": "text-base font-bold",
-      "match_time": "text-xs font-medium text-lime-400"
+    "hierarchy": {
+      "match_score": "text-5xl sm:text-6xl font-black tracking-tighter",
+      "h2_section": "text-2xl sm:text-3xl font-bold tracking-tight uppercase",
+      "h3_widget": "text-lg sm:text-xl font-semibold tracking-tight",
+      "body": "text-base font-normal text-slate-300",
+      "small_labels": "text-xs font-semibold tracking-[0.05em] uppercase text-slate-400"
     }
   },
-  "layout": {
-    "dashboard": {
-      "desktop": "grid grid-cols-[240px_1fr_300px] gap-6 max-w-[1400px] mx-auto p-4",
-      "tablet": "grid grid-cols-[240px_1fr] gap-4 p-4",
-      "mobile": "flex flex-col gap-4 p-2",
-      "left_sidebar": "Countries/Leagues list, sticky on desktop",
-      "center_feed": "Livescore feed, vertically stacked matches grouped by league",
-      "right_sidebar": "WC2026 Countdown banner, Top Leaderboard, Featured Prize Pool"
+  "layout_spacing": {
+    "container": "max-w-4xl mx-auto w-full",
+    "gap_strategy": "Tight metrics. gap-4 for related stats, gap-8 for distinct sections.",
+    "padding": "p-4 sm:p-6 on standard cards, p-2 on dense list items.",
+    "border_radius": "rounded-lg or rounded-xl max. Avoid excessive roundness to maintain the athletic/tactical feel."
+  },
+  "components": {
+    "match_header": {
+      "layout": "Relative container with stadium image background and dark gradient overlay (bg-gradient-to-t from-[#0F1115] via-[#0F1115]/80 to-[#0F1115]/40).",
+      "content": "Flex container with Home Team (Logo + Name) left, Center Column (Score + Time + Status), Away Team (Logo + Name) right.",
+      "status_pill": "Inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-bold bg-red-500/10 text-red-500 border border-red-500/20. Include a pulsing dot (animate-pulse).",
+      "metadata": "Bottom row for League, Stadium, Referee in text-xs text-slate-400."
     },
-    "navigation": {
-      "top_bar": "Sticky header with Logo, Search, User Profile, Theme Toggle",
-      "sports_nav": "Horizontal scrollable bar with 14 sports. Active state uses lime accent (#A3E635) bottom border."
+    "tabs": {
+      "library": "Shadcn Tabs",
+      "customization": "Scrollable tab list horizontally (overflow-x-auto no-scrollbar). Active tab gets border-b-2 border-lime-400 text-white. Inactive tabs text-slate-400."
     },
-    "components": {
-      "match_row": {
-        "structure": "Vertical stack (Home team top, Away team bottom). Time/status on left, Teams in middle, Scores on right.",
-        "spacing": "Dense padding (p-2 or p-3), minimal gaps.",
-        "border": "Bottom border separating matches, border-border_dark.",
-        "hover": "Subtle background highlight on hover (bg-white/5 in dark mode).",
-        "live_state": "Red dot (#FF3D52) pulsing animation near time. Red text for current minute. Lime accent for winners.",
-        "tennis_tiebreaker": "Superscript notation for tiebreakers (e.g. 7<sup>7</sup>)"
-      },
-      "cards": {
-        "base": "Rounded-md bg-surface_dark_card border border-border_dark shadow-sm",
-        "header": "Border-b border-border_dark p-3 text-sm font-bold uppercase tracking-wider"
-      },
-      "buttons": {
-        "primary": "bg-primary text-slate-900 font-bold px-4 py-2 rounded-md hover:bg-primary_hover transition-colors",
-        "secondary": "bg-accent_forest text-white font-medium px-4 py-2 rounded-md hover:brightness-110 transition-colors"
+    "events_timeline": {
+      "layout": "Vertical rail. Relative container with w-0.5 absolute line down the center.",
+      "items": "Grid grid-cols-[1fr_auto_1fr] gap-4 items-center mb-4. Minute marker in the center (rounded-full bg-[#1C2026] border border-[#2A2E36] px-2 py-1 text-xs font-mono).",
+      "alignment": "Home events text-right col-start-1, Away events text-left col-start-3."
+    },
+    "attack_momentum": {
+      "library": "Recharts",
+      "type": "AreaChart or BarChart with stacked values",
+      "styling": "Home (positive Y) uses fill='#A3E635'. Away (negative Y) uses fill='#FFFFFF' or '#94A3B8'. Hidden axes, minimal grid lines. Surges/Goals marked with vertical reference lines or scatter dots."
+    },
+    "lineups_pitch": {
+      "layout_mobile": "Vertical orientation pitch. Home team top half, Away team bottom half.",
+      "layout_desktop": "Horizontal orientation. Home left, Away right.",
+      "pitch_styling": "bg-[#121A16] with white/opacity-20 border lines simulating pitch markings (center circle, penalty box).",
+      "player_chip": "Absolute positioning (or flex-grid proxy). Contains 32x32 rounded-full photo, absolute -top-1 -right-1 rating pill (e.g., bg-blue-500 text-[10px]), absolute -bottom-1 -left-1 shirt number (bg-black text-white text-[10px]). Surname label below in text-[10px] bg-black/60 px-1 rounded."
+    },
+    "stats_scrolling": {
+      "layout": "List of rows. Each row: Flex justify-between mb-1 for text (Home val, Label, Away val).",
+      "progress_bar": "Custom dual progress bar. Center-aligned. Left side (Home) bg-lime-400 rotates/fills right-to-left. Right side (Away) bg-slate-300 fills left-to-right. Parent background bg-[#2A2E36] h-1.5 rounded-full."
+    },
+    "head_to_head": {
+      "aggregate_badges": "Flex gap-2. W (bg-green-500/20 text-green-500), D (bg-slate-500/20 text-slate-400), L (bg-red-500/20 text-red-500).",
+      "match_rows": "Compact flex items-center justify-between py-2 border-b border-[#2A2E36] text-sm."
+    },
+    "standings_mini": {
+      "library": "Shadcn Table",
+      "highlight_logic": "For the two teams currently playing, add 'bg-lime-400/5' and 'border-l-2 border-lime-400' to their table rows."
+    }
+  },
+  "media_urls": {
+    "header_background": [
+      {
+        "url": "https://images.unsplash.com/photo-1431324155629-1a6deb1dec8d?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjA2ODl8MHwxfHNlYXJjaHwxfHxzdGFkaXVtJTIwYmFja2dyb3VuZCUyMGRhcmt8ZW58MHx8fHwxNzgxNTI2MTE0fDA&ixlib=rb-4.1.0&q=85",
+        "description": "Dark stadium floodlights background for match header overlay",
+        "category": "background"
       }
-    }
-  },
-  "iconography": {
-    "library": "@phosphor-icons/react",
-    "style": "Regular or Bold weight, size 16px to 20px depending on context",
-    "usage": "Use icons for sports in the nav, menu items, and UI actions. Keep them clean and legible."
-  },
-  "animations": {
-    "live_pulse": "animate-pulse (1s duration, infinite) on the red live indicator dot.",
-    "hover_transitions": "transition-colors duration-200 ease-in-out for interactive elements."
-  },
-  "media": {
-    "image_urls": {
-      "world_cup_banner": {
-        "url": "https://images.unsplash.com/photo-1705593973313-75de7bf95b56?crop=entropy&cs=srgb&fm=jpg&ixid=M3w3NTY2NjZ8MHwxfHNlYXJjaHwxfHxmb290YmFsbCUyMHN0YWRpdW0lMjBjcm93ZHxlbnwwfHx8fDE3Nzk5MTk4MTF8MA&ixlib=rb-4.1.0&q=85",
-        "description": "Football stadium crowd, use for WC 2026 Countdown banner background or World Cup hub hero.",
-        "category": "banner"
+    ],
+    "team_logos": [
+      {
+        "url": "https://images.unsplash.com/photo-1780336672446-30a7e0945cf3?crop=entropy&cs=srgb&fm=jpg&ixid=M3w3NTY2Nzh8MHwxfHNlYXJjaHwyfHxmb290YmFsbCUyMHRlYW0lMjBsb2dvfGVufDB8fHx8MTc4MTM2MzkzMnww&ixlib=rb-4.1.0&q=85",
+        "description": "Home team logo placeholder",
+        "category": "logo"
       },
-      "fantasy_player_action": {
-        "url": "https://images.unsplash.com/photo-1517466787929-bc90951d0974?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NTYxODh8MHwxfHNlYXJjaHwzfHxzb2NjZXIlMjBwbGF5ZXIlMjBhY3Rpb258ZW58MHx8fHwxNzc5OTE5ODExfDA&ixlib=rb-4.1.0&q=85",
-        "description": "Soccer player in action, use for Legend Cards (GOAT, Elite, Star) or Fantasy Hub placeholders.",
-        "category": "card_image"
+      {
+        "url": "https://images.unsplash.com/photo-1769952529152-88b736e04daf?crop=entropy&cs=srgb&fm=jpg&ixid=M3w3NTY2Nzh8MHwxfHNlYXJjaHwxfHxmb290YmFsbCUyMHRlYW0lMjBsb2dvfGVufDB8fHx8MTc4MTM2MzkzMnww&ixlib=rb-4.1.0&q=85",
+        "description": "Away team logo placeholder",
+        "category": "logo"
       }
-    }
+    ],
+    "player_portraits": [
+      {
+        "url": "https://images.pexels.com/photos/23940843/pexels-photo-23940843.jpeg?auto=compress&cs=tinysrgb&dpr=2&h=650&w=940",
+        "description": "Player portrait placeholder 1",
+        "category": "portrait"
+      },
+      {
+        "url": "https://images.unsplash.com/photo-1779304551934-3a25eaaa22dc?crop=entropy&cs=srgb&fm=jpg&ixid=M3w3NTY2NzV8MHwxfHNlYXJjaHwyfHxmb290YmFsbCUyMHBsYXllciUyMHBvcnRyYWl0fGVufDB8fHx8MTc4MTUyNjExNHww&ixlib=rb-4.1.0&q=85",
+        "description": "Player portrait placeholder 2",
+        "category": "portrait"
+      }
+    ]
   },
-  "accessibility": {
-    "contrast": "Ensure text contrast meets WCAG AA standards, especially on dark cards and lime primary buttons.",
-    "testing": "All interactive elements (buttons, inputs, match rows, tabs) MUST include descriptive data-testid attributes (e.g., data-testid='sports-nav-football', data-testid='match-row-chelsea-tottenham')."
-  },
+  "icons": "lucide-react for UI interactions, but use simple solid SVGs or FontAwesome/Phosphor for soccer specific events like whistle, yellow card, red card, substitution arrows.",
   "instructions_to_main_agent": [
-    "Strictly follow the 3-column Sofascore layout structure for the dashboard.",
-    "Match rows MUST be vertically stacked (home above away), right-aligned scores, and extremely dense.",
-    "Red (#FF3D52) is strictly reserved for the LIVE indicator dot (with pulse animation). Do not use it for errors or other UI elements.",
-    "Use CSS variables for theme switching (--cp-bg, --cp-text, etc.) mapping to the provided brand colors.",
-    "Implement the 14 sports horizontal scroll navigation.",
-    "Ensure the lime accent (#A3E635) is used effectively for active states, winners, and primary calls to action.",
-    "Build the dashboard to feel like a serious, data-rich sports utility, not a generic SaaS landing page."
+    "Build this as a React hybrid_fullstack match details page. Use existing Cloudy Pitch routing if applicable.",
+    "Strictly follow the color palette: Background #0F1115, Surfaces #1C2026, Accent Lime #A3E635. Do not deviate.",
+    "Implement the Tabs component from Shadcn, ensuring it handles horizontal overflow gracefully on mobile devices.",
+    "For the 'Attack Momentum' chart, implement a Recharts AreaChart. Map Home team possession/attacks to positive Y-axis values with the lime fill. Map Away team possession/attacks to negative Y-axis values with white fill.",
+    "The Lineups tab requires a visual pitch layout. Construct a container with background #121A16 and absolute positioned player chips. Use the provided 'player_portraits' media URLs for the avatar images.",
+    "For the Stats tab, construct a reusable 'DualProgressBar' component. It takes a label, leftValue, rightValue, and renders a split bar with center alignment.",
+    "Apply `data-testid` to all interactive elements (tabs, player chips, list items).",
+    "Include 'lucide-react' for UI icons and setup Recharts for the momentum chart."
   ]
 }
