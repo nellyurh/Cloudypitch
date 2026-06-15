@@ -106,30 +106,46 @@ async def cleanup_duplicate_leagues(
     """Merge leagues with identical normalised (name, country, sport_slug) pairs.
     Keeps the one with `primary_provider == 'sportmonks'` (else highest rank);
     deletes the rest and reassigns their matches' `league_id` to the winner.
+
+    🐛 Fix 2026-02-15 — the previous `norm()` split at both `:` and ` - `, which
+    caused mass false-positive merges (e.g. every "Brazil: Copa X - Play Offs"
+    collapsed to just "play offs" → 14 unrelated leagues clustered as one).
+    Now strips ONLY the leading country prefix (e.g. "Brazil: Carioca C"
+    → "Carioca C") and only when the prefix actually matches the league's
+    own `country` field. Hyphens and " - " inside the name are preserved.
     """
     db = get_db()
     leagues = await db.leagues.find({}, {"_id": 0}).to_list(length=5000)
 
-    def norm(name: str | None) -> str:
+    def norm(name: str | None, country: str | None) -> str:
         if not name:
             return ""
-        s = name.lower().strip()
-        # Drop "Country: " prefix and the country itself if echoed
-        for sep in (":", " - "):
-            if sep in s:
-                s = s.split(sep, 1)[-1].strip()
-        return s
+        s = name.strip()
+        # Strip ONLY a leading "<Country>: " prefix where <Country> matches the
+        # league's own country field (case-insensitive). Anything else stays.
+        if ": " in s:
+            head, tail = s.split(": ", 1)
+            if (country or "").lower().strip() == head.lower().strip():
+                s = tail.strip()
+        return s.lower()
 
     groups: dict[tuple, list[dict]] = {}
     for lg in leagues:
-        key = (norm(lg.get("name")), (lg.get("country") or "").lower(), lg.get("sport_slug") or "")
+        key = (norm(lg.get("name"), lg.get("country")),
+               (lg.get("country") or "").lower(),
+               lg.get("sport_slug") or "")
         groups.setdefault(key, []).append(lg)
 
     merge_ops: list[dict] = []
     for key, cluster in groups.items():
         if len(cluster) < 2:
             continue
-        cluster.sort(key=lambda x: (-_rank(x), len(x.get("name") or "")))
+        # Higher provider rank wins. Tiebreaker: prefer the doc whose name
+        # has NO "Country: " prefix (cleaner display), then longer name.
+        def _no_prefix(lg):
+            nm = (lg.get("name") or "")
+            return 1 if ": " in nm and nm.split(": ", 1)[0].lower() == (lg.get("country") or "").lower() else 0
+        cluster.sort(key=lambda x: (-_rank(x), _no_prefix(x), -len(x.get("name") or "")))
         winner, losers = cluster[0], cluster[1:]
         for L in losers:
             n_matches = await db.matches.count_documents({"league_id": L["id"]})

@@ -10,6 +10,17 @@ Global multi-sport livescore + predictions + fantasy platform launching for FIFA
 - Sportmonks (football), API-Sports (other sports), Trybit/CryptoCloud (crypto deposits), PocketFi (NGN), Google AdSense
 
 
+### 2026-02-15 (🐛 Duplicate-league norm() fix + bulk match dedupe)
+- **🐛 Root cause**: `cleanup_duplicate_leagues` `norm()` was stripping at BOTH `:` AND ` - `. The ` - ` split mass-collapsed unrelated leagues — every "Brazil: Copa Espirito Santo - Play Offs", "Brazil: Paraibano U20 - Play Offs", etc. flattened to just `"play offs"`. To avoid destroying real data, the cleanup had to under-match — leaving real dupes like `"Brazil: Carioca C"` vs `"Carioca C"` and `"Argentina: Primera C"` vs `"Primera C"` un-merged.
+- **🛠️ Fixed `norm()`** in `routes/admin_cleanup.py`:
+  - Strip ONLY a leading "<Country>: " prefix where the prefix exactly matches the league's `country` field.
+  - Never split at ` - ` — hyphens / suffixes are preserved.
+  - Winner-selection tiebreaker now prefers the doc with the cleaner (no-prefix) name.
+- **🧹 Live cleanup executed**:
+  - Duplicate-leagues: 75 clusters → **83 leagues merged** (Carioca C, Primera C, Allsvenskan, Eliteserien, Botola Pro, Veikkausliiga, Ligue 1, Brasileiro U20/U17, Catarinense U20, Mineiro U20, Tasmania N/S Championship, Victoria Premier League 2, Queensland Premier League, NPL NSW U20, …). 0 remaining duplicate clusters after run.
+  - Duplicate-matches: **football 718, basketball 125, cricket 47** dupes deleted across providers (Sportmonks > Manual > API-Sports > StatPal priority).
+- **Impact**: ~966 cross-provider duplicates removed from production data. Football listings page should now show each league exactly once.
+
 ### 2026-02-15 (🐛 Mini-game settlement rebuild — main team & mini-games)
 - **🐛 Mini-game entries didn't pick up new CBIT/CBIRT scoring** — `settle_wc_game` is idempotent: entries with `settled_at != null` are skipped on re-runs, so old scores stuck around. Main-team `/api/fantasy/settle/rebuild` only resets the main 15-man squad — never touched `wc_game_entries`.
 - **🛠️ New admin endpoint** `POST /api/admin/wc/games/rebuild-settle` — for every `wc_games` row in `status: settled`:
