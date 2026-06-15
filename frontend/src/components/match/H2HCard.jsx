@@ -1,8 +1,11 @@
 import React, { useMemo } from "react";
 
 /**
- * Sofascore-style H2H card with W-D-L aggregate badges + match rows.
- * Aggregates are computed from the home team's perspective.
+ * Sofascore-style H2H tab.
+ * Layout:
+ *  - Aggregate header strip (3 colored wins/draws/losses badges)
+ *  - 2-column on desktop: Head-to-head matches (left) · Matches sidebar (right)
+ *  - Below: Streaks section (per-row tags computed from h2h aggregates)
  */
 export default function H2HCard({ h2h, homeTeamId, awayTeamId, homeName, awayName }) {
   const { wins, draws, losses } = useMemo(() => {
@@ -27,56 +30,85 @@ export default function H2HCard({ h2h, homeTeamId, awayTeamId, homeName, awayNam
     );
   }
 
+  const homeWins = h2h.filter(p => {
+    const hs = Number(p.home_score ?? 0), as = Number(p.away_score ?? 0);
+    return p.home_team_id === homeTeamId ? hs > as : as > hs;
+  }).length;
+  const awayWins = h2h.filter(p => {
+    const hs = Number(p.home_score ?? 0), as = Number(p.away_score ?? 0);
+    return p.home_team_id === awayTeamId ? hs > as : as > hs;
+  }).length;
+
+  const totalGoalsHome = h2h.reduce((s, p) => s + (p.home_team_id === homeTeamId ? Number(p.home_score || 0) : Number(p.away_score || 0)), 0);
+  const totalGoalsAway = h2h.reduce((s, p) => s + (p.home_team_id === awayTeamId ? Number(p.home_score || 0) : Number(p.away_score || 0)), 0);
+  const bothScored = h2h.filter(p => Number(p.home_score || 0) > 0 && Number(p.away_score || 0) > 0).length;
+  const over25 = h2h.filter(p => Number(p.home_score || 0) + Number(p.away_score || 0) > 2.5).length;
+
   return (
     <div data-testid="h2h-card">
-      {/* Aggregate header — W / D / L pills */}
-      <div className="mb-4 pb-4 border-b" style={{ borderColor: "var(--cp-border)" }}>
-        <div className="text-[10px] uppercase tracking-[0.1em] font-semibold text-center mb-3" style={{ color: "var(--cp-text-muted)" }}>
-          Last {h2h.length} meetings · from {homeName}&apos;s view
-        </div>
-        <div className="grid grid-cols-3 gap-2">
-          <Badge label="Wins" value={wins} tone="win" testId="h2h-wins" />
-          <Badge label="Draws" value={draws} tone="draw" testId="h2h-draws" />
-          <Badge label="Losses" value={losses} tone="loss" testId="h2h-losses" />
-        </div>
+      {/* Aggregate strip */}
+      <div className="grid grid-cols-3 gap-2 mb-4">
+        <Badge label={`${homeName} wins`} value={homeWins} tone="home" testId="h2h-home-wins" />
+        <Badge label="Draws" value={draws} tone="draw" testId="h2h-draws" />
+        <Badge label={`${awayName} wins`} value={awayWins} tone="away" testId="h2h-away-wins" />
       </div>
 
-      {/* Match rows */}
-      <ul className="divide-y" style={{ borderColor: "var(--cp-border)" }} data-testid="h2h-list">
-        {h2h.map((p) => {
-          const hs = Number(p.home_score ?? 0);
-          const as = Number(p.away_score ?? 0);
-          const homeIsOurTeam = p.home_team_id === homeTeamId;
-          let outcome;
-          if (hs === as) outcome = "D";
-          else outcome = (homeIsOurTeam ? hs > as : as > hs) ? "W" : "L";
+      {/* 2-column: matches list + summary panel */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+        {/* LEFT: Head-to-head matches */}
+        <section className="cp-surface !bg-transparent ring-1 ring-white/5 rounded-lg p-3" data-testid="h2h-matches">
+          <h4 className="text-center text-[13px] font-bold mb-3 pb-2 border-b" style={{ borderColor: "var(--cp-border)" }}>
+            Head-to-head
+          </h4>
+          <ul className="divide-y" style={{ borderColor: "var(--cp-border)" }}>
+            {h2h.map((p) => {
+              const hs = Number(p.home_score ?? 0);
+              const as = Number(p.away_score ?? 0);
+              const homeIsOurTeam = p.home_team_id === homeTeamId;
+              let outcome;
+              if (hs === as) outcome = "D";
+              else outcome = (homeIsOurTeam ? hs > as : as > hs) ? "W" : "L";
+              const date = p.scheduled_at ? new Date(p.scheduled_at) : null;
+              return (
+                <li key={p.id} className="flex items-center gap-2 py-2 text-[12px]" data-testid={`h2h-row-${p.id}`}>
+                  <span className="text-[10px] tabular-nums w-14 shrink-0" style={{ color: "var(--cp-text-muted)" }}>
+                    {date ? date.toLocaleDateString([], { day: "2-digit", month: "short", year: "2-digit" }) : "—"}
+                  </span>
+                  <span className="flex-1 truncate text-slate-200">
+                    <span className={p.home_team_id === homeTeamId ? "font-semibold" : ""}>{p.home_team_name}</span>
+                    <b className="mx-1.5 tabular-nums text-slate-100">{hs}-{as}</b>
+                    <span className={p.away_team_id === homeTeamId ? "font-semibold" : ""}>{p.away_team_name}</span>
+                  </span>
+                  <OutcomePill outcome={outcome} />
+                </li>
+              );
+            })}
+          </ul>
+        </section>
 
-          const date = p.scheduled_at ? new Date(p.scheduled_at) : null;
-
-          return (
-            <li key={p.id} className="flex items-center gap-3 py-2.5 text-sm" data-testid={`h2h-row-${p.id}`}>
-              <span className="text-[10px] tabular-nums w-14 shrink-0" style={{ color: "var(--cp-text-muted)" }}>
-                {date ? date.toLocaleDateString([], { day: "2-digit", month: "short", year: "2-digit" }) : "—"}
-              </span>
-              <span className="flex-1 truncate text-slate-200">
-                <span className={p.home_team_id === homeTeamId ? "font-bold" : ""}>{p.home_team_name}</span>
-                <b className="mx-2 tabular-nums text-slate-100">{hs}–{as}</b>
-                <span className={p.away_team_id === homeTeamId ? "font-bold" : ""}>{p.away_team_name}</span>
-              </span>
-              <OutcomePill outcome={outcome} />
-            </li>
-          );
-        })}
-      </ul>
+        {/* RIGHT: Summary */}
+        <section className="cp-surface !bg-transparent ring-1 ring-white/5 rounded-lg p-3" data-testid="h2h-summary">
+          <h4 className="text-center text-[13px] font-bold mb-3 pb-2 border-b" style={{ borderColor: "var(--cp-border)" }}>
+            Streaks &amp; trends
+          </h4>
+          <div className="space-y-2">
+            <Streak label="Total meetings" value={h2h.length} />
+            <Streak label={`Goals · ${homeName}`} value={totalGoalsHome} accent="home" />
+            <Streak label={`Goals · ${awayName}`} value={totalGoalsAway} accent="away" />
+            <Streak label="Both teams scored" value={`${bothScored} / ${h2h.length}`} />
+            <Streak label="Over 2.5 goals" value={`${over25} / ${h2h.length}`} />
+          </div>
+        </section>
+      </div>
     </div>
   );
 }
 
 function Badge({ label, value, tone, testId }) {
   const tones = {
-    win:  { bg: "rgba(34,197,94,0.12)",  border: "rgba(34,197,94,0.35)",  fg: "#22C55E" },
+    home: { bg: "rgba(163,230,53,0.12)", border: "rgba(163,230,53,0.35)", fg: "#A3E635" },
     draw: { bg: "rgba(148,163,184,0.12)", border: "rgba(148,163,184,0.3)", fg: "#94A3B8" },
-    loss: { bg: "rgba(239,68,68,0.12)",  border: "rgba(239,68,68,0.35)",  fg: "#EF4444" },
+    away: { bg: "rgba(125,211,252,0.12)", border: "rgba(125,211,252,0.35)", fg: "#7DD3FC" },
   };
   const c = tones[tone] || tones.draw;
   return (
@@ -86,7 +118,7 @@ function Badge({ label, value, tone, testId }) {
       data-testid={testId}
     >
       <div className="text-2xl font-extrabold tabular-nums leading-none" style={{ color: c.fg }}>{value}</div>
-      <div className="text-[10px] uppercase tracking-wider mt-1" style={{ color: c.fg, opacity: 0.85 }}>{label}</div>
+      <div className="text-[10px] uppercase tracking-wider mt-1 text-center px-1 truncate max-w-full" style={{ color: c.fg, opacity: 0.85 }}>{label}</div>
     </div>
   );
 }
@@ -105,5 +137,15 @@ function OutcomePill({ outcome }) {
     >
       {outcome}
     </span>
+  );
+}
+
+function Streak({ label, value, accent }) {
+  const accentColor = accent === "home" ? "#A3E635" : accent === "away" ? "#7DD3FC" : "#F8FAFC";
+  return (
+    <div className="flex items-center justify-between py-1.5 border-b text-[12px]" style={{ borderColor: "var(--cp-border)" }}>
+      <span className="text-slate-300">{label}</span>
+      <span className="font-bold tabular-nums" style={{ color: accentColor }}>{value}</span>
+    </div>
   );
 }

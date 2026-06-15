@@ -10,6 +10,20 @@ Global multi-sport livescore + predictions + fantasy platform launching for FIFA
 - Sportmonks (football), API-Sports (other sports), Trybit/CryptoCloud (crypto deposits), PocketFi (NGN), Google AdSense
 
 
+### 2026-02-15 (Sofascore parity v3 — persistent left rail + always-on momentum)
+- **🧹 Match hero simplified** — removed stadium background image + gradient (was too dark / not on Sofascore reference). Logos shrunk from `w-20` → `w-12`, score from `text-6xl` → `text-4xl`, "FINISHED" now plain text label under score instead of a colored pill. Score-side now matches Sofascore's clean white-on-light look (adapted to dark theme).
+- **📌 Persistent left rail across ALL tabs** (Sofascore parity):
+  - Full-time odds
+  - Attack Momentum chart (always visible — see below)
+  - Events timeline (compact variant: FT 5-1 header + minute/icon/scorer rows with goals in lime)
+  - Sidebar ad
+  - Rail stays put when user switches between Lineups / Stats / Standings / H2H tabs.
+- **📊 AttackMomentum always renders** — `AttackMomentum.jsx` now synthesizes a per-minute pressure series from `events[]` when the Sportmonks momentum endpoint returns empty. Goals weight 90, cards 30-50, subs 18; spread ±2 minutes with a sine-wave baseline so the chart never looks hollow. Home=lime / Away=cyan, HT reference line at 45'. New `events` prop wired from MatchDetail. Verified on Sweden 5-1 Tunisia → chart visible with goal-driven spikes.
+- **🎯 Tabs reduced to Sofascore set**: Lineups / Statistics / Standings / H2H / Commentary / Trends. Removed `Events` and `Momentum` tabs (they're now in the persistent left rail — no double-rendering).
+- **🤝 H2H tab restructured to 2-column** like Sofascore — aggregate W/D/L badges (home-lime / draw-slate / away-cyan) on top, then a "Head-to-head" match list (left) + "Streaks & trends" summary (right) with Total meetings, Goals per team, Both teams scored ratio, Over 2.5 goals ratio.
+- **📋 EventsList compact mode** — new `compact` prop renders a narrow single-column rail variant (28px minute / 18px icon / 1fr scorer name) for use in the left sidebar without overflow.
+
+
 ### 2026-02-15 (Sofascore Statistics tab rebuild)
 - **📊 Statistics tab now matches Sofascore exactly** — `StatsBars.jsx` rewritten with:
   - **Sectioned blocks**: Match overview / Shots / Attack / Passes / Duels / Defending / Goalkeeping (only sections with data appear).

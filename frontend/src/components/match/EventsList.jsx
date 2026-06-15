@@ -40,9 +40,42 @@ const isGoal = (t) => /goal|penalty/i.test(t) && !/missed|cancelled|miss$/i.test
  * Center column = vertical line + minute marker pill.
  * Home events align right of the rail; away events align left.
  */
-export default function EventsList({ events, homeTeamId, awayTeamId, homeName, awayName }) {
+export default function EventsList({ events, homeTeamId, awayTeamId, homeName, awayName, compact = false }) {
   if (!events || events.length === 0) {
     return <div className="text-sm" style={{ color: "var(--cp-text-muted)" }}>No events yet.</div>;
+  }
+
+  // Compact left-rail variant — single column, minute → player, color-coded by team
+  if (compact) {
+    return (
+      <ul className="space-y-1.5" data-testid="events-list-compact">
+        {events.map((e, i) => {
+          const isHome = e.team_id && e.team_id === homeTeamId;
+          const isAway = e.team_id && e.team_id === awayTeamId;
+          const typeName = prettyType(e.type);
+          const isSub = typeName === "Substitution";
+          const goal = isGoal(typeName);
+          const displayPlayer = e.player_name || e.detail || "";
+          const minuteLabel = e.minute != null ? `${e.minute}${e.extra_minute ? "+" + e.extra_minute : ""}'` : "—";
+          return (
+            <li key={i} className="grid grid-cols-[28px_18px_1fr] items-start gap-1.5 text-[11px] py-0.5" data-testid={`rail-event-${i}`}>
+              <span className="tabular-nums text-right pt-px" style={{ color: "var(--cp-text-muted)" }}>{minuteLabel}</span>
+              <span className="pt-px flex justify-center">{iconFor(typeName)}</span>
+              <span className="min-w-0">
+                <span className={`block truncate ${goal ? "font-bold text-cp-lime" : (isHome ? "text-slate-100" : "text-slate-300")}`}>
+                  {displayPlayer}
+                </span>
+                {e.assist_player_name && (
+                  <span className="block truncate text-[10px]" style={{ color: "var(--cp-text-muted)" }}>
+                    {isSub ? `↓ ${e.assist_player_name}` : `assist: ${e.assist_player_name}`}
+                  </span>
+                )}
+              </span>
+            </li>
+          );
+        })}
+      </ul>
+    );
   }
 
   return (

@@ -1,7 +1,7 @@
 import React, { useEffect, useState, useMemo } from "react";
 import { useParams, Link } from "react-router-dom";
 import api from "../lib/api";
-import { ChevronLeft, MapPin, Tv, Calendar, RefreshCw, Star, CloudRain, User2 } from "lucide-react";
+import { ChevronLeft, MapPin, Tv, Calendar, RefreshCw, CloudRain, User2 } from "lucide-react";
 import EventsList from "../components/match/EventsList";
 import StatsBars from "../components/match/StatsBars";
 import LineupPitch from "../components/match/LineupPitch";
@@ -21,7 +21,7 @@ import AdSlot from "../components/AdSlot";
 
 /* Sport-aware tab layout (Sofascore style). */
 const SPORT_TABS = {
-  football:          [{ k: "lineups", l: "Lineups" }, { k: "stats", l: "Stats" }, { k: "events", l: "Events" }, { k: "momentum", l: "Momentum" }, { k: "commentary", l: "Commentary" }, { k: "trends", l: "Trends" }, { k: "h2h", l: "H2H" }, { k: "standings", l: "Standings" }],
+  football:          [{ k: "lineups", l: "Lineups" }, { k: "stats", l: "Statistics" }, { k: "standings", l: "Standings" }, { k: "h2h", l: "H2H" }, { k: "commentary", l: "Commentary" }, { k: "trends", l: "Trends" }],
   basketball:        [{ k: "box",     l: "Box Score" }, { k: "stats", l: "Statistics" }, { k: "h2h", l: "H2H" }, { k: "standings", l: "Standings" }],
   basketball_nba:    [{ k: "box",     l: "Box Score" }, { k: "stats", l: "Statistics" }, { k: "playoffs", l: "Playoffs" }, { k: "h2h", l: "H2H" }, { k: "standings", l: "Standings" }],
   nba:               [{ k: "box",     l: "Box Score" }, { k: "stats", l: "Statistics" }, { k: "playoffs", l: "Playoffs" }, { k: "h2h", l: "H2H" }, { k: "standings", l: "Standings" }],
@@ -38,7 +38,7 @@ const SPORT_TABS = {
   default:           [{ k: "events",  l: "Events" }, { k: "stats", l: "Stats" }, { k: "h2h", l: "H2H" }],
 };
 
-const STADIUM_BG_URL = "https://images.unsplash.com/photo-1431324155629-1a6deb1dec8d?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjA2ODl8MHwxfHNlYXJjaHwxfHxzdGFkaXVtJTIwYmFja2dyb3VuZCUyMGRhcmt8ZW58MHx8fHwxNzgxNTI2MTE0fDA&ixlib=rb-4.1.0&q=85";
+const STADIUM_BG_URL = ""; // deprecated — kept as no-op for backwards-compat
 
 function StatusPill({ m, finished }) {
   const live = m.is_live;
@@ -73,74 +73,53 @@ function StatusPill({ m, finished }) {
 }
 
 function MatchHero({ m, finished }) {
-  const isFootball = (m.sport_slug || "football") === "football";
   return (
-    <div className="relative cp-surface overflow-hidden" data-testid="match-hero">
-      {/* Stadium background — football only, dark gradient overlay on top */}
-      {isFootball && (
-        <>
-          <div
-            aria-hidden
-            className="absolute inset-0 pointer-events-none"
-            style={{
-              backgroundImage: `url(${STADIUM_BG_URL})`,
-              backgroundSize: "cover",
-              backgroundPosition: "center",
-              opacity: 0.45,
-              filter: "saturate(0.75) contrast(1.05)",
-            }}
-          />
-          <div
-            aria-hidden
-            className="absolute inset-0 pointer-events-none"
-            style={{
-              background:
-                "linear-gradient(to top, var(--cp-bg, #0F1115) 0%, rgba(15,17,21,0.75) 50%, rgba(15,17,21,0.35) 100%)",
-            }}
-          />
-        </>
-      )}
-
-      <div className="relative z-10 p-4 md:p-6">
+    <div className="cp-surface" data-testid="match-hero">
+      <div className="p-4 md:p-5">
         <div className="text-[10px] uppercase tracking-widest text-center mb-3" style={{ color: "var(--cp-text-muted)" }}>
           {m.league_country} · {m.league_name}
         </div>
 
-        <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-4 md:gap-8">
+        <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-3 md:gap-6">
           {/* Home */}
-          <div className="flex flex-col items-center md:items-end gap-2 text-center md:text-right">
+          <div className="flex items-center justify-end gap-3 text-right">
+            <div className="text-sm md:text-base font-bold text-slate-100">{m.home_team_name}</div>
             {m.home_team_logo ? (
-              <img src={m.home_team_logo} alt="" className="w-16 h-16 md:w-20 md:h-20 object-contain drop-shadow-[0_2px_8px_rgba(0,0,0,0.45)]" onError={(e)=>{e.target.style.display="none"}}/>
-            ) : <div className="w-16 h-16 md:w-20 md:h-20 cp-logo-circle text-lg font-extrabold">{m.home_short}</div>}
-            <div className="text-sm md:text-base font-extrabold text-slate-100">{m.home_team_name}</div>
+              <img src={m.home_team_logo} alt="" className="w-10 h-10 md:w-12 md:h-12 object-contain shrink-0" onError={(e)=>{e.target.style.display="none"}}/>
+            ) : <div className="w-10 h-10 md:w-12 md:h-12 cp-logo-circle text-xs font-extrabold shrink-0">{m.home_short}</div>}
           </div>
 
           {/* Score & status */}
-          <div className="text-center min-w-[120px]">
-            <div className="text-4xl md:text-6xl font-black tabular-nums tracking-tighter leading-none">
+          <div className="text-center min-w-[90px]">
+            <div className="text-3xl md:text-4xl font-extrabold tabular-nums tracking-tight leading-none">
               <span className={m.home_score > m.away_score ? "text-cp-lime" : "text-slate-100"}>{m.home_score ?? "—"}</span>
-              <span className="mx-2 opacity-40">:</span>
+              <span className="mx-1.5 opacity-40">-</span>
               <span className={m.away_score > m.home_score ? "text-cp-lime" : "text-slate-100"}>{m.away_score ?? "—"}</span>
             </div>
-            <div className="mt-3 flex items-center justify-center">
-              <StatusPill m={m} finished={finished} />
+            <div className="mt-1.5 text-[10px] font-bold uppercase tracking-widest" style={{ color: "var(--cp-text-muted)" }} data-testid="match-status-label">
+              {m.is_live && <span className="inline-block w-1.5 h-1.5 rounded-full bg-rose-500 mr-1 animate-pulse align-middle" />}
+              {m.is_live
+                ? (m.minute != null ? `${m.minute}'` : (m.status === "HT" ? "HT" : "Live"))
+                : (finished ? "Finished" : (m.status_long || m.status || "Scheduled"))}
             </div>
           </div>
 
           {/* Away */}
-          <div className="flex flex-col items-center md:items-start gap-2 text-center md:text-left">
+          <div className="flex items-center justify-start gap-3 text-left">
             {m.away_team_logo ? (
-              <img src={m.away_team_logo} alt="" className="w-16 h-16 md:w-20 md:h-20 object-contain drop-shadow-[0_2px_8px_rgba(0,0,0,0.45)]" onError={(e)=>{e.target.style.display="none"}}/>
-            ) : <div className="w-16 h-16 md:w-20 md:h-20 cp-logo-circle text-lg font-extrabold">{m.away_short}</div>}
-            <div className="text-sm md:text-base font-extrabold text-slate-100">{m.away_team_name}</div>
+              <img src={m.away_team_logo} alt="" className="w-10 h-10 md:w-12 md:h-12 object-contain shrink-0" onError={(e)=>{e.target.style.display="none"}}/>
+            ) : <div className="w-10 h-10 md:w-12 md:h-12 cp-logo-circle text-xs font-extrabold shrink-0">{m.away_short}</div>}
+            <div className="text-sm md:text-base font-bold text-slate-100">{m.away_team_name}</div>
           </div>
         </div>
 
+        {/* Goal scorers strip (compact, like Sofascore) */}
+        {m.goal_scorers_home || m.goal_scorers_away ? null : null}
+
         {/* Meta strip */}
-        <div className="mt-4 pt-3 border-t flex flex-wrap items-center justify-center gap-x-5 gap-y-1 text-[11px]" style={{ borderColor: "var(--cp-border)", color: "var(--cp-text-muted)" }}>
+        <div className="mt-3 pt-3 border-t flex flex-wrap items-center justify-center gap-x-4 gap-y-1 text-[11px]" style={{ borderColor: "var(--cp-border)", color: "var(--cp-text-muted)" }}>
           <span className="inline-flex items-center gap-1"><Calendar size={11}/>{m.scheduled_at && new Date(m.scheduled_at).toLocaleString([], { day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" })}</span>
           {m.venue_name && <span className="inline-flex items-center gap-1"><MapPin size={11}/>{m.venue_name}{m.venue_city ? `, ${m.venue_city}` : ""}</span>}
-          {m.match_format && <span className="inline-flex items-center gap-1">{m.match_format}</span>}
           {m.weather && (m.weather.temperature_celcius != null || m.weather.type) && (
             <span className="inline-flex items-center gap-1" data-testid="hero-weather">
               <CloudRain size={11}/>
@@ -249,10 +228,9 @@ export const MatchDetail = () => {
   // dead "Attack Momentum is empty" panel — Sofascore-style clean tab bar
   // where only populated tabs are visible.
   const tabHasData = (key) => {
-    if (key === "events" || key === "commentary") return (events || []).length > 0;
+    if (key === "commentary") return (events || []).length > 0;
     if (key === "stats") return (stats || []).length > 0;
     if (key === "lineups") return (lineups || []).length > 0;
-    if (key === "momentum") return (momentumCount ?? 0) > 0;
     // H2H / Standings / Trends compute themselves from m + side fetches.
     return true;
   };
@@ -283,15 +261,14 @@ export const MatchDetail = () => {
 
       <MatchHero m={m} finished={finished}/>
 
-      <div className="grid grid-cols-1 lg:grid-cols-[260px_1fr_260px] gap-3 mt-3">
-        {/* Left rail */}
+      <div className="grid grid-cols-1 lg:grid-cols-[280px_1fr_260px] gap-3 mt-3">
+        {/* Left rail — persistent across all tabs (Sofascore style) */}
         <aside className="space-y-3">
           {sideBoxData.length > 0 && (
             <ScoreBox periods={sideBoxData} labelPrefix={sportSlug === "tennis" || sportSlug === "volleyball" ? "S" : "Q"}/>
           )}
-          {sportSlug === "football" && <AttackMomentum matchId={id} homeTeamId={m.home_team_id}/>}
           <div className="cp-surface p-3">
-            <div className="text-[10px] uppercase tracking-widest mb-1" style={{ color: "var(--cp-text-muted)" }}>Full-time odds</div>
+            <div className="text-[10px] uppercase tracking-widest mb-1.5" style={{ color: "var(--cp-text-muted)" }}>Full-time odds</div>
             <div className="grid grid-cols-3 gap-1.5 text-center">
               {["1", "X", "2"].map((k, i) => (
                 <div key={k} className="cp-surface !bg-transparent p-2 ring-1 ring-white/10 rounded" data-testid={`odds-${k}`}>
@@ -301,6 +278,24 @@ export const MatchDetail = () => {
               ))}
             </div>
           </div>
+          {sportSlug === "football" && (
+            <AttackMomentum matchId={id} homeTeamId={m.home_team_id} events={events} full/>
+          )}
+          {sportSlug === "football" && (events || []).length > 0 && (
+            <div className="cp-surface p-3" data-testid="rail-events">
+              <div className="text-[10px] uppercase tracking-widest mb-2 text-center font-bold" style={{ color: "var(--cp-text-muted)" }}>
+                {finished ? `FT ${m.home_score ?? 0} - ${m.away_score ?? 0}` : "Events"}
+              </div>
+              <EventsList
+                events={events}
+                homeTeamId={m.home_team_id}
+                awayTeamId={m.away_team_id}
+                homeName={m.home_team_name}
+                awayName={m.away_team_name}
+                compact
+              />
+            </div>
+          )}
           <AdSlot slot="sidebar"/>
         </aside>
 
@@ -315,7 +310,6 @@ export const MatchDetail = () => {
           </div>
 
           <div className="cp-surface mt-3 p-4 min-h-[300px]">
-            {tab === "events" && <EventsList events={events} homeTeamId={m.home_team_id} awayTeamId={m.away_team_id} homeName={m.home_team_name} awayName={m.away_team_name}/>}
             {tab === "stats" && (useBballStats
               ? <BasketballStatsView m={m} statistics={stats} homeName={m.home_team_name} awayName={m.away_team_name}/>
               : <StatsBars statistics={stats} homeTeamId={m.home_team_id} awayTeamId={m.away_team_id} homeName={m.home_team_name} awayName={m.away_team_name}/>)}
@@ -332,11 +326,11 @@ export const MatchDetail = () => {
               </>
             )}
             {tab === "commentary" && <Commentary comments={m.comments || []} homeTeamName={m.home_team_name} awayTeamName={m.away_team_name}/>}
-            {tab === "momentum" && <AttackMomentum matchId={id} homeTeamId={m.home_team_id} full/>}
             {tab === "trends" && <Trends facts={m.matchfacts || []} homeTeamName={m.home_team_name} awayTeamName={m.away_team_name}/>}
             {tab === "box" && <BoxScore match={m} lineups={lineups}/>}
             {tab === "sets" && <Sets match={m}/>}
             {tab === "innings" && <Innings match={m}/>}
+            {tab === "events" && <EventsList events={events} homeTeamId={m.home_team_id} awayTeamId={m.away_team_id} homeName={m.home_team_name} awayName={m.away_team_name}/>}
             {tab === "standings" && <StandingsTable matchId={id}/>}
             {tab === "playoffs" && <NBABracket/>}
             {tab === "h2h" && (
@@ -351,13 +345,9 @@ export const MatchDetail = () => {
           </div>
         </div>
 
-        {/* Right rail — ad + favourite */}
+        {/* Right rail — ad only (Sofascore parity) */}
         <aside className="space-y-3 hidden lg:block">
-          <div className="cp-surface p-3 text-center">
-            <Star size={20} className="mx-auto text-cp-lime mb-1"/>
-            <div className="text-xs font-bold">Follow this match</div>
-            <div className="text-[10px] mt-1" style={{ color: "var(--cp-text-muted)" }}>Get push alerts for goals and key moments</div>
-          </div>
+          <AdSlot slot="sidebar"/>
           <AdSlot slot="sidebar"/>
         </aside>
       </div>
