@@ -10,6 +10,17 @@ Global multi-sport livescore + predictions + fantasy platform launching for FIFA
 - Sportmonks (football), API-Sports (other sports), Trybit/CryptoCloud (crypto deposits), PocketFi (NGN), Google AdSense
 
 
+### 2026-02-13 (Scoring v2 + unified WC league feed)
+- **🆕 Fantasy scoring updated to the canonical spec**:
+  - Goals: GK/DEF +6, MID +5, FWD +4 (unchanged)
+  - **NEW** Defensive Contributions: DEF +2 per 10 CBIT (clearances + blocks + interceptions + tackles); MID/FWD +2 per 12 CBIRT (CBIT + recoveries).
+  - **NEW** -1 per 2 goals conceded (GK/DEF only).
+  - Minutes ≤60 → +1, ≥60 → +2 (unchanged). Clean sheets: GK/DEF +4, MID +1. Penalty save +5. Yellow -1, Red -3, Own goal -2, Pen miss -2.
+  - `compute_player_points()` signature expanded with `goals_conceded`, `clearances`, `blocks`, `interceptions`, `tackles`, `recoveries`. `settle_gameweek` now pulls these from `match_lineups.stats` per provider, and tallies `goals_conceded` from each opponent score.
+  - Unit-tested: DEF 90'+12 CBIT+CS = **8 pts**, MID 90'+24 CBIRT = **6 pts**, GK 90'+6 saves+1 pen save+4 GC = **7 pts**.
+- **🛡️ Duplicate "World Cup" sidebar tabs collapsed** — Multiple providers (Sportmonks, api-sports, StatPal) each registered their own `league_id` for WC2026, producing 2-3 "World Cup" entries in the country sidebar with overlapping match lists. Fixed in `routes/matches.py:list_matches`: any league flagged `is_world_cup=true` OR whose name matches "World Cup / World Championship / FIFA WC" is merged into a single canonical `wc-2026-canonical` bucket titled **"FIFA World Cup 2026"**, pinned at the top of the dashboard. Inner-bucket dedupe by `(home, away, day)` prevents repeats. Verified: WC groups went from 3 → 1 with 5 deduped matches.
+
+
 ### 2026-02-13 (Budget bump · alert → toast · fantasy auto-credit · 30m lock fix)
 - **20-man squad budget bumped €120M → €150M** for all mini-game types (`group`, `round`, `matchday`). Single-match games still cap at €100M / 15-man. Updated in `routes/fantasy.py` (`_pick_rules_for_game`, `create_or_update_squad`) AND `BuildTeam.jsx` (`SQUAD_PROFILES["20"].budget`). Verified via `/api/fantasy/game-rules/{id}` → `{total: 20, budget: 150}`.
 - **🐛 30-minute team-lock false-positive** — A team whose group-stage match had already finished (FT) was being permanently locked from later round/matchday mini-games. Root cause: the lock query was `scheduled_at ≤ now+30m` with no upper bound on age and no status filter, so a finished match in the past matched forever. **Fix**: added `scheduled_at ≥ now-4h` floor + `status ∉ [FT, AET, PEN, AWARDED, CANC, POSTP, ABAN]`. Now a team is locked ONLY if it has a NON-finished match starting within 30 min or currently in-play.

@@ -565,7 +565,7 @@ async def settle_gameweek(gameweek: int = 1, user: dict = Depends(a.require_admi
             team_id = player.get("team_id")
             position = sp.get("position") or player.get("position") or "MID"
             # Accumulate across matches the team played
-            agg_stats = {"goals":0,"assists":0,"yellow_cards":0,"red_cards":0,"own_goals":0,"missed_penalties":0,"minutes":0,"saves":0,"penalty_saves":0}
+            agg_stats = {"goals":0,"assists":0,"yellow_cards":0,"red_cards":0,"own_goals":0,"missed_penalties":0,"minutes":0,"saves":0,"penalty_saves":0,"clearances":0,"blocks":0,"interceptions":0,"tackles":0,"recoveries":0,"goals_conceded":0}
             for m in finished:
                 if team_id not in (m.get("home_team_id"), m.get("away_team_id")):
                     continue
@@ -577,8 +577,24 @@ async def settle_gameweek(gameweek: int = 1, user: dict = Depends(a.require_admi
                     agg_stats["minutes"] += 90 if lin.get("starter") else 30
                     if s.get("substituted_out"):
                         agg_stats["minutes"] = max(0, agg_stats["minutes"] - 30)
+                    # Defensive contribution stats from the lineup row (Sportmonks
+                    # publishes these per-player statistics in `lineup.stats`).
+                    pstats = (lin.get("stats") or {})
+                    for k in ("clearances", "blocks", "interceptions", "tackles", "recoveries", "saves"):
+                        v = pstats.get(k)
+                        if isinstance(v, (int, float)):
+                            agg_stats[k] += int(v)
+                    pen_saves = pstats.get("penalty_saves") or pstats.get("saves_penalty")
+                    if isinstance(pen_saves, (int, float)):
+                        agg_stats["penalty_saves"] += int(pen_saves)
                 for k in ("goals", "assists", "yellow_cards", "red_cards", "own_goals", "missed_penalties"):
                     agg_stats[k] += s.get(k, 0)
+                # Team goals conceded for THIS match (only relevant for GK/DEF)
+                if position in ("GK", "DEF"):
+                    if m.get("home_team_id") == team_id:
+                        agg_stats["goals_conceded"] += int(m.get("away_score") or 0)
+                    else:
+                        agg_stats["goals_conceded"] += int(m.get("home_score") or 0)
             # Clean sheet across team's finished matches
             had_cs = any(clean.get((m["id"], team_id), False) for m in finished if team_id in (m.get("home_team_id"), m.get("away_team_id")))
             res = compute_player_points(
@@ -589,6 +605,10 @@ async def settle_gameweek(gameweek: int = 1, user: dict = Depends(a.require_admi
                 own_goals=agg_stats["own_goals"], missed_penalties=agg_stats["missed_penalties"],
                 saves=agg_stats["saves"], penalty_saves=agg_stats["penalty_saves"],
                 team_clean_sheet=had_cs,
+                goals_conceded=agg_stats["goals_conceded"],
+                clearances=agg_stats["clearances"], blocks=agg_stats["blocks"],
+                interceptions=agg_stats["interceptions"], tackles=agg_stats["tackles"],
+                recoveries=agg_stats["recoveries"],
             )
             p_pts = res["points"]
             is_cap = (sq.get("captain_id") == sp.get("player_id"))

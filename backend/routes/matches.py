@@ -134,25 +134,77 @@ async def list_matches(
 
     # Group by league for the dashboard (sort groups by country priority then league tier)
     by_league: dict = {}
+    # 🛡️ Multiple providers (Sportmonks, api-sports, StatPal) each register the
+    # 2026 World Cup as their own `league_id` — historically appearing as 3
+    # separate "World Cup" sidebar entries with duplicate matches. We collapse
+    # any league with a WC-ish name (case-insensitive) into a single canonical
+    # bucket, then dedupe by (home, away, day).
+    def _is_wc_name(n: str) -> bool:
+        if not n:
+            return False
+        n = n.lower()
+        return (
+            "world cup" in n
+            or "world championship" in n
+            or "fifa wc" in n
+            or "fifa world" in n
+        )
+
+    WC_CANONICAL = "wc-2026-canonical"
+
+    def _bucket_key(row):
+        # Collapse all WC providers into one canonical bucket.
+        if row.get("is_world_cup") or _is_wc_name(row.get("league_name") or ""):
+            return WC_CANONICAL
+        return row.get("league_id") or "unknown"
+
     for r in rows:
-        key = r.get("league_id") or "unknown"
+        key = _bucket_key(r)
         if key not in by_league:
-            by_league[key] = {
-                "league_id": key,
-                "league_name": r.get("league_name") or "League",
-                "league_logo": r.get("league_logo") or "",
-                "league_country": r.get("league_country") or "International",
-                "matches": [],
-            }
+            if key == WC_CANONICAL:
+                by_league[key] = {
+                    "league_id": WC_CANONICAL,
+                    "league_name": "FIFA World Cup 2026",
+                    "league_logo": r.get("league_logo") or "",
+                    "league_country": "World",
+                    "matches": [],
+                    "_seen": set(),
+                }
+            else:
+                by_league[key] = {
+                    "league_id": key,
+                    "league_name": r.get("league_name") or "League",
+                    "league_logo": r.get("league_logo") or "",
+                    "league_country": r.get("league_country") or "International",
+                    "matches": [],
+                    "_seen": set(),
+                }
+        # Dedupe matches within a bucket by (home, away, day).
+        sig = (
+            (r.get("home_team_name") or "").lower().strip(),
+            (r.get("away_team_name") or "").lower().strip(),
+            (r.get("scheduled_at") or "")[:10],
+        )
+        if sig in by_league[key]["_seen"]:
+            continue
+        by_league[key]["_seen"].add(sig)
         by_league[key]["matches"].append(r)
+    # Drop the internal `_seen` set before returning (not JSON-serializable).
+    for g in by_league.values():
+        g.pop("_seen", None)
     # Pull tier/priority from leagues collection for stable ordering
-    league_ids = list(by_league.keys())
+    league_ids = [lid for lid in by_league.keys() if lid != WC_CANONICAL]
     league_meta = await db.leagues.find({"id": {"$in": league_ids}}, {"_id": 0, "id": 1, "tier_score": 1, "country_priority": 1}).to_list(length=2000)
     meta_by_id = {m["id"]: m for m in league_meta}
     for g in by_league.values():
-        m = meta_by_id.get(g["league_id"], {})
-        g["_tier"] = m.get("tier_score", 30)
-        g["_country_priority"] = m.get("country_priority", 200)
+        if g["league_id"] == WC_CANONICAL:
+            # WC always at the top of the dashboard during tournament window.
+            g["_tier"] = 999
+            g["_country_priority"] = 0
+        else:
+            m = meta_by_id.get(g["league_id"], {})
+            g["_tier"] = m.get("tier_score", 30)
+            g["_country_priority"] = m.get("country_priority", 200)
     grouped = sorted(
         by_league.values(),
         # Order: highest tier first (top European leagues + UEFA + WC at top),
