@@ -177,7 +177,19 @@ export const MatchDetail = () => {
 
   const sportSlug = m?.sport_slug || "football";
   const tabs = useMemo(() => SPORT_TABS[sportSlug] || SPORT_TABS.default, [sportSlug]);
-  useEffect(() => { if (m && !tab) setTab(tabs[0]?.k); }, [m, tab, tabs]);
+  // 🛡️ Hide tabs that have no data. Saves users from clicking through to a
+  // dead "Attack Momentum is empty" panel — Sofascore-style clean tab bar
+  // where only populated tabs are visible.
+  const tabHasData = (key) => {
+    if (key === "events" || key === "commentary") return (events || []).length > 0;
+    if (key === "stats") return (stats || []).length > 0;
+    if (key === "lineups") return (lineups || []).length > 0;
+    // H2H / Standings / Trends compute themselves from m + side fetches.
+    // Keep visible — they degrade to friendly "No data yet" messages on their own.
+    return true;
+  };
+  const visibleTabs = useMemo(() => tabs.filter((t) => tabHasData(t.k)), [tabs, events, stats, lineups]);
+  useEffect(() => { if (m && !tab) setTab(visibleTabs[0]?.k || tabs[0]?.k); }, [m, tab, tabs, visibleTabs]);
 
   const handleRefresh = async () => { setRefreshing(true); await load(true); setRefreshing(false); };
 
@@ -227,7 +239,7 @@ export const MatchDetail = () => {
         {/* Center tabs */}
         <div>
           <div className="flex gap-1 cp-surface p-1 overflow-x-auto" data-testid="match-tabs">
-            {tabs.map(t => (
+            {visibleTabs.map(t => (
               <button key={t.k} onClick={() => setTab(t.k)} className={`px-3 py-1.5 text-sm rounded transition whitespace-nowrap ${tab === t.k ? "bg-cp-lime text-cp-forest font-bold" : "hover:bg-white/5"}`} data-testid={`tab-${t.k}`}>
                 {t.l}
               </button>

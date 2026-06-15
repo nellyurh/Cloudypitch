@@ -10,6 +10,12 @@ Global multi-sport livescore + predictions + fantasy platform launching for FIFA
 - Sportmonks (football), API-Sports (other sports), Trybit/CryptoCloud (crypto deposits), PocketFi (NGN), Google AdSense
 
 
+### 2026-02-13 (Match details polish: empty tabs · mobile pitch · team-name aliases)
+- **🚫 Empty tabs auto-hidden** in `MatchDetail.jsx`. `events`, `stats`, `commentary`, `lineups` tabs are filtered out before render if their backing arrays are empty. `H2H` / `Standings` / `Trends` stay visible (they self-render a friendly "no data yet" state). Solves the "Attack Momentum is empty" dead-clicks on the deployed site.
+- **📱 LineupPitch responsive rewrite** — On mobile (<768px) the pitch now renders **vertically** (aspect 3/4, home top, away bottom) exactly like Sofascore. Bigger player chips (36→40 px on phones), name labels with wider truncation, vertical penalty/goal boxes. Desktop keeps the 16/10 landscape layout unchanged. New helper `computePositions()` returns `{depth, lane}` so the same logic drives both orientations.
+- **🛡️ Team-name alias normalizer** — Provider variants (Côte d'Ivoire / Ivory Coast, South Korea / Korea Republic, USA / United States, UAE / United Arab Emirates, Czechia / Czech Republic, Türkiye / Turkey, Bosnia / Bosnia and Herzegovina, Cape Verde / Cape Verde Islands, North Korea / Korea DPR, Iran / IR Iran) all collapse to a single canonical key inside `_normalize_team()`, eliminating the "Ivory Coast vs Ivory Coast" twin-tab the user spotted.
+
+
 ### 2026-02-13 (Scoring v2 + unified WC league feed)
 - **🆕 Fantasy scoring updated to the canonical spec**:
   - Goals: GK/DEF +6, MID +5, FWD +4 (unchanged)

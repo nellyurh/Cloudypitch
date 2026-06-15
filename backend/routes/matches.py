@@ -158,6 +158,25 @@ async def list_matches(
             return WC_CANONICAL
         return row.get("league_id") or "unknown"
 
+    def _normalize_team(n: str) -> str:
+        """Normalize provider team-name variants so 'Côte d'Ivoire' and
+        'Ivory Coast' dedupe to the same key."""
+        if not n:
+            return ""
+        s = n.strip().lower()
+        # Common alias collapses across Sportmonks / api-sports / StatPal.
+        ALIASES = {
+            "ivory coast": "côte d'ivoire", "cote d'ivoire": "côte d'ivoire",
+            "south korea": "korea republic", "korea south": "korea republic",
+            "north korea": "korea dpr", "korea north": "korea dpr",
+            "iran": "ir iran", "usa": "united states", "us": "united states",
+            "uae": "united arab emirates", "england": "england",
+            "czechia": "czech republic", "türkiye": "turkey", "turkiye": "turkey",
+            "bosnia": "bosnia and herzegovina", "bosnia & herzegovina": "bosnia and herzegovina",
+            "cape verde": "cape verde islands",
+        }
+        return ALIASES.get(s, s)
+
     for r in rows:
         key = _bucket_key(r)
         if key not in by_league:
@@ -179,10 +198,10 @@ async def list_matches(
                     "matches": [],
                     "_seen": set(),
                 }
-        # Dedupe matches within a bucket by (home, away, day).
+        # Dedupe matches within a bucket by (normalized_home, normalized_away, day).
         sig = (
-            (r.get("home_team_name") or "").lower().strip(),
-            (r.get("away_team_name") or "").lower().strip(),
+            _normalize_team(r.get("home_team_name") or ""),
+            _normalize_team(r.get("away_team_name") or ""),
             (r.get("scheduled_at") or "")[:10],
         )
         if sig in by_league[key]["_seen"]:
