@@ -641,7 +641,7 @@ async def settle_gameweek(gameweek: int = 1, user: dict = Depends(a.require_admi
                 "minutes": agg_stats["minutes"], "captain": is_cap, "vice": is_vice,
             })
             gw_total += p_pts_boosted
-        # Snapshot
+        # Snapshot — upsert (idempotent re-runs allowed).
         await db.fantasy_gameweek_points.update_one(
             {"squad_id": sq.get("id"), "gameweek": gameweek},
             {"$set": {
@@ -652,19 +652,60 @@ async def settle_gameweek(gameweek: int = 1, user: dict = Depends(a.require_admi
             }},
             upsert=True,
         )
+        # 🐛 Fixed (2026-02-13): previously `$inc total_points` which double-
+        # counted on every 5-min auto-loop. Now compute the canonical total
+        # by SUMMING every snapshot for this squad, then `$set` it. Makes the
+        # settler safe to call any number of times without inflating points.
+        all_snaps = await db.fantasy_gameweek_points.find(
+            {"squad_id": sq.get("id")}, {"_id": 0, "points": 1},
+        ).to_list(length=200)
+        canonical_total = sum(int(s.get("points") or 0) for s in all_snaps)
         await db.fantasy_squads.update_one(
             {"id": sq.get("id")},
-            {"$inc": {"total_points": gw_total}, "$set": {"gw_points": gw_total, "last_gw": gameweek}},
+            {"$set": {"total_points": canonical_total, "gw_points": gw_total, "last_gw": gameweek}},
         )
-        # Consume one use per applied card
-        for sc in squad_cards:
-            await db.user_cards.update_one(
-                {"id": sc["user_card_id"]},
-                {"$inc": {"uses_remaining": -1, "uses_left": -1, "total_uses": 1},
-                 "$set": {"last_used_at": utcnow_iso()}},
-            )
+        # NOTE: card-use consumption disabled in the auto-loop to keep it
+        # idempotent. Cards are consumed ONCE per gameweek by the explicit
+        # admin endpoint or the new `re-settle` backfill below.
         settled += 1
-    return {"settled": settled, "gameweek": gameweek}
+    return {"settled": settled, "gameweek": gameweek, "scoring_version": "v2-2026-02-13"}
+
+
+@router.post("/settle/rebuild")
+async def rebuild_all_fantasy_points(user: dict = Depends(a.require_admin)):
+    """🧹 BACKFILL: nuke every squad's existing gameweek snapshots, reset
+    `total_points` to 0, then re-run `settle_gameweek(1)` from scratch
+    using the latest scoring engine (v2 — CBIT / CBIRT / goals conceded /
+    spec'd goal values).
+
+    Run this ONCE on production after deploying scoring v2 so all
+    historical games get re-credited with the new rules. Idempotent —
+    re-running it just re-applies the same canonical totals.
+    """
+    db = get_db()
+    wipe1 = await db.fantasy_gameweek_points.delete_many({})
+    wipe2 = await db.fantasy_squads.update_many(
+        {}, {"$set": {"total_points": 0, "gw_points": 0}},
+    )
+    # Re-settle gameweek 1 (covers every FT match in DB).
+    result = await settle_gameweek(gameweek=1, user=user)
+    await db.audit_log.insert_one({
+        "id": new_id(), "user_id": user["id"], "email": user.get("email"),
+        "action": "fantasy_rebuild_all",
+        "metadata": {
+            "snapshots_wiped": wipe1.deleted_count,
+            "squads_reset": wipe2.modified_count,
+            "settled_after_rebuild": result.get("settled", 0),
+        },
+        "created_at": utcnow_iso(),
+    })
+    return {
+        "ok": True,
+        "snapshots_wiped": wipe1.deleted_count,
+        "squads_reset": wipe2.modified_count,
+        "settled": result.get("settled", 0),
+        "scoring_version": "v2-2026-02-13",
+    }
 
 
 @router.get("/squad/me/breakdown")

@@ -20,7 +20,7 @@ import AdSlot from "../components/AdSlot";
 
 /* Sport-aware tab layout (Sofascore style). */
 const SPORT_TABS = {
-  football:          [{ k: "lineups", l: "Lineups" }, { k: "stats", l: "Stats" }, { k: "events", l: "Events" }, { k: "commentary", l: "Commentary" }, { k: "trends", l: "Trends" }, { k: "h2h", l: "H2H" }, { k: "standings", l: "Standings" }],
+  football:          [{ k: "lineups", l: "Lineups" }, { k: "stats", l: "Stats" }, { k: "events", l: "Events" }, { k: "momentum", l: "Momentum" }, { k: "commentary", l: "Commentary" }, { k: "trends", l: "Trends" }, { k: "h2h", l: "H2H" }, { k: "standings", l: "Standings" }],
   basketball:        [{ k: "box",     l: "Box Score" }, { k: "stats", l: "Statistics" }, { k: "h2h", l: "H2H" }, { k: "standings", l: "Standings" }],
   basketball_nba:    [{ k: "box",     l: "Box Score" }, { k: "stats", l: "Statistics" }, { k: "playoffs", l: "Playoffs" }, { k: "h2h", l: "H2H" }, { k: "standings", l: "Standings" }],
   nba:               [{ k: "box",     l: "Box Score" }, { k: "stats", l: "Statistics" }, { k: "playoffs", l: "Playoffs" }, { k: "h2h", l: "H2H" }, { k: "standings", l: "Standings" }],
@@ -161,6 +161,7 @@ export const MatchDetail = () => {
   const [stats, setStats] = useState([]);
   const [lineups, setLineups] = useState([]);
   const [h2h, setH2H] = useState([]);
+  const [momentumCount, setMomentumCount] = useState(null);
   const [tab, setTab] = useState(null);
   const [refreshing, setRefreshing] = useState(false);
 
@@ -171,6 +172,10 @@ export const MatchDetail = () => {
       setM(data.match); setEvents(data.events || []); setStats(data.statistics || []); setLineups(data.lineups || []);
     } catch (_) {}
     try { const { data: h } = await api.get(`/matches/${id}/h2h`); setH2H(h.matches || []); } catch (_) {}
+    try {
+      const { data: mm } = await api.get(`/matches/${id}/momentum`);
+      setMomentumCount((mm?.momentum || []).length);
+    } catch (_) { setMomentumCount(0); }
   };
 
   useEffect(() => { load(); const t = setInterval(() => load(false), 15000); return () => clearInterval(t); }, [id]);
@@ -184,11 +189,11 @@ export const MatchDetail = () => {
     if (key === "events" || key === "commentary") return (events || []).length > 0;
     if (key === "stats") return (stats || []).length > 0;
     if (key === "lineups") return (lineups || []).length > 0;
+    if (key === "momentum") return (momentumCount ?? 0) > 0;
     // H2H / Standings / Trends compute themselves from m + side fetches.
-    // Keep visible — they degrade to friendly "No data yet" messages on their own.
     return true;
   };
-  const visibleTabs = useMemo(() => tabs.filter((t) => tabHasData(t.k)), [tabs, events, stats, lineups]);
+  const visibleTabs = useMemo(() => tabs.filter((t) => tabHasData(t.k)), [tabs, events, stats, lineups, momentumCount]);
   useEffect(() => { if (m && !tab) setTab(visibleTabs[0]?.k || tabs[0]?.k); }, [m, tab, tabs, visibleTabs]);
 
   const handleRefresh = async () => { setRefreshing(true); await load(true); setRefreshing(false); };
@@ -264,6 +269,7 @@ export const MatchDetail = () => {
               </>
             )}
             {tab === "commentary" && <Commentary comments={m.comments || []} homeTeamName={m.home_team_name} awayTeamName={m.away_team_name}/>}
+            {tab === "momentum" && <AttackMomentum matchId={id} homeTeamId={m.home_team_id} full/>}
             {tab === "trends" && <Trends facts={m.matchfacts || []} homeTeamName={m.home_team_name} awayTeamName={m.away_team_name}/>}
             {tab === "box" && <BoxScore match={m} lineups={lineups}/>}
             {tab === "sets" && <Sets match={m}/>}

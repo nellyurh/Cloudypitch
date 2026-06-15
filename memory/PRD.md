@@ -10,6 +10,13 @@ Global multi-sport livescore + predictions + fantasy platform launching for FIFA
 - Sportmonks (football), API-Sports (other sports), Trybit/CryptoCloud (crypto deposits), PocketFi (NGN), Google AdSense
 
 
+### 2026-02-13 (Momentum tab + fantasy double-count fix + v2 backfill)
+- **🆕 Attack Momentum tab** added to football match-details. New component uses **Recharts** stacked `BarChart` per minute — home pressure lime `#A3E635` (positive Y), away pressure slate `#94A3B8` (negative Y), HT reference line at 45'. Tooltip on hover shows `Minute X' · Home N% · Away N%`. The tab is **auto-hidden** when `/api/matches/{id}/momentum` returns an empty `momentum[]` array (so it never renders a dead empty tab).
+- **🐛 Fantasy auto-settler was DOUBLE-COUNTING points** — `settle_gameweek` used `$inc total_points` which compounded on every 5-min loop iteration. Fixed by **summing every gameweek snapshot for the squad** and `$set`ing the canonical total. Settler is now safe to run indefinitely. Also disabled card-use consumption inside the auto-loop (would have triple-burned cards); cards still consume via the explicit admin endpoint.
+- **🆕 `POST /api/fantasy/settle/rebuild`** (admin) — One-shot backfill that wipes every gameweek snapshot, resets every squad's `total_points` to 0, then re-runs the settler with scoring v2 (CBIT/CBIRT/goals-conceded/canonical goal values). Audit-logged. Verified on preview: 8 snapshots wiped, 6 squads reset, 8 re-settled, totals match per-gw snapshots exactly.
+- **📐 Design blueprint generated** — `design_guidelines.json` covers the 8-component Sofascore-grade match-details redesign (header, tabs, events timeline, momentum, lineups pitch, stats scrolling, H2H, standings mini). Used as the reference for the AttackMomentum + LineupPitch overhaul; remaining components (timeline polish, stats progress bars, H2H card) on the roadmap.
+
+
 ### 2026-02-13 (Match details polish: empty tabs · mobile pitch · team-name aliases)
 - **🚫 Empty tabs auto-hidden** in `MatchDetail.jsx`. `events`, `stats`, `commentary`, `lineups` tabs are filtered out before render if their backing arrays are empty. `H2H` / `Standings` / `Trends` stay visible (they self-render a friendly "no data yet" state). Solves the "Attack Momentum is empty" dead-clicks on the deployed site.
 - **📱 LineupPitch responsive rewrite** — On mobile (<768px) the pitch now renders **vertically** (aspect 3/4, home top, away bottom) exactly like Sofascore. Bigger player chips (36→40 px on phones), name labels with wider truncation, vertical penalty/goal boxes. Desktop keeps the 16/10 landscape layout unchanged. New helper `computePositions()` returns `{depth, lane}` so the same logic drives both orientations.
