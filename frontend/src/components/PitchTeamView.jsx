@@ -37,36 +37,69 @@ function pointsTone(pts) {
   return { bg: "rgba(239,68,68,0.18)", fg: "#EF4444" };
 }
 
+function flagUrl(country, size = 80) {
+  if (!country) return null;
+  // Generic country flag CDN (matches BuildTeam.jsx convention)
+  const c = country.toLowerCase().replace(/[^a-z]/g, "-");
+  return `https://flagcdn.com/${size}x60/${c.slice(0, 2)}.png`;
+}
+
 function PlayerTile({ p }) {
   const tone = pointsTone(p.points);
-  const img = p.image_path || p.profile_pic || p.photo;
+  const photo = p.photo_url || p.image_path || p.profile_pic || p.photo;
+  const flag = flagUrl(p.country, 80);
   const cap = p.captain;
   const vice = p.vice;
+  const size = 56;
   return (
-    <div className="flex flex-col items-center gap-0.5 w-[60px] md:w-[72px] shrink-0" data-testid={`pitch-tile-${p.player_id}`}>
-      <div className="relative">
-        {img ? (
-          <img src={img} alt="" className="w-10 h-10 md:w-12 md:h-12 rounded-full object-cover ring-2 ring-white/30 bg-white/10"
-               onError={(e)=>{e.target.style.display="none"}}/>
-        ) : (
-          <div className="w-10 h-10 md:w-12 md:h-12 rounded-full flex items-center justify-center font-extrabold text-[11px] bg-white/10 ring-2 ring-white/30"
-               style={{ color: "var(--cp-text)" }}>
-            {(p.name || "?").split(" ").map(n => n[0]).slice(0, 2).join("")}
-          </div>
+    <div className="flex flex-col items-center gap-0.5 w-[64px] md:w-[78px] shrink-0" data-testid={`pitch-tile-${p.player_id}`}>
+      <div className="relative" style={{ width: size, height: size }}>
+        <span
+          className="absolute inset-0 rounded-full overflow-hidden flex items-center justify-center"
+          style={{
+            background: photo ? "#fff" : "#A3E635",
+            boxShadow: "0 2px 6px rgba(0,0,0,0.25), inset 0 0 0 2px rgba(255,255,255,0.9)",
+          }}
+        >
+          {photo ? (
+            <img
+              src={photo}
+              alt={p.name || ""}
+              loading="lazy"
+              style={{ width: "100%", height: "100%", objectFit: "cover", objectPosition: "top center" }}
+              onError={(e) => { e.currentTarget.style.display = "none"; }}
+            />
+          ) : (
+            <span className="text-cp-forest font-extrabold text-base">
+              {(p.name || "?").split(" ").slice(-1)[0].slice(0, 1).toUpperCase()}
+            </span>
+          )}
+        </span>
+        {flag && (
+          <img
+            src={flag}
+            alt=""
+            className="absolute"
+            style={{
+              left: -2, bottom: -2, width: 20, height: 14,
+              objectFit: "cover", borderRadius: 3,
+              border: "1.5px solid #fff", boxShadow: "0 1px 3px rgba(0,0,0,0.4)",
+            }}
+            onError={(e) => { e.currentTarget.style.display = "none"; }}
+          />
         )}
         {cap && (
-          <span className="absolute -bottom-1 -right-1 w-4 h-4 rounded-full text-[9px] font-extrabold flex items-center justify-center"
+          <span className="absolute -top-1 -right-1 w-5 h-5 rounded-full text-[10px] font-extrabold flex items-center justify-center ring-1 ring-white"
                 style={{ background: "#A3E635", color: "#0C2A14" }}
                 title="Captain">C</span>
         )}
         {!cap && vice && (
-          <span className="absolute -bottom-1 -right-1 w-4 h-4 rounded-full text-[9px] font-extrabold flex items-center justify-center"
+          <span className="absolute -top-1 -right-1 w-5 h-5 rounded-full text-[10px] font-extrabold flex items-center justify-center ring-1 ring-white"
                 style={{ background: "#7DD3FC", color: "#0B2638" }}
                 title="Vice-captain">V</span>
         )}
       </div>
-      <div className="w-full text-center text-[10px] font-bold truncate px-0.5"
-           style={{ color: "var(--cp-text)" }}
+      <div className="w-full text-center text-[10px] font-bold truncate px-0.5 mt-1 text-white drop-shadow"
            title={p.name}>
         {(p.name || "—").split(" ").slice(-1)[0]}
       </div>

@@ -255,3 +255,89 @@ async def settle_predictions(user: dict = Depends(a.require_admin)):
         )
         settled += 1
     return {"settled": settled}
+
+
+@router.post("/rebuild")
+async def rebuild_predictions(user: dict = Depends(a.require_admin)):
+    """🔄 Wipe + re-settle ALL settled predictions with the latest scoring rules.
+
+    Fixes the over-credited streak-bonus bug: predictions settled by the
+    background loop used `count_documents(outcome_correct=True)` which counts
+    EVERY ever-correct prediction (not the current consecutive streak). After
+    this rebuild, every prediction is re-scored chronologically so each one
+    only gets the bonus for the streak it was on at THAT point in time.
+
+    Steps:
+      1. Pull every settled prediction, sorted by match `scheduled_at` ASC.
+      2. Reset each: `points_awarded=None`, `streak_bonus=0`, `settled_at=None`.
+      3. Walk the list in chronological order, recomputing streak from
+         already-rebuilt predictions for the same user. Apply `score_prediction`
+         + persist the fresh totals.
+
+    Idempotent. Safe to run multiple times.
+    """
+    db = get_db()
+    rows = await db.predictions.find(
+        {"settled_at": {"$ne": None}}, {"_id": 0},
+    ).to_list(length=100000)
+    if not rows:
+        return {"ok": True, "scanned": 0, "rebuilt": 0}
+
+    match_ids = list({r["match_id"] for r in rows})
+    matches = await db.matches.find(
+        {"id": {"$in": match_ids}, "status": {"$in": ["FT", "AET", "PEN"]}},
+        {"_id": 0},
+    ).to_list(length=len(match_ids))
+    by_match = {m["id"]: m for m in matches}
+
+    # Sort rows chronologically so streak builds correctly.
+    def _sort_key(r):
+        m = by_match.get(r["match_id"])
+        return (m or {}).get("scheduled_at") or r.get("created_at") or ""
+    rows.sort(key=_sort_key)
+
+    # Wipe settle fields so streak walk has clean state.
+    await db.predictions.update_many(
+        {"settled_at": {"$ne": None}},
+        {"$set": {
+            "points_awarded": None, "base_points": None, "streak_bonus": 0,
+            "stage": None, "stage_multiplier": 1.0,
+            "exact_score_hit": False, "outcome_correct": False, "diff_correct": False,
+            "settled_at": None,
+        }},
+    )
+
+    streak_by_user: dict[str, int] = {}
+    rebuilt = 0
+    for p in rows:
+        m = by_match.get(p["match_id"])
+        if not m:
+            continue
+        uid = p["user_id"]
+        prior_streak = streak_by_user.get(uid, 0)
+        result = score_prediction(
+            predicted={"home_score_predicted": p["home_score_predicted"],
+                       "away_score_predicted": p["away_score_predicted"]},
+            match=m,
+            streak_count=prior_streak + 1,
+            applied_cards=[],
+        )
+        await db.predictions.update_one(
+            {"id": p["id"]},
+            {"$set": {
+                "points_awarded": result["points_awarded"],
+                "base_points": result["base_points"],
+                "stage": result["stage"],
+                "stage_multiplier": result["stage_multiplier"],
+                "streak_bonus": result["streak_bonus"],
+                "exact_score_hit": result["exact_score_hit"],
+                "outcome_correct": result["outcome_correct"],
+                "diff_correct": result["diff_correct"],
+                "settled_at": utcnow_iso(),
+            }},
+        )
+        streak_by_user[uid] = (prior_streak + 1) if result["outcome_correct"] else 0
+        rebuilt += 1
+
+    return {"ok": True, "scanned": len(rows), "rebuilt": rebuilt,
+            "scoring_version": "v3-streak-fix-2026-02-15"}

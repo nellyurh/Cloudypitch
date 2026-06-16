@@ -2370,10 +2370,16 @@ async def start_background_jobs():
                         m = by_id.get(p["match_id"])
                         if not m:
                             continue
-                        scount = await db.predictions.count_documents(
-                            {"user_id": p["user_id"], "outcome_correct": True,
-                             "settled_at": {"$ne": None}},
-                        )
+                        # 🐛 Fix 2026-02-15: use consecutive-from-most-recent
+                        # streak (matches admin /settle behavior). The old
+                        # `count_documents({outcome_correct: True})` counted
+                        # ALL ever-correct preds — so anyone with 10+ correct
+                        # preds in their history got +100 bonus on every new
+                        # correct prediction forever. Now we walk back from
+                        # the latest settled prediction and stop at the first
+                        # non-outcome-correct.
+                        from routes.predictions import _outcome_streak
+                        scount = await _outcome_streak(db, p["user_id"])
                         result = score_prediction(
                             predicted={
                                 "home_score_predicted": p["home_score_predicted"],

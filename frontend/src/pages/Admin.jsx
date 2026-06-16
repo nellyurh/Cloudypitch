@@ -202,6 +202,22 @@ export const AdminPanel = () => {
               </button>
               <button
                 onClick={async () => {
+                  if (!confirm("Rebuild ALL predictions from scratch? Wipes points and re-scores in chronological order so streak bonuses are correctly credited (fixes the over-counted streak bonus bug).")) return;
+                  setBusy(true);
+                  try {
+                    const { data } = await api.post("/predictions/rebuild");
+                    setMsg(`Predictions rebuild · scanned=${data.scanned} rebuilt=${data.rebuilt} · ${data.scoring_version || ""}`);
+                  } catch (e) { setMsg(e?.response?.data?.detail || "Predictions rebuild failed"); }
+                  setBusy(false);
+                }}
+                disabled={busy}
+                className="cp-btn-primary text-xs disabled:opacity-50"
+                data-testid="predictions-rebuild"
+              >
+                {busy ? "Rebuilding…" : "Rebuild all predictions"}
+              </button>
+              <button
+                onClick={async () => {
                   setBusy(true);
                   try {
                     const { data } = await api.post("/fantasy/settle/gameweek?gameweek=1");
@@ -215,6 +231,7 @@ export const AdminPanel = () => {
               >
                 Settle now (no wipe)
               </button>
+              <button
             </div>
           </div>
         </div>

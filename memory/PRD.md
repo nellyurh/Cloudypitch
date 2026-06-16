@@ -10,6 +10,11 @@ Global multi-sport livescore + predictions + fantasy platform launching for FIFA
 - Sportmonks (football), API-Sports (other sports), Trybit/CryptoCloud (crypto deposits), PocketFi (NGN), Google AdSense
 
 
+### 2026-02-15 (🐛 Predictions streak-bonus over-credit fix + photo_url alignment)
+- **🐛 Background prediction settler was using ALL-time-correct count for streak** — `ingestion.py` line 2373: `db.predictions.count_documents({outcome_correct: True})`. This counts EVERY ever-correct prediction by the user, not the current consecutive streak. So any user with 10+ outcome-correct preds in their history was awarded the **+100 streak bonus on every new correct prediction**, forever — even if they had wrong predictions sprinkled in between. Admin `/settle` was correct (used `_outcome_streak` walking back from most recent until a wrong one), but the BACKGROUND loop wasn't. Now both paths use `_outcome_streak`.
+- **🆕 `POST /api/predictions/rebuild` admin endpoint** + Admin Dashboard "Rebuild all predictions" button. Wipes every settled prediction's points, sorts by match scheduled_at ASC, walks chronologically, recomputing each prediction's streak from the prior-rebuilt-row state per user. Idempotent.
+- **🎨 PitchTeamView player image fix** — was reading `image_path` (always null on `players` collection); the canonical field on `players` is `photo_url` (Sportmonks face shot). Aligned with `BuildTeam.jsx` `PlayerPic` styling exactly: white background circle with face shot top-aligned, country flag chip overlapping bottom-left, captain/vice pill top-right.
+
 ### 2026-02-15 (FPL-style pitch viewer + day slider + Bench Boost)
 - **🎨 New component `PitchTeamView.jsx`** — FPL-classic pitch UI with player avatars (using existing `image_path` face shots), captain "C" / vice "V" pill, color-coded points strip per player (lime ≥8, sky ≥3, amber ≥1, slate 0, red <0), 3-stat header (Average / Your Score / Highest), Bench Boost chip when active. Pitch lines rendered as a thin SVG overlay over a dark-green gradient.
 - **📅 `DaySlider` companion** — horizontal swipeable day-by-day tabs (calendar date label + points big) for the main 15-man squad. User scrolls match-days to see per-day point totals.
