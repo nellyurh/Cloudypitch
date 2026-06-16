@@ -231,7 +231,6 @@ export const AdminPanel = () => {
               >
                 Settle now (no wipe)
               </button>
-              <button
             </div>
           </div>
         </div>
