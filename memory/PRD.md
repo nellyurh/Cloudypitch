@@ -10,6 +10,14 @@ Global multi-sport livescore + predictions + fantasy platform launching for FIFA
 - Sportmonks (football), API-Sports (other sports), Trybit/CryptoCloud (crypto deposits), PocketFi (NGN), Google AdSense
 
 
+### 2026-02-15 (🚨 Monetag mobile hijack — auto-snippet permanently disabled)
+- **🐛 Cause**: My earlier "auto-generate Monetag tag from `zone_id`" fix (2026-02-15) was loading `https://quge5.com/88/tag.min.js` for every PropellerAds zone that had a `zone_id` but no `snippet_html`. That tag.min.js script consults the **Monetag dashboard** at runtime to decide the actual ad format — so even when our DB labels a zone as `format: banner`, Monetag can deliver a popunder, vignette, or in-page push at the script's discretion. On mobile, this hijacked the first tap and forced a redirect.
+- **🛡️ Two-layer fix in `routes/ads.py`**:
+  1. **PropellerAds / Monetag is PERMANENTLY DISABLED on mobile** (`viewport=mobile`). Mobile requests skip PropellerAds entirely and fall through to direct sponsors → Adsterra → AdSense → no ad.
+  2. **Removed the `zone_id`-only auto-snippet template**. Backend now only serves PropellerAds zones with an admin-pasted, verified `snippet_html`. Anything zone_id-only is treated as untrusted on both viewports.
+- **Verified on preview**: mobile placements (`match_list_inline`, `wc_hub_top`, `fantasy_sidebar`, `sidebar_right`) now return `direct / adsterra / adsense` — never `propellerads`. Desktop still serves PropellerAds when a real snippet is pasted.
+- `sw.js` remains neutered (self-unregisters on activate) — already done in earlier fork.
+
 ### 2026-02-15 (🐛 Predictions streak-bonus over-credit fix + photo_url alignment)
 - **🐛 Background prediction settler was using ALL-time-correct count for streak** — `ingestion.py` line 2373: `db.predictions.count_documents({outcome_correct: True})`. This counts EVERY ever-correct prediction by the user, not the current consecutive streak. So any user with 10+ outcome-correct preds in their history was awarded the **+100 streak bonus on every new correct prediction**, forever — even if they had wrong predictions sprinkled in between. Admin `/settle` was correct (used `_outcome_streak` walking back from most recent until a wrong one), but the BACKGROUND loop wasn't. Now both paths use `_outcome_streak`.
 - **🆕 `POST /api/predictions/rebuild` admin endpoint** + Admin Dashboard "Rebuild all predictions" button. Wipes every settled prediction's points, sorts by match scheduled_at ASC, walks chronologically, recomputing each prediction's streak from the prior-rebuilt-row state per user. Idempotent.

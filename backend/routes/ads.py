@@ -147,18 +147,22 @@ async def serve_ad(
             {"target_viewport": "mobile"},
             {"target_viewport": "both"},
         ]
-    pa = await db.propellerads_zones.find_one(pa_q, {"_id": 0})
-    if pa and (pa.get("snippet_html") or pa.get("zone_id")):
-        # 🛠️ Auto-snippet fallback (2026-02-15): admins frequently saved a
-        # Monetag/PropellerAds zone with just the numeric `zone_id` and forgot
-        # to paste the full `<script>` snippet — that left those slots
-        # invisible because AdSlot.jsx needs `snippet_html` to inject. Build a
-        # default Monetag tag from the zone id so the inventory works.
-        if not pa.get("snippet_html") and pa.get("zone_id"):
-            pa["snippet_html"] = (
-                f'<script src="https://quge5.com/88/tag.min.js" '
-                f'data-zone="{pa["zone_id"]}" async data-cfasync="false"></script>'
-            )
+
+    # 🚫 PropellerAds / Monetag are PERMANENTLY DISABLED on mobile (2026-02-15).
+    # Even when a zone is DB-labelled `format: banner`, Monetag's `tag.min.js`
+    # dashboard can re-classify the same zone as a popunder / vignette / in-page
+    # push at runtime — instantly hijacking the user's first tap. The only safe
+    # signal is an admin-pasted `snippet_html` we trust character-for-character.
+    # Anything auto-generated or zone_id-only is treated as untrusted on mobile.
+    skip_propellerads_mobile = (viewport == "mobile")
+
+    pa = None
+    if not skip_propellerads_mobile:
+        pa = await db.propellerads_zones.find_one(pa_q, {"_id": 0})
+    # 🛡️ Only serve PropellerAds when the admin pasted an exact `snippet_html`.
+    # The `zone_id`-only auto-template (`quge5.com/88/tag.min.js?data-zone=…`)
+    # was loading popunders even when format was "banner" → removed.
+    if pa and pa.get("snippet_html"):
         candidates.append({"network": "propellerads", "zone": pa, "collection": "propellerads_zones"})
     at = await db.adsterra_zones.find_one(pa_q, {"_id": 0})
     if at and (at.get("snippet_html") or at.get("zone_id")):
