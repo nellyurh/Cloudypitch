@@ -287,6 +287,12 @@ async def settle_wc_game(game_id: str, *, force: bool = False) -> dict:
 
         # Apply the game-level points_multiplier (admin-tunable per stage).
         final_points = round(total_points * points_mult)
+        # 🚀 Bench Boost — mini-games have no explicit bench/starter split, so
+        # Bench Boost is implemented as a flat ×1.5 multiplier on the entry's
+        # final score. Activated via POST /wc/games/{id}/entries/{eid}/bench-boost.
+        bench_boost = bool(entry.get("bench_boost"))
+        if bench_boost:
+            final_points = round(final_points * 1.5)
 
         await db.wc_game_entries.update_one(
             {"id": entry["id"]},
@@ -294,6 +300,7 @@ async def settle_wc_game(game_id: str, *, force: bool = False) -> dict:
                 "points_scored": final_points,
                 "raw_points": total_points,
                 "points_multiplier_applied": points_mult,
+                "bench_boost_applied": bench_boost,
                 "breakdown_by_player": per_player_breakdown,
                 "settled_at": utcnow_iso(),
             }},

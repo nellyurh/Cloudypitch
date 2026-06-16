@@ -488,6 +488,142 @@ async def spend_transfer(payload: dict, user: dict = Depends(a.get_current_user)
 
 
 
+@router.post("/players/lookup")
+async def lookup_players(payload: dict):
+    """Bulk fetch player docs by IDs — used by team viewers to hydrate
+    `image_path`, club info, etc. without pulling the full pool."""
+    db = get_db()
+    ids = list({pid for pid in (payload or {}).get("player_ids", []) if pid})
+    if not ids:
+        return {"players": []}
+    docs = await db.players.find({"id": {"$in": ids}}, {"_id": 0}).to_list(length=200)
+    return {"players": docs}
+
+
+@router.get("/squad/{squad_id}/daily")
+async def squad_daily_points(squad_id: str, user: dict = Depends(a.get_current_user)):
+    """📅 Per-calendar-date points breakdown for a main 15-man squad.
+
+    Walks every finished match the squad's team_ids appeared in, groups by
+    `scheduled_at.date()`, and computes per-match player points with the
+    canonical FPL spec. Caller-friendly: returns a list the FE can render as a
+    swipeable day-by-day slider plus a `total` matching `total_points`.
+    """
+    from datetime import datetime
+    db = get_db()
+    sq = await db.fantasy_squads.find_one({"id": squad_id, "user_id": user["id"]}, {"_id": 0})
+    if not sq:
+        raise HTTPException(404, "Squad not found")
+
+    picks = sq.get("players") or []
+    if not picks:
+        return {"squad_id": squad_id, "total": int(sq.get("total_points") or 0), "days": []}
+    player_ids = [p.get("player_id") for p in picks if p.get("player_id")]
+    pdocs = await db.players.find({"id": {"$in": player_ids}}, {"_id": 0}).to_list(length=200)
+    pmap = {p["id"]: p for p in pdocs}
+    team_ids = list({p.get("team_id") for p in pdocs if p.get("team_id")})
+
+    matches = await db.matches.find(
+        {"is_world_cup": True, "status": {"$in": ["FT", "AET", "PEN", "Ended", "Finished"]},
+         "$or": [{"home_team_id": {"$in": team_ids}}, {"away_team_id": {"$in": team_ids}}]},
+        {"_id": 0},
+    ).sort("scheduled_at", 1).to_list(length=400)
+
+    events_by_match: dict[str, list[dict]] = {}
+    lineups_by_match: dict[str, list[dict]] = {}
+    match_ids = [m["id"] for m in matches]
+    if match_ids:
+        evs = await db.match_events.find({"match_id": {"$in": match_ids}}, {"_id": 0}).to_list(length=10000)
+        for e in evs:
+            events_by_match.setdefault(e["match_id"], []).append(e)
+        lns = await db.match_lineups.find({"match_id": {"$in": match_ids}}, {"_id": 0}).to_list(length=10000)
+        for ln in lns:
+            lineups_by_match.setdefault(ln["match_id"], []).append(ln)
+
+    cap_id = sq.get("captain_id")
+    vice_id = sq.get("vice_captain_id")
+    cap_played_today = False  # track cap played to allow vice fallback per day
+
+    by_day: dict[str, dict] = {}
+    for m in matches:
+        sched = m.get("scheduled_at") or ""
+        if not sched:
+            continue
+        try:
+            date_key = datetime.fromisoformat(sched.replace("Z", "+00:00")).date().isoformat()
+        except Exception:
+            date_key = sched[:10]
+        bucket = by_day.setdefault(date_key, {"date": date_key, "points": 0, "matches": 0, "player_points": []})
+        bucket["matches"] += 1
+        cap_played_today = False
+
+        for sp in picks:
+            pid = sp.get("player_id")
+            player = pmap.get(pid)
+            if not player:
+                continue
+            team_id = player.get("team_id")
+            if team_id not in (m.get("home_team_id"), m.get("away_team_id")):
+                continue
+            name = player.get("name") or sp.get("name") or ""
+            position = sp.get("position") or player.get("position") or "MID"
+            evs_for = events_by_match.get(m["id"], [])
+            s = aggregate_player_stats_from_events(evs_for, name, team_id)
+            lin = next((x for x in lineups_by_match.get(m["id"], [])
+                       if (x.get("player_name") or "").strip().lower() == name.strip().lower()), None)
+            minutes = 0
+            saves = pen_saves = clearances = blocks = interceptions = tackles = recoveries = 0
+            if lin:
+                minutes = 90 if lin.get("starter") else 30
+                if s.get("substituted_out"):
+                    minutes = max(0, minutes - 30)
+                ps = lin.get("stats") or {}
+                saves = int(ps.get("saves") or 0)
+                pen_saves = int(ps.get("penalty_saves") or ps.get("saves_penalty") or 0)
+                clearances = int(ps.get("clearances") or 0)
+                blocks = int(ps.get("blocks") or 0)
+                interceptions = int(ps.get("interceptions") or 0)
+                tackles = int(ps.get("tackles") or 0)
+                recoveries = int(ps.get("recoveries") or 0)
+            gc = 0
+            if position in ("GK", "DEF"):
+                gc = int((m.get("away_score") if m.get("home_team_id") == team_id else m.get("home_score")) or 0)
+            cs = ((m.get("away_score") or 0) == 0 and m.get("home_team_id") == team_id) or \
+                 ((m.get("home_score") or 0) == 0 and m.get("away_team_id") == team_id)
+            res = compute_player_points(
+                position=position, minutes_played=minutes,
+                goals=int(s.get("goals", 0)), assists=int(s.get("assists", 0)),
+                yellow_cards=int(s.get("yellow_cards", 0)), red_cards=int(s.get("red_cards", 0)),
+                own_goals=int(s.get("own_goals", 0)), missed_penalties=int(s.get("missed_penalties", 0)),
+                saves=saves, penalty_saves=pen_saves, team_clean_sheet=bool(cs),
+                goals_conceded=gc, clearances=clearances, blocks=blocks,
+                interceptions=interceptions, tackles=tackles, recoveries=recoveries,
+            )
+            p_pts = int(res["points"])
+            is_cap = (pid == cap_id)
+            is_vice = (pid == vice_id)
+            if is_cap and minutes > 0:
+                cap_played_today = True
+                p_pts *= 2
+            elif is_vice and not cap_played_today and minutes > 0:
+                p_pts *= 2
+            bucket["points"] += p_pts
+            bucket["player_points"].append({
+                "player_id": pid, "name": name, "position": position, "team_id": team_id,
+                "match_id": m["id"], "opponent": (m.get("away_team_name") if m.get("home_team_id") == team_id else m.get("home_team_name")),
+                "points": p_pts, "captain": is_cap, "vice": is_vice, "minutes": minutes,
+                "breakdown": res["breakdown"],
+            })
+
+    days = sorted(by_day.values(), key=lambda d: d["date"])
+    return {
+        "squad_id": squad_id,
+        "total": sum(d["points"] for d in days),
+        "snapshot_total": int(sq.get("total_points") or 0),
+        "days": days,
+    }
+
+
 @router.get("/leaderboard")
 async def fantasy_leaderboard(limit: int = 50):
     db = get_db()

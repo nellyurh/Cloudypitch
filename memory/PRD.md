@@ -10,6 +10,23 @@ Global multi-sport livescore + predictions + fantasy platform launching for FIFA
 - Sportmonks (football), API-Sports (other sports), Trybit/CryptoCloud (crypto deposits), PocketFi (NGN), Google AdSense
 
 
+### 2026-02-15 (FPL-style pitch viewer + day slider + Bench Boost)
+- **🎨 New component `PitchTeamView.jsx`** — FPL-classic pitch UI with player avatars (using existing `image_path` face shots), captain "C" / vice "V" pill, color-coded points strip per player (lime ≥8, sky ≥3, amber ≥1, slate 0, red <0), 3-stat header (Average / Your Score / Highest), Bench Boost chip when active. Pitch lines rendered as a thin SVG overlay over a dark-green gradient.
+- **📅 `DaySlider` companion** — horizontal swipeable day-by-day tabs (calendar date label + points big) for the main 15-man squad. User scrolls match-days to see per-day point totals.
+- **🆕 New page `MyTeamView` at `/my-teams/:kind/:id`** — unified viewer for both main squads and mini-game entries with:
+  - Header back button + "Main / Mini-game" pill
+  - **Pitch ↔ List view toggle** (`data-testid='view-pitch'` / `view-list'`)
+  - **Main team**: day slider that swaps the pitch points + Average/Your/Highest header per active day.
+  - **Mini-game**: one-shot pitch with breakdown from `wc_game_entries.breakdown_by_player`, plus a **Bench Boost row** (Activate / Buy Charge).
+- **🆕 Backend `GET /api/fantasy/squad/{id}/daily`** — walks every finished WC match, groups by `scheduled_at.date()`, computes per-player points with the new FPL spec (incl. captain ×2 with vice fallback), returns `{ total, snapshot_total, days: [{date, points, matches, player_points}] }`.
+- **🆕 Backend `POST /api/fantasy/players/lookup`** — bulk-fetch player docs by IDs (used by team viewers to hydrate faces + clubs).
+- **🚀 Bench Boost for mini-games**:
+  - `GET /api/wc/bench-boost/status` → inventory (1 free per user + paid charges).
+  - `POST /api/wc/bench-boost/buy` → 🪙 500 per charge.
+  - `POST /api/wc/games/{id}/entries/{eid}/bench-boost` → toggle on (consumes free first, then paid). Locked once the game is closed/settled.
+  - **`wc_settler.py`** now applies `×1.5` multiplier on `final_points` when `entry.bench_boost == True`. Persists `bench_boost_applied: true` on the entry.
+- **🔗 Frontend wiring**: `MyTeams.jsx` cards now link to `/my-teams/main/:id` or `/my-teams/mini/:id` (closed + settled games). Open mini-games still route to `/build-team?game_id=…` for editing.
+
 ### 2026-02-15 (🐛 FPL-exact scoring + WC settler GK/DEF stat fixes)
 - **🐛 Mini-game settler was dropping all GK/DEF stats** — `wc_settler.py` only read `goals/assists/cards/own_goals/missed_pens/minutes` from events. `saves`, `penalty_saves`, `goals_conceded`, and the defensive-stat block (`clearances/blocks/interceptions/tackles/recoveries`) were never aggregated → GK got 0 save points, DEF got 0 clean-sheet bonus credit for 60+ min, GK/DEF never lost points for goals conceded. Main-squad settler was already correct.
 - **🛠️ Fixed `wc_settler.py`** to mirror `settle_gameweek`:

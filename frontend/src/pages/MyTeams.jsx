@@ -86,14 +86,18 @@ export default function MyTeams() {
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
           {teams.map((t, idx) => {
-            // Settled mini-games → public entries page (per-team points + leaderboard).
-            // Open/closed mini-games → /build-team?game_id=... so users see/edit their picks.
-            // Main squads → /build-team (no game_id).
-            const linkTo = t.kind === "wc_game" && t.wc_game_id
-              ? (t.wc_game_status === "settled"
-                  ? `/wc/games/${t.wc_game_id}/entries`
+            // Open the team in the new FPL-style pitch viewer (with day
+            // slider for main teams, one-shot for mini-games). For OPEN
+            // mini-games we still send users to /build-team so they can
+            // edit picks; for settled or closed games → pitch view.
+            const isMini = t.kind === "wc_game";
+            const settled = t.wc_game_status === "settled";
+            const closed = t.wc_game_status === "closed";
+            const linkTo = isMini
+              ? ((settled || closed)
+                  ? `/my-teams/mini/${t.id}`
                   : `/build-team?game_id=${t.wc_game_id}`)
-              : (t.game_id ? `/fantasy?game_id=${t.game_id}` : "/build-team");
+              : `/my-teams/main/${t.id}`;
             const squadCap = t.kind === "wc_game"
               ? (t.squad_size_required || 15)
               : ((t.players || []).length >= 16 ? 20 : 15);

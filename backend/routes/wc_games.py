@@ -458,6 +458,115 @@ async def game_leaderboard(game_id: str, limit: int = 50):
     return {"leaderboard": out}
 
 
+# ── Bench Boost (mini-games) ──────────────────────────────────────────
+# Each user gets ONE free bench-boost per WC tournament, then can buy more
+# at 500 coins each. Applies to a single mini-game entry; when active, the
+# wc_settler includes bench picks' points in `points_scored`.
+
+BENCH_BOOST_PRICE_COINS = 500
+BENCH_BOOST_FREE_PER_USER = 1
+
+
+@router.get("/bench-boost/status")
+async def bench_boost_status(user: dict = Depends(a.get_current_user)):
+    """Inventory: how many free/paid bench-boosts the user has + which entries
+    already have it active."""
+    db = get_db()
+    inv = await db.user_bench_boosts.find_one({"user_id": user["id"]}, {"_id": 0}) or {}
+    free_used = int(inv.get("free_used", 0))
+    paid_remaining = int(inv.get("paid_remaining", 0))
+    active = await db.wc_game_entries.find(
+        {"user_id": user["id"], "bench_boost": True},
+        {"_id": 0, "id": 1, "wc_game_id": 1},
+    ).to_list(length=200)
+    return {
+        "free_total": BENCH_BOOST_FREE_PER_USER,
+        "free_used": free_used,
+        "free_remaining": max(0, BENCH_BOOST_FREE_PER_USER - free_used),
+        "paid_remaining": paid_remaining,
+        "price_coins": BENCH_BOOST_PRICE_COINS,
+        "active_on_entries": active,
+    }
+
+
+@router.post("/bench-boost/buy")
+async def buy_bench_boost(user: dict = Depends(a.get_current_user)):
+    """Charge `BENCH_BOOST_PRICE_COINS` 🪙 for one extra bench-boost charge."""
+    db = get_db()
+    udoc = await db.users.find_one({"id": user["id"]}, {"_id": 0, "coins": 1})
+    bal = int((udoc or {}).get("coins") or 0)
+    if bal < BENCH_BOOST_PRICE_COINS:
+        raise HTTPException(402, f"Insufficient coins. Need 🪙 {BENCH_BOOST_PRICE_COINS}, have 🪙 {bal}.")
+    debit = await db.users.update_one(
+        {"id": user["id"], "coins": {"$gte": BENCH_BOOST_PRICE_COINS}},
+        {"$inc": {"coins": -BENCH_BOOST_PRICE_COINS}},
+    )
+    if debit.modified_count != 1:
+        raise HTTPException(402, "Insufficient coins.")
+    await db.user_bench_boosts.update_one(
+        {"user_id": user["id"]},
+        {"$inc": {"paid_remaining": 1},
+         "$setOnInsert": {"id": new_id(), "user_id": user["id"], "free_used": 0, "created_at": _now_iso()}},
+        upsert=True,
+    )
+    await db.wallet_transactions.insert_one({
+        "id": new_id(), "user_id": user["id"], "kind": "bench_boost_purchase",
+        "amount_coins": BENCH_BOOST_PRICE_COINS, "created_at": _now_iso(),
+    })
+    inv = await db.user_bench_boosts.find_one({"user_id": user["id"]}, {"_id": 0})
+    return {"ok": True, "paid_remaining": int(inv.get("paid_remaining", 0))}
+
+
+@router.post("/games/{game_id}/entries/{entry_id}/bench-boost")
+async def apply_bench_boost(game_id: str, entry_id: str, user: dict = Depends(a.get_current_user)):
+    """Toggle bench-boost ON for one mini-game entry. Consumes either a free
+    or paid charge. Only allowed while the game is `open` or `upcoming` (not
+    after it's closed/settled). One charge per entry; idempotent if already
+    applied."""
+    db = get_db()
+    entry = await db.wc_game_entries.find_one({"id": entry_id, "user_id": user["id"], "wc_game_id": game_id}, {"_id": 0})
+    if not entry:
+        raise HTTPException(404, "Entry not found")
+    if entry.get("bench_boost"):
+        return {"ok": True, "already_active": True, "entry_id": entry_id}
+    g = await db.wc_games.find_one({"id": game_id}, {"_id": 0, "status": 1})
+    if (g or {}).get("status") not in ("upcoming", "open"):
+        raise HTTPException(400, "Bench Boost can only be activated before the game closes.")
+
+    inv = await db.user_bench_boosts.find_one({"user_id": user["id"]}, {"_id": 0}) or {}
+    free_used = int(inv.get("free_used", 0))
+    paid = int(inv.get("paid_remaining", 0))
+    used_free = False
+    used_paid = False
+    if free_used < BENCH_BOOST_FREE_PER_USER:
+        await db.user_bench_boosts.update_one(
+            {"user_id": user["id"]},
+            {"$inc": {"free_used": 1},
+             "$setOnInsert": {"id": new_id(), "user_id": user["id"], "paid_remaining": 0, "created_at": _now_iso()}},
+            upsert=True,
+        )
+        used_free = True
+    elif paid > 0:
+        await db.user_bench_boosts.update_one(
+            {"user_id": user["id"]}, {"$inc": {"paid_remaining": -1}},
+        )
+        used_paid = True
+    else:
+        raise HTTPException(402, f"No bench-boost charges left. Buy one for 🪙 {BENCH_BOOST_PRICE_COINS}.")
+
+    await db.wc_game_entries.update_one(
+        {"id": entry_id, "user_id": user["id"]},
+        {"$set": {"bench_boost": True, "updated_at": _now_iso()}},
+    )
+    await db.audit_log.insert_one({
+        "id": new_id(), "user_id": user["id"], "action": "bench_boost_applied",
+        "metadata": {"entry_id": entry_id, "wc_game_id": game_id,
+                     "used_free": used_free, "used_paid": used_paid},
+        "created_at": _now_iso(),
+    })
+    return {"ok": True, "entry_id": entry_id, "used_free": used_free, "used_paid": used_paid}
+
+
 @router.get("/games/{game_id}/entries")
 async def public_game_entries(game_id: str, limit: int = 200):
     """Transparency view: ONCE a game is `settled`, every entry's lineup +

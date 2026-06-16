@@ -14,6 +14,7 @@ import { PredictionsHub } from "./pages/Predictions";
 import { FantasyHub } from "./pages/Fantasy";
 import BuildTeam from "./pages/BuildTeam";
 import MyTeams from "./pages/MyTeams";
+import MyTeamView from "./pages/MyTeamView";
 import GameEntries from "./pages/GameEntries";
 import { LegendCards } from "./pages/LegendCards";
 import { PrizePoolsList, PrizePoolDetail } from "./pages/PrizePool";
@@ -55,6 +56,7 @@ function App() {
               <Route path="/fantasy/hub" element={<FantasyHub />} />
               <Route path="/build-team" element={<BuildTeam />} />
               <Route path="/my-teams" element={<MyTeams />} />
+              <Route path="/my-teams/:kind/:id" element={<MyTeamView />} />
               <Route path="/wc/games/:gameId/entries" element={<GameEntries />} />
               <Route path="/cards" element={<LegendCards />} />
               <Route path="/prize-pools" element={<PrizePoolsList />} />
