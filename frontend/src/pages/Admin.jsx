@@ -6,6 +6,82 @@ import { Users, Database, Radio, Activity, RefreshCw, Trophy, Coins, Calendar, S
 import { refreshBrand } from "../components/Brand";
 import { AdsTab } from "../components/AdsTab";
 
+/* Sub-form: gift any card to a list of user emails. Lives inside the
+ * "Card Operations" admin card. */
+function GrantCardForm({ onMsg, busy, setBusy }) {
+  const [cards, setCards] = useState([]);
+  const [cardId, setCardId] = useState("");
+  const [emails, setEmails] = useState("");
+  const [qty, setQty] = useState(1);
+  const [note, setNote] = useState("");
+  useEffect(() => {
+    api.get("/admin/wc/cards/list").then(({ data }) => {
+      setCards(data.cards || []);
+      const tb = (data.cards || []).find((c) => c.id === "card-team-boost-2x");
+      if (tb) setCardId(tb.id);
+    }).catch(() => {});
+  }, []);
+  const submit = async () => {
+    const list = emails.split(/[\s,;\n]+/).map((e) => e.trim()).filter(Boolean);
+    if (!cardId || list.length === 0) {
+      onMsg("Pick a card and enter at least one email."); return;
+    }
+    setBusy(true);
+    try {
+      const { data } = await api.post("/admin/wc/cards/grant", {
+        user_emails: list, card_id: cardId, quantity: Number(qty) || 1, note,
+      });
+      onMsg(`Granted "${data.card.name}" × ${qty} to ${data.granted.length} user(s)`);
+    } catch (e) { onMsg(e?.response?.data?.detail || "Grant failed"); }
+    setBusy(false);
+  };
+  return (
+    <div className="mt-2 ring-1 ring-white/10 rounded p-3" data-testid="grant-card-form">
+      <div className="text-[11px] font-extrabold mb-2 uppercase tracking-widest" style={{ color: "var(--cp-text-muted)" }}>
+        Gift cards to users
+      </div>
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-2 mb-2">
+        <select
+          value={cardId} onChange={(e) => setCardId(e.target.value)}
+          className="cp-input text-xs" data-testid="grant-card-select"
+        >
+          <option value="">— select a card —</option>
+          {cards.map((c) => (
+            <option key={c.id} value={c.id}>
+              {c.name} {c.effect_type ? `(${c.effect_type})` : ""} · 🪙 {c.price_coins || 0}
+            </option>
+          ))}
+        </select>
+        <input
+          type="number" min="1" max="10" value={qty}
+          onChange={(e) => setQty(e.target.value)}
+          className="cp-input text-xs" placeholder="Quantity per user"
+          data-testid="grant-card-qty"
+        />
+      </div>
+      <textarea
+        value={emails} onChange={(e) => setEmails(e.target.value)}
+        rows={2} placeholder="Emails (comma, space or newline separated)"
+        className="cp-input text-xs w-full mb-2" data-testid="grant-card-emails"
+      />
+      <input
+        value={note} onChange={(e) => setNote(e.target.value)}
+        placeholder="Optional note (audit log)"
+        className="cp-input text-xs w-full mb-2"
+        data-testid="grant-card-note"
+      />
+      <button
+        onClick={submit} disabled={busy}
+        className="cp-btn-primary text-xs disabled:opacity-50"
+        data-testid="grant-card-submit"
+      >
+        {busy ? "Granting…" : "🎁 Grant cards"}
+      </button>
+    </div>
+  );
+}
+
+
 const TAB_HINTS = {
   dashboard: "Live platform health — users, matches, predictions, fantasy squads. Use DB Cleanup to remove cross-provider duplicates.",
   matches: "Browse and edit raw match rows pulled from Sportmonks/API-Sports. Useful for fixing kickoff times or hiding bad fixtures.",
@@ -231,6 +307,48 @@ export const AdminPanel = () => {
               >
                 Settle now (no wipe)
               </button>
+          <div className="cp-surface p-4" data-testid="admin-card-grants-card">
+            <h3 className="text-sm font-extrabold mb-1">🎁 Card Operations</h3>
+            <p className="text-xs mb-3" style={{ color: "var(--cp-text-muted)" }}>
+              Seed the new <b>Team Boost ×2</b> (🪙 10,000) and <b>×3</b> (🪙 30,000) cards into the catalogue,
+              then gift any card to one or more users by email. Boosts apply to the user's NEXT
+              mini-game entry: ×2 doubles, ×3 triples the final points; they compound if stacked.
+            </p>
+            <div className="flex flex-col gap-2">
+              <div className="flex gap-2 flex-wrap">
+                <button
+                  onClick={async () => {
+                    setBusy(true);
+                    try {
+                      const { data } = await api.post("/admin/wc/cards/seed-team-boosts");
+                      setMsg(`Team Boost cards seeded · ${data.cards_upserted} entries`);
+                    } catch (e) { setMsg(e?.response?.data?.detail || "Seed failed"); }
+                    setBusy(false);
+                  }}
+                  disabled={busy}
+                  className="cp-btn-primary text-xs disabled:opacity-50"
+                  data-testid="seed-team-boosts"
+                >
+                  Seed Team Boost cards
+                </button>
+                <button
+                  onClick={async () => {
+                    if (!confirm("Flip every UPCOMING mini-game to OPEN so users can enter? Idempotent.")) return;
+                    setBusy(true);
+                    try {
+                      const { data } = await api.post("/admin/wc/games/open-all");
+                      setMsg(`Opened ${data.flipped} games · ${data.open_after} total open now`);
+                    } catch (e) { setMsg(e?.response?.data?.detail || "Open-all failed"); }
+                    setBusy(false);
+                  }}
+                  disabled={busy}
+                  className="cp-btn-ghost text-xs disabled:opacity-50"
+                  data-testid="open-all-games"
+                >
+                  Open ALL mini-games
+                </button>
+              </div>
+              <GrantCardForm onMsg={setMsg} busy={busy} setBusy={setBusy} />
             </div>
           </div>
         </div>

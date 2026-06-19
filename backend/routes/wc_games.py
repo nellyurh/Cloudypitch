@@ -795,6 +795,118 @@ async def admin_list_games(
     return {"games": rows}
 
 
+@admin_router.post("/games/open-all")
+async def admin_open_all_games(admin: dict = Depends(a.require_admin)):
+    """🚪 Flip every `upcoming` WC mini-game to `open` so users can enter
+    them immediately. Skips games already `open`/`closed`/`settled` to keep
+    the operation idempotent. Returns counts so admin can sanity-check."""
+    db = get_db()
+    before_open = await db.wc_games.count_documents({"status": "open"})
+    res = await db.wc_games.update_many(
+        {"status": "upcoming"},
+        {"$set": {"status": "open", "updated_at": _now_iso()}},
+    )
+    after_open = await db.wc_games.count_documents({"status": "open"})
+    await db.audit_log.insert_one({
+        "id": new_id(), "user_id": admin["id"], "email": admin.get("email"),
+        "action": "wc_games_open_all",
+        "metadata": {"flipped": res.modified_count,
+                     "open_before": before_open, "open_after": after_open},
+        "created_at": _now_iso(),
+    })
+    return {"ok": True, "flipped": res.modified_count,
+            "open_before": before_open, "open_after": after_open}
+
+
+# ─── Team Boost cards & admin grant ───────────────────────────────────
+# These cards multiply a user's mini-game `final_points` by 2× (Double) or
+# 3× (Triple). Stored in `legend_cards` under tier 0 with explicit
+# `effect_type` markers so the settler can distinguish them from normal
+# player-targeted Legend cards.
+TEAM_BOOST_CARDS = [
+    {"id": "card-team-boost-2x",  "name": "Team Boost ×2",
+     "description": "Double your final points on the next mini-game.",
+     "price_coins": 10_000, "tier": 0, "effect_type": "team_boost_2x",
+     "rarity": "rare", "image_url": "",
+     "max_uses": 1, "starter_uses": 1},
+    {"id": "card-team-boost-3x",  "name": "Team Boost ×3",
+     "description": "Triple your final points on the next mini-game.",
+     "price_coins": 30_000, "tier": 0, "effect_type": "team_boost_3x",
+     "rarity": "epic", "image_url": "",
+     "max_uses": 1, "starter_uses": 1},
+]
+
+
+@admin_router.post("/cards/seed-team-boosts")
+async def admin_seed_team_boost_cards(admin: dict = Depends(a.require_admin)):
+    """Idempotently insert/update the two Team Boost cards in `legend_cards`.
+    Safe to run any time — uses upsert."""
+    db = get_db()
+    inserted = 0
+    for c in TEAM_BOOST_CARDS:
+        await db.legend_cards.update_one(
+            {"id": c["id"]},
+            {"$set": {**c, "updated_at": _now_iso()},
+             "$setOnInsert": {"created_at": _now_iso()}},
+            upsert=True,
+        )
+        inserted += 1
+    return {"ok": True, "cards_upserted": inserted}
+
+
+class GrantCardBody(BaseModel):
+    user_emails: list[str] = Field(min_length=1, max_length=200,
+                                    description="Email addresses of users to receive the card(s).")
+    card_id: str
+    quantity: int = Field(default=1, ge=1, le=10)
+    note: Optional[str] = None
+
+
+@admin_router.post("/cards/grant")
+async def admin_grant_cards(body: GrantCardBody, admin: dict = Depends(a.require_admin)):
+    """🎁 Admin gift: drops `quantity` of `card_id` into each user's
+    `user_cards` collection. Used for promotions, refunds, or rewarding
+    top-of-round winners. Logs to `audit_log`."""
+    db = get_db()
+    card = await db.legend_cards.find_one({"id": body.card_id}, {"_id": 0})
+    if not card:
+        raise HTTPException(404, f"Card not found: {body.card_id}")
+    users = await db.users.find(
+        {"email": {"$in": [e.lower().strip() for e in body.user_emails]}},
+        {"_id": 0, "id": 1, "email": 1, "display_name": 1},
+    ).to_list(length=200)
+    if not users:
+        raise HTTPException(404, "No matching users for the supplied emails")
+    starter_uses = int(card.get("starter_uses") or 1)
+    granted = []
+    for u in users:
+        for _ in range(body.quantity):
+            await db.user_cards.insert_one({
+                "id": new_id(), "user_id": u["id"], "card_id": card["id"],
+                "uses_remaining": starter_uses, "obtained_via": "admin_grant",
+                "created_at": _now_iso(),
+            })
+        granted.append({"user_id": u["id"], "email": u["email"], "qty": body.quantity})
+    await db.audit_log.insert_one({
+        "id": new_id(), "user_id": admin["id"], "email": admin.get("email"),
+        "action": "cards_admin_grant",
+        "metadata": {"card_id": card["id"], "card_name": card.get("name"),
+                     "quantity_per_user": body.quantity, "recipients": granted,
+                     "note": body.note},
+        "created_at": _now_iso(),
+    })
+    return {"ok": True, "granted": granted, "card": {"id": card["id"], "name": card.get("name")}}
+
+
+@admin_router.get("/cards/list")
+async def admin_list_all_cards(admin: dict = Depends(a.require_admin)):
+    """List every card defined in the catalog — used by the admin grant UI."""
+    db = get_db()
+    rows = await db.legend_cards.find({}, {"_id": 0}).to_list(length=500)
+    rows.sort(key=lambda c: (c.get("tier", 99), c.get("name") or ""))
+    return {"cards": rows}
+
+
 class GamePatch(BaseModel):
     status: Optional[Literal["upcoming", "open", "closed", "settling", "settled"]] = None
     opens_at: Optional[str] = None

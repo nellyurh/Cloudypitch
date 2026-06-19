@@ -307,6 +307,28 @@ async def settle_wc_game(game_id: str, *, force: bool = False) -> dict:
         if bench_boost:
             final_points = round(final_points * 1.5)
 
+        # 🚀 Team Boost cards (2× / 3×) — entry-level multipliers applied via
+        # `applied_cards` referencing legend_cards with effect_type
+        # `team_boost_2x` or `team_boost_3x`. Each card has ONE use; if the
+        # user attaches both, multipliers compound (2×3 = 6×).
+        team_boost_mul = 1.0
+        team_boost_used = []
+        applied_card_ids = [c.get("card_id") for c in (entry.get("applied_cards") or []) if c.get("card_id")]
+        if applied_card_ids:
+            card_defs = await db.legend_cards.find(
+                {"id": {"$in": applied_card_ids}}, {"_id": 0, "id": 1, "effect_type": 1, "name": 1},
+            ).to_list(length=20)
+            for cd in card_defs:
+                et = (cd.get("effect_type") or "").lower()
+                if et == "team_boost_2x":
+                    team_boost_mul *= 2.0
+                    team_boost_used.append({"card_id": cd["id"], "name": cd.get("name"), "mul": 2.0})
+                elif et == "team_boost_3x":
+                    team_boost_mul *= 3.0
+                    team_boost_used.append({"card_id": cd["id"], "name": cd.get("name"), "mul": 3.0})
+        if team_boost_mul != 1.0:
+            final_points = round(final_points * team_boost_mul)
+
         await db.wc_game_entries.update_one(
             {"id": entry["id"]},
             {"$set": {
@@ -314,6 +336,8 @@ async def settle_wc_game(game_id: str, *, force: bool = False) -> dict:
                 "raw_points": total_points,
                 "points_multiplier_applied": points_mult,
                 "bench_boost_applied": bench_boost,
+                "team_boost_applied": team_boost_mul,
+                "team_boost_cards_used": team_boost_used,
                 "breakdown_by_player": per_player_breakdown,
                 "settled_at": utcnow_iso(),
             }},
