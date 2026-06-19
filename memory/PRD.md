@@ -10,6 +10,16 @@ Global multi-sport livescore + predictions + fantasy platform launching for FIFA
 - Sportmonks (football), API-Sports (other sports), Trybit/CryptoCloud (crypto deposits), PocketFi (NGN), Google AdSense
 
 
+### 2026-02-15 (Monetag mobile push+vignette · Rounds slider · Matchday isolation · Eligibility 70/40)
+- **📱 Monetag mobile re-enabled SAFELY** — new `MonetagMobile.jsx` component (mounted at App root) injects exactly two non-popunder formats on `window.innerWidth < 768`:
+  - **In-Page Push** — zone `11157495`, `https://nap5k.com/tag.min.js`
+  - **Vignette Banner** — zone `11157502`, `https://n6wxm.com/vignette.min.js`
+  - Premium-aware (component takes `isPremium` prop), single-injection-per-page, auto-cleanup on unmount.
+- **📅 Rounds slider for main team (replaces date slider)** — `/api/fantasy/squad/{id}/daily` now also returns a `rounds[]` array grouped by WC stage (Matchday 1 → 2 → 3 → R32 → R16 → QF → SF → 3rd Place → Final). Derived from each match's `scheduled_at` via `_wc_round_for_date()` (FIFA WC 2026 dates). Frontend `RoundSlider` component swaps the active round, the pitch re-renders with that round's per-player points, and the "Round Score" header updates. The `days[]` array is still returned for legacy/date views.
+- **🐛 Mini-game matchday cross-leak FIXED** — `wc_settler._resolve_match_ids_for_game()` `gt == "matchday"` branch was returning ALL WC matches where both teams sat in `eligible_team_ids` — so Matchday 2 games re-credited points from the same teams' Matchday 1 fixtures (and any future matchdays). Now slices `ms[lo:hi]` by matchday number, where `lo, hi = (md-1)*per_md, md*per_md` and `per_md = max(1, len(eligible_team_ids) // 2)`. Mirrors the existing `group` resolution logic.
+- **🎯 Eligibility thresholds raised**: `PRIZE_POOL_MIN_PREDICTIONS 20 → 40`, `PRIZE_POOL_MIN_WC_GAMES 50 → 70` in `routes/leaderboard.py` (still overrideable via env). Profile + leaderboard endpoints both read these from the same constants.
+- **Verified on preview**: mini-game rebuild settled 24 games (vs 18 before — matchday isolation correctly separates fixtures into per-game scope). Daily endpoint returns rounds Matchday 1 (-1 pts) and Matchday 2 (-9 pts) as independent slices.
+
 ### 2026-02-15 (🚨 Monetag mobile hijack — auto-snippet permanently disabled)
 - **🐛 Cause**: My earlier "auto-generate Monetag tag from `zone_id`" fix (2026-02-15) was loading `https://quge5.com/88/tag.min.js` for every PropellerAds zone that had a `zone_id` but no `snippet_html`. That tag.min.js script consults the **Monetag dashboard** at runtime to decide the actual ad format — so even when our DB labels a zone as `format: banner`, Monetag can deliver a popunder, vignette, or in-page push at the script's discretion. On mobile, this hijacked the first tap and forced a redirect.
 - **🛡️ Two-layer fix in `routes/ads.py`**:

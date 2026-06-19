@@ -31,6 +31,7 @@ import { ReferralsPage } from "./pages/Referrals";
 import { ForgotPassword, ResetPassword, VerifyEmail } from "./pages/AuthPages";
 import { InterstitialAd } from "./components/InterstitialAd";
 import { AdHeadInjector } from "./components/AdHeadInjector";
+import MonetagMobile from "./components/MonetagMobile";
 import { registerAdServiceWorker } from "./lib/registerAdSw";
 
 if (typeof window !== "undefined") {
@@ -43,6 +44,7 @@ function App() {
       <AuthProvider>
         <BrowserRouter>
           <AdHeadInjector/>
+          <MonetagMobile/>
           <Layout>
             <Routes>
               <Route path="/" element={<Dashboard sport="football" />} />

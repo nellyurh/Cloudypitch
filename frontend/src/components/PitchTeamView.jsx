@@ -203,7 +203,36 @@ export default function PitchTeamView({
 }
 
 /* ───────────────────────────────────────────────────────────────────────
- * DaySlider — horizontal swipeable day picker for the main-team viewer.
+ * RoundSlider — WC stage tabs (Matchday 1/2/3 → R32 → R16 → QF → SF → Final).
+ * Used by the main-team viewer to swap player points per tournament round.
+ * ─────────────────────────────────────────────────────────────────────── */
+export function RoundSlider({ rounds = [], activeIndex = 0, onChange }) {
+  if (!rounds.length) return null;
+  return (
+    <div className="cp-surface !bg-transparent ring-1 ring-white/5 rounded-lg p-2 mb-3" data-testid="round-slider">
+      <div className="flex gap-1 overflow-x-auto scroll-smooth snap-x snap-mandatory pb-1">
+        {rounds.map((r, i) => {
+          const active = i === activeIndex;
+          return (
+            <button
+              key={r.round}
+              onClick={() => onChange && onChange(i)}
+              className={`snap-start shrink-0 px-3 py-1.5 rounded-md text-center transition min-w-[88px] ${active ? "bg-cp-lime text-cp-forest font-bold" : "hover:bg-white/5"}`}
+              style={!active ? { color: "var(--cp-text)" } : undefined}
+              data-testid={`round-tab-${r.round.replace(/\s/g, '-').toLowerCase()}`}
+            >
+              <div className="text-[10px] uppercase tracking-wider opacity-80">{r.round}</div>
+              <div className="text-sm font-extrabold tabular-nums">{r.points} pts</div>
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+/* ───────────────────────────────────────────────────────────────────────
+ * DaySlider — calendar-date variant (kept for date-style breakdown if needed).
  * ─────────────────────────────────────────────────────────────────────── */
 export function DaySlider({ days = [], activeIndex = 0, onChange }) {
   if (!days.length) return null;

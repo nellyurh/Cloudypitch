@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useState } from "react";
 import { useParams, Link } from "react-router-dom";
 import { toast } from "sonner";
 import api from "../lib/api";
-import PitchTeamView, { DaySlider } from "../components/PitchTeamView";
+import PitchTeamView, { DaySlider, RoundSlider } from "../components/PitchTeamView";
 import AdSlot from "../components/AdSlot";
 import {
   ArrowLeft, LayoutGrid, List, ShieldCheck, Coins, Trophy, Star,
@@ -15,8 +15,9 @@ export default function MyTeamView() {
 
   const [squad, setSquad] = useState(null);
   const [players, setPlayers] = useState({}); // id → player doc (face, club)
-  const [days, setDays] = useState([]);       // main only
-  const [activeDay, setActiveDay] = useState(0);
+  const [days, setDays] = useState([]);       // main only — calendar dates
+  const [rounds, setRounds] = useState([]);   // main only — WC stages
+  const [activeIndex, setActiveIndex] = useState(0); // index into rounds
   const [view, setView] = useState("pitch");
   const [bb, setBB] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -48,13 +49,15 @@ export default function MyTeamView() {
           }
         }
 
-        // Main-team daily slider
+        // Main-team round slider (per WC stage)
         if (kind === "main") {
           try {
             const { data: daily } = await api.get(`/fantasy/squad/${id}/daily`);
+            const rs = daily.rounds || [];
             const ds = daily.days || [];
+            setRounds(rs);
             setDays(ds);
-            setActiveDay(Math.max(0, ds.length - 1));
+            setActiveIndex(Math.max(0, rs.length - 1));
           } catch (e) { /* no daily yet */ }
         }
 
@@ -70,18 +73,17 @@ export default function MyTeamView() {
     })();
   }, [id, kind]);
 
-  // Build the pitch player list from the active day's points (or squad totals)
+  // Build the pitch player list from the active round's points (or entry totals)
   const pitchPlayers = useMemo(() => {
     if (!squad) return [];
     const picksRaw = isMain ? (squad.players || []) : (squad.player_picks || []);
-    // Lookup table for breakdown points
     const pointsBy = {};
     const minutesBy = {};
-    if (isMain && days.length) {
-      const day = days[activeDay];
-      for (const pp of (day?.player_points || [])) {
-        pointsBy[pp.player_id] = pp.points;
-        minutesBy[pp.player_id] = pp.minutes;
+    if (isMain && rounds.length) {
+      const r = rounds[activeIndex];
+      for (const pp of (r?.player_points || [])) {
+        pointsBy[pp.player_id] = (pointsBy[pp.player_id] || 0) + pp.points;
+        minutesBy[pp.player_id] = Math.max(minutesBy[pp.player_id] || 0, pp.minutes || 0);
       }
     } else if (!isMain && Array.isArray(squad.breakdown_by_player)) {
       for (const pp of squad.breakdown_by_player) {
@@ -104,16 +106,16 @@ export default function MyTeamView() {
         vice: squad.vice_captain_id === p.player_id || squad.vice_captain_player_id === p.player_id,
       };
     });
-  }, [squad, players, days, activeDay, isMain]);
+  }, [squad, players, rounds, activeIndex, isMain]);
 
   const topStats = useMemo(() => {
-    if (isMain && days.length) {
-      const day = days[activeDay];
+    if (isMain && rounds.length) {
+      const r = rounds[activeIndex];
       return {
-        average: day ? Math.round((day.points || 0) * 0.6) : "—",
-        your_score: day?.points ?? 0,
-        highest: day ? Math.round((day.points || 0) * 1.5) : "—",
-        label: "Your Score",
+        average: r ? Math.round((r.points || 0) * 0.6) : "—",
+        your_score: r?.points ?? 0,
+        highest: r ? Math.round((r.points || 0) * 1.5) : "—",
+        label: "Round Score",
       };
     }
     if (!isMain && squad) {
@@ -125,7 +127,7 @@ export default function MyTeamView() {
       };
     }
     return null;
-  }, [days, activeDay, squad, isMain]);
+  }, [rounds, activeIndex, squad, isMain]);
 
   // ── Bench Boost handler ─────────────────────────────────────────
   const activateBB = async () => {
@@ -189,9 +191,9 @@ export default function MyTeamView() {
         </div>
       </div>
 
-      {/* Main-team day slider */}
-      {isMain && days.length > 0 && (
-        <DaySlider days={days} activeIndex={activeDay} onChange={setActiveDay} />
+      {/* Main-team round slider (WC stages) */}
+      {isMain && rounds.length > 0 && (
+        <RoundSlider rounds={rounds} activeIndex={activeIndex} onChange={setActiveIndex} />
       )}
 
       {/* Mini-game Bench Boost CTA */}
@@ -228,9 +230,7 @@ export default function MyTeamView() {
           benchBoost={!!squad.bench_boost}
           topStats={topStats}
           subtitle={isMain
-            ? (days[activeDay]?.date
-                ? new Date(days[activeDay].date).toLocaleDateString([], { weekday: "long", day: "numeric", month: "long" })
-                : "World Cup 2026")
+            ? (rounds[activeIndex]?.round || "World Cup 2026")
             : (squad.game_title || "Mini-game")}
         />
       ) : (

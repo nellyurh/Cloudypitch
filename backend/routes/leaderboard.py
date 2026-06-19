@@ -7,7 +7,7 @@ Eligibility (2026-02-12, updated 2026-02-13)
 -------------------------------------------
 Users must satisfy BOTH gates to receive a prize-pool payout:
   · Made at least `PRIZE_POOL_MIN_PREDICTIONS` predictions (default **20**)
-  · Entered at least `PRIZE_POOL_MIN_WC_GAMES` WC mini-games (default **50**)
+  · Entered at least `PRIZE_POOL_MIN_WC_GAMES` WC mini-games (default **70**)
 
 Counts use ALL submitted entries — settled or not — so users can't be
 blocked from eligibility by the settler being behind. They still appear on
@@ -43,8 +43,8 @@ TOP4_USD_CENTS = [100_000, 50_000, 30_000, 20_000]
 POS_5_20_REMAINING = BASE_POOL_USD_CENTS - sum(TOP4_USD_CENTS)  # $500
 
 # Anti-bot minimums to qualify for any prize-pool payout (count-based).
-PRIZE_POOL_MIN_PREDICTIONS = int(os.environ.get("PRIZE_POOL_MIN_PREDICTIONS", "20"))
-PRIZE_POOL_MIN_WC_GAMES = int(os.environ.get("PRIZE_POOL_MIN_WC_GAMES", "50"))
+PRIZE_POOL_MIN_PREDICTIONS = int(os.environ.get("PRIZE_POOL_MIN_PREDICTIONS", "40"))
+PRIZE_POOL_MIN_WC_GAMES = int(os.environ.get("PRIZE_POOL_MIN_WC_GAMES", "70"))
 
 
 def compute_prize_split(base_usd_cents: int, cards_cut_usd_cents: int):

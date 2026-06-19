@@ -71,12 +71,25 @@ async def _resolve_match_ids_for_game(db, g: dict) -> list[str]:
         return [m["id"] for m in all_wc[lo:hi]]
 
     if gt == "matchday" and eligible_team_ids:
+        # 🐛 Fix 2026-02-15: previously returned EVERY WC match where both
+        # teams were in `eligible_team_ids` — so a Matchday-2 game silently
+        # re-credited points from the same teams' Matchday-1 fixtures.
+        # Filter by the matchday number so each mini-game scores only its
+        # own slice. Matchday slicing uses scheduled_at chunks of 2 fixtures
+        # per team (same heuristic as `group` resolution above).
+        md = int(g.get("matchday") or 0)
         ms = await db.matches.find(
             {"is_world_cup": True,
              "home_team_id": {"$in": eligible_team_ids},
              "away_team_id": {"$in": eligible_team_ids}},
-            {"_id": 0, "id": 1},
-        ).to_list(length=200)
+            {"_id": 0, "id": 1, "scheduled_at": 1},
+        ).sort("scheduled_at", 1).to_list(length=400)
+        if md > 0:
+            # Each WC group of 4 teams plays 2 fixtures per matchday.
+            # Total games across an N-team eligible pool = N/2 per matchday.
+            per_md = max(1, len(eligible_team_ids) // 2)
+            lo, hi = (md - 1) * per_md, md * per_md
+            return [m["id"] for m in ms[lo:hi]]
         return [m["id"] for m in ms]
 
     return []

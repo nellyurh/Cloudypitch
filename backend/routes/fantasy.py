@@ -500,6 +500,30 @@ async def lookup_players(payload: dict):
     return {"players": docs}
 
 
+def _wc_round_for_date(scheduled_iso: str | None) -> str:
+    """Map a WC 2026 match's scheduled date → its tournament round label."""
+    if not scheduled_iso:
+        return "TBD"
+    d = scheduled_iso[:10]
+    # FIFA WC 2026 schedule (48-team format, US/CA/MX hosts)
+    if d <= "2026-06-16": return "Matchday 1"
+    if d <= "2026-06-22": return "Matchday 2"
+    if d <= "2026-06-27": return "Matchday 3"
+    if d <= "2026-07-03": return "Round of 32"
+    if d <= "2026-07-07": return "Round of 16"
+    if d <= "2026-07-11": return "Quarter-finals"
+    if d <= "2026-07-15": return "Semi-finals"
+    if d <= "2026-07-18": return "Third place"
+    return "Final"
+
+
+_WC_ROUND_ORDER = [
+    "Matchday 1", "Matchday 2", "Matchday 3",
+    "Round of 32", "Round of 16", "Quarter-finals",
+    "Semi-finals", "Third place", "Final",
+]
+
+
 @router.get("/squad/{squad_id}/daily")
 async def squad_daily_points(squad_id: str, user: dict = Depends(a.get_current_user)):
     """📅 Per-calendar-date points breakdown for a main 15-man squad.
@@ -545,6 +569,7 @@ async def squad_daily_points(squad_id: str, user: dict = Depends(a.get_current_u
     cap_played_today = False  # track cap played to allow vice fallback per day
 
     by_day: dict[str, dict] = {}
+    by_round: dict[str, dict] = {}
     for m in matches:
         sched = m.get("scheduled_at") or ""
         if not sched:
@@ -554,7 +579,10 @@ async def squad_daily_points(squad_id: str, user: dict = Depends(a.get_current_u
         except Exception:
             date_key = sched[:10]
         bucket = by_day.setdefault(date_key, {"date": date_key, "points": 0, "matches": 0, "player_points": []})
+        round_key = _wc_round_for_date(sched)
+        rbucket = by_round.setdefault(round_key, {"round": round_key, "points": 0, "matches": 0, "player_points": []})
         bucket["matches"] += 1
+        rbucket["matches"] += 1
         cap_played_today = False
 
         for sp in picks:
@@ -608,19 +636,24 @@ async def squad_daily_points(squad_id: str, user: dict = Depends(a.get_current_u
             elif is_vice and not cap_played_today and minutes > 0:
                 p_pts *= 2
             bucket["points"] += p_pts
-            bucket["player_points"].append({
+            rbucket["points"] += p_pts
+            entry = {
                 "player_id": pid, "name": name, "position": position, "team_id": team_id,
                 "match_id": m["id"], "opponent": (m.get("away_team_name") if m.get("home_team_id") == team_id else m.get("home_team_name")),
                 "points": p_pts, "captain": is_cap, "vice": is_vice, "minutes": minutes,
                 "breakdown": res["breakdown"],
-            })
+            }
+            bucket["player_points"].append(entry)
+            rbucket["player_points"].append(entry)
 
     days = sorted(by_day.values(), key=lambda d: d["date"])
+    rounds = sorted(by_round.values(), key=lambda r: _WC_ROUND_ORDER.index(r["round"]) if r["round"] in _WC_ROUND_ORDER else 99)
     return {
         "squad_id": squad_id,
         "total": sum(d["points"] for d in days),
         "snapshot_total": int(sq.get("total_points") or 0),
         "days": days,
+        "rounds": rounds,
     }
 
 
