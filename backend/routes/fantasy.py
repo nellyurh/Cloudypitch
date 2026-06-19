@@ -700,7 +700,7 @@ async def fantasy_round_leaderboard(round: str, limit: int = 5):
     ).to_list(length=400)
     matches_in_round = [m for m in all_wc if _wc_round_for_date(m.get("scheduled_at")) == round]
     if not matches_in_round:
-        return {"round": round, "leaderboard": []}
+        return {"round": round, "matches_in_round": 0, "squads_scanned": 0, "leaderboard": []}
     match_ids = [m["id"] for m in matches_in_round]
 
     # 2. Bulk load events + lineups for those matches.
@@ -718,7 +718,8 @@ async def fantasy_round_leaderboard(round: str, limit: int = 5):
         {"competition_id": "fantasy-wc2026"}, {"_id": 0},
     ).to_list(length=5000)
     if not squads:
-        return {"round": round, "leaderboard": []}
+        return {"round": round, "matches_in_round": len(matches_in_round),
+                "squads_scanned": 0, "leaderboard": []}
 
     all_player_ids = set()
     for sq in squads:

@@ -10,6 +10,20 @@ Global multi-sport livescore + predictions + fantasy platform launching for FIFA
 - Sportmonks (football), API-Sports (other sports), Trybit/CryptoCloud (crypto deposits), PocketFi (NGN), Google AdSense
 
 
+### 2026-02-19 (Open ALL pre-knockout · Team Boost cards · Admin Grant UI · Top of Round)
+- **🚪 `POST /api/admin/wc/games/open-all`** — single-click flips every `upcoming` mini-game (match + group MD1–MD3) to `open`. Explicitly skips knockout stages `r32 / r16 / qf / sf / finals` (their dependent matches don't exist yet). Also skips any match-type game whose kickoff has already passed and any group/round game whose `closes_at` is in the past. Idempotent.
+- **🪙 Team Boost cards** — two new entries in `legend_cards` (tier 0):
+  - `card-team-boost-2x` · 🪙 10,000 · `effect_type=team_boost_2x` · doubles the mini-game `final_points`
+  - `card-team-boost-3x` · 🪙 30,000 · `effect_type=team_boost_3x` · triples the mini-game `final_points`
+  - Scope: **mini-game entries only** (not the main 15-man squad). Cards bypass the per-player-target requirement and position lock — they're team-level multipliers on the entry's settled total.
+  - Seeded via `POST /api/admin/wc/cards/seed-team-boosts` (idempotent upsert).
+  - Applied in `wc_settler.py` after the game `points_multiplier` and Bench Boost — multipliers compound (×2 · ×3 = ×6).
+- **🎁 Admin Grant UI** — new `GrantCardForm` on `/admin` (dashboard tab → Card Operations card). Drops `quantity` of any card into each emailed user's `user_cards` collection with `obtained_via=admin_grant`. Audit-logged with full recipient list + admin email. Backed by `POST /api/admin/wc/cards/grant` and `GET /api/admin/wc/cards/list`.
+- **🏆 Top of Round leaderboard** — new `GET /api/fantasy/leaderboard/round?round=<label>&limit=5` walks every WC2026 main squad, computes per-round points using the canonical FPL engine (cap×2 / vc fallback, defensive contributions, clean sheets), and returns the top-N with country flag + display name + squad name + round_points. New `TopOfRound.jsx` component mounted under `PitchTeamView` on `MyTeamView` (main team only), re-fetches whenever the active round slider changes. Flag rendered via Unicode codepoint trick (no image bundle).
+- **🐛 Lint blockers fixed**: removed duplicate `admin_open_all_games` in `wc_games.py`, removed redefined `timedelta` import inside `backfill_closes_at`, cleaned 8× E701 multi-statement-on-one-line, renamed ambiguous `l` → `lc`. Frontend `Admin.jsx` JSX parse error (mismatched `</div>` after the GrantCardForm injection) resolved — Card Operations now renders as a proper sibling under the dashboard, not nested inside Fantasy Settle.
+- **Verified end-to-end** (testing_agent_v3 iteration 25 — 11/11 backend pytests pass, 100% admin UI flows pass; `/app/backend/tests/test_iteration25.py` kept as regression).
+
+
 ### 2026-02-15 (Monetag mobile push+vignette · Rounds slider · Matchday isolation · Eligibility 70/40)
 - **📱 Monetag mobile re-enabled SAFELY** — new `MonetagMobile.jsx` component (mounted at App root) injects exactly two non-popunder formats on `window.innerWidth < 768`:
   - **In-Page Push** — zone `11157495`, `https://nap5k.com/tag.min.js`
