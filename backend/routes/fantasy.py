@@ -680,7 +680,152 @@ async def fantasy_leaderboard(limit: int = 50):
 
 
 
-@router.post("/settle/gameweek")
+@router.get("/leaderboard/round")
+async def fantasy_round_leaderboard(round: str, limit: int = 5):
+    """🏆 Top-N main squads for a single WC round (e.g. 'Matchday 1',
+    'Round of 32', 'Final'). Walks every squad, computes its per-round points
+    using the canonical FPL scoring engine (cap×2 / vc fallback, defensive
+    contributions, clean sheets), and returns the top `limit` sorted by
+    `round_points` desc. Result includes country flag, display name and
+    squad name so the frontend can render a flag row beneath the pitch.
+    """
+    from datetime import datetime
+    db = get_db()
+
+    # 1. Resolve which WC matches belong to this round (by scheduled date).
+    all_wc = await db.matches.find(
+        {"is_world_cup": True, "status": {"$in": ["FT", "AET", "PEN", "Ended", "Finished"]}},
+        {"_id": 0, "id": 1, "home_team_id": 1, "away_team_id": 1,
+         "home_score": 1, "away_score": 1, "scheduled_at": 1},
+    ).to_list(length=400)
+    matches_in_round = [m for m in all_wc if _wc_round_for_date(m.get("scheduled_at")) == round]
+    if not matches_in_round:
+        return {"round": round, "leaderboard": []}
+    match_ids = [m["id"] for m in matches_in_round]
+
+    # 2. Bulk load events + lineups for those matches.
+    events_by_match: dict[str, list[dict]] = {}
+    lineups_by_match: dict[str, list[dict]] = {}
+    evs = await db.match_events.find({"match_id": {"$in": match_ids}}, {"_id": 0}).to_list(length=20000)
+    for e in evs:
+        events_by_match.setdefault(e["match_id"], []).append(e)
+    lns = await db.match_lineups.find({"match_id": {"$in": match_ids}}, {"_id": 0}).to_list(length=20000)
+    for ln in lns:
+        lineups_by_match.setdefault(ln["match_id"], []).append(ln)
+
+    # 3. Pull every WC2026 main squad + every player they need in one shot.
+    squads = await db.fantasy_squads.find(
+        {"competition_id": "fantasy-wc2026"}, {"_id": 0},
+    ).to_list(length=5000)
+    if not squads:
+        return {"round": round, "leaderboard": []}
+
+    all_player_ids = set()
+    for sq in squads:
+        for p in sq.get("players", []) or []:
+            if p.get("player_id"):
+                all_player_ids.add(p["player_id"])
+    pdocs = await db.players.find(
+        {"id": {"$in": list(all_player_ids)}}, {"_id": 0},
+    ).to_list(length=10000) if all_player_ids else []
+    pmap = {p["id"]: p for p in pdocs}
+
+    # 4. Compute per-squad round points.
+    scored = []
+    for sq in squads:
+        picks = sq.get("players") or []
+        cap_id = sq.get("captain_id")
+        vice_id = sq.get("vice_captain_id")
+        round_total = 0
+        for m in matches_in_round:
+            cap_played_match = False
+            for sp in picks:
+                pid = sp.get("player_id")
+                player = pmap.get(pid)
+                if not player:
+                    continue
+                team_id = player.get("team_id")
+                if team_id not in (m.get("home_team_id"), m.get("away_team_id")):
+                    continue
+                name = player.get("name") or sp.get("name") or ""
+                position = sp.get("position") or player.get("position") or "MID"
+                evs_for = events_by_match.get(m["id"], [])
+                s = aggregate_player_stats_from_events(evs_for, name, team_id)
+                lin = next(
+                    (x for x in lineups_by_match.get(m["id"], [])
+                     if (x.get("player_name") or "").strip().lower() == name.strip().lower()),
+                    None,
+                )
+                minutes = 0
+                saves = pen_saves = clearances = blocks = interceptions = tackles = recoveries = 0
+                if lin:
+                    minutes = 90 if lin.get("starter") else 30
+                    if s.get("substituted_out"):
+                        minutes = max(0, minutes - 30)
+                    ps = lin.get("stats") or {}
+                    saves = int(ps.get("saves") or 0)
+                    pen_saves = int(ps.get("penalty_saves") or ps.get("saves_penalty") or 0)
+                    clearances = int(ps.get("clearances") or 0)
+                    blocks = int(ps.get("blocks") or 0)
+                    interceptions = int(ps.get("interceptions") or 0)
+                    tackles = int(ps.get("tackles") or 0)
+                    recoveries = int(ps.get("recoveries") or 0)
+                gc = 0
+                if position in ("GK", "DEF"):
+                    gc = int(
+                        (m.get("away_score") if m.get("home_team_id") == team_id else m.get("home_score")) or 0
+                    )
+                cs = ((m.get("away_score") or 0) == 0 and m.get("home_team_id") == team_id) or \
+                     ((m.get("home_score") or 0) == 0 and m.get("away_team_id") == team_id)
+                res = compute_player_points(
+                    position=position, minutes_played=minutes,
+                    goals=int(s.get("goals", 0)), assists=int(s.get("assists", 0)),
+                    yellow_cards=int(s.get("yellow_cards", 0)), red_cards=int(s.get("red_cards", 0)),
+                    own_goals=int(s.get("own_goals", 0)), missed_penalties=int(s.get("missed_penalties", 0)),
+                    saves=saves, penalty_saves=pen_saves, team_clean_sheet=bool(cs),
+                    goals_conceded=gc, clearances=clearances, blocks=blocks,
+                    interceptions=interceptions, tackles=tackles, recoveries=recoveries,
+                )
+                p_pts = int(res["points"])
+                is_cap = (pid == cap_id)
+                is_vice = (pid == vice_id)
+                if is_cap and minutes > 0:
+                    cap_played_match = True
+                    p_pts *= 2
+                elif is_vice and not cap_played_match and minutes > 0:
+                    p_pts *= 2
+                round_total += p_pts
+        scored.append({"squad": sq, "points": round_total})
+
+    scored.sort(key=lambda r: r["points"], reverse=True)
+    top = scored[: max(1, min(int(limit or 5), 50))]
+
+    # 5. Hydrate user info (display_name + country_code) in one query.
+    user_ids = [r["squad"]["user_id"] for r in top]
+    users = await db.users.find(
+        {"id": {"$in": user_ids}},
+        {"_id": 0, "id": 1, "display_name": 1, "country_code": 1},
+    ).to_list(length=200)
+    uby = {u["id"]: u for u in users}
+
+    out = []
+    for i, r in enumerate(top, 1):
+        sq = r["squad"]
+        u = uby.get(sq["user_id"], {})
+        out.append({
+            "rank": i,
+            "user_id": sq["user_id"],
+            "squad_id": sq.get("id"),
+            "squad_name": sq.get("squad_name", "Squad"),
+            "display_name": u.get("display_name") or "Player",
+            "country_code": u.get("country_code") or "NG",
+            "round_points": r["points"],
+        })
+    return {"round": round, "matches_in_round": len(matches_in_round),
+            "squads_scanned": len(squads), "leaderboard": out}
+
+
+
 async def settle_gameweek(gameweek: int = 1, user: dict = Depends(a.require_admin)):
     """Admin trigger: compute gameweek points for every squad based on FT matches.
     Walks each squad's players, finds matching match_events/lineups/statistics, applies

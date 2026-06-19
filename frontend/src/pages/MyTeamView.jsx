@@ -3,6 +3,7 @@ import { useParams, Link } from "react-router-dom";
 import { toast } from "sonner";
 import api from "../lib/api";
 import PitchTeamView, { DaySlider, RoundSlider } from "../components/PitchTeamView";
+import TopOfRound from "../components/TopOfRound";
 import AdSlot from "../components/AdSlot";
 import {
   ArrowLeft, LayoutGrid, List, ShieldCheck, Coins, Trophy, Star,
@@ -263,6 +264,11 @@ export default function MyTeamView() {
             </tbody>
           </table>
         </div>
+      )}
+
+      {/* Top-of-Round leaderboard — main team only, follows the active round */}
+      {isMain && rounds.length > 0 && (
+        <TopOfRound round={rounds[activeIndex]?.round} />
       )}
 
       <div className="mt-4"><AdSlot placement="match_list_inline"/></div>

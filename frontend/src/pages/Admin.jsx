@@ -307,11 +307,14 @@ export const AdminPanel = () => {
               >
                 Settle now (no wipe)
               </button>
+            </div>
+          </div>
+
           <div className="cp-surface p-4" data-testid="admin-card-grants-card">
             <h3 className="text-sm font-extrabold mb-1">🎁 Card Operations</h3>
             <p className="text-xs mb-3" style={{ color: "var(--cp-text-muted)" }}>
               Seed the new <b>Team Boost ×2</b> (🪙 10,000) and <b>×3</b> (🪙 30,000) cards into the catalogue,
-              then gift any card to one or more users by email. Boosts apply to the user's NEXT
+              then gift any card to one or more users by email. Boosts apply to the user&apos;s NEXT
               mini-game entry: ×2 doubles, ×3 triples the final points; they compound if stacked.
             </p>
             <div className="flex flex-col gap-2">
@@ -333,11 +336,11 @@ export const AdminPanel = () => {
                 </button>
                 <button
                   onClick={async () => {
-                    if (!confirm("Flip every UPCOMING mini-game to OPEN so users can enter? Idempotent.")) return;
+                    if (!confirm("Flip every UPCOMING mini-game (group MD1–MD3 + individual matches) to OPEN so users can enter? Knockout rounds (R32 → Finals) are skipped — they depend on group results that don't exist yet. Idempotent.")) return;
                     setBusy(true);
                     try {
                       const { data } = await api.post("/admin/wc/games/open-all");
-                      setMsg(`Opened ${data.flipped} games · ${data.open_after} total open now`);
+                      setMsg(`Opened ${data.flipped} games (skipped ${data.skipped_started} already-started) · ${data.open_after} total open now`);
                     } catch (e) { setMsg(e?.response?.data?.detail || "Open-all failed"); }
                     setBusy(false);
                   }}
@@ -345,7 +348,7 @@ export const AdminPanel = () => {
                   className="cp-btn-ghost text-xs disabled:opacity-50"
                   data-testid="open-all-games"
                 >
-                  Open ALL mini-games
+                  Open ALL pre-knockout mini-games
                 </button>
               </div>
               <GrantCardForm onMsg={setMsg} busy={busy} setBusy={setBusy} />

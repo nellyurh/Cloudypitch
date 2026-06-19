@@ -1,0 +1,50 @@
+{
+  "summary": "Iteration 25 — full E2E verification of new admin Card Operations (Team Boost seed + admin grant + open-all-pre-knockout) and the round-leaderboard backend powering the TopOfRound component. Backend: 11/11 pytest tests pass against the live preview backend (seed idempotency, list contains both boosts at correct prices/effect_types, grant happy-path + 404 for bad card / bad email, open-all response shape with locked_stages and no-leak into r32/r16/qf/sf/finals via before/after snapshot, round-leaderboard valid response with all required fields and rank ordering, invalid/empty round returns empty leaderboard with no 500). Frontend admin UI: all 8 required data-testids render under the dashboard tab; Seed button produces 'Team Boost cards seeded · 2 entries'; Grant form posts and shows 'Granted \"Team Boost ×2\" × 1 to 1 user(s)'. No JSX parse errors. Top-of-Round component code verified end-to-end against backend response shape, but a live in-page render could not be visually verified because the admin account does not own a fantasy main squad (MyTeamView returns 'Team not found' for non-owner squad IDs).",
+  "backend_issues": { "critical": [], "minor": [] },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "verified_endpoints": {
+    "POST /api/admin/wc/cards/seed-team-boosts": "200, cards_upserted=2, idempotent",
+    "GET  /api/admin/wc/cards/list": "200, contains card-team-boost-2x (10000 / team_boost_2x) and card-team-boost-3x (30000 / team_boost_3x)",
+    "POST /api/admin/wc/cards/grant": "200, granted=[{email,qty,user_id}], 404 on unknown card_id, 404 on unknown email",
+    "POST /api/admin/wc/games/open-all": "200, response keys = ok/flipped/skipped_started/open_before/open_after/locked_stages=['r32','r16','qf','sf','finals']; before/after snapshot confirms locked stages untouched",
+    "GET  /api/fantasy/leaderboard/round?round=Matchday 1&limit=5": "200, leaderboard rows include rank/user_id/squad_id/squad_name/display_name/country_code/round_points, sorted by round_points desc, matches_in_round=18 squads_scanned populated",
+    "GET  /api/fantasy/leaderboard/round?round=NotARealRound_xyz": "200, leaderboard=[] (no crash, matches_in_round key omitted in empty path — see review comment)"
+  },
+  "verified_admin_ui": {
+    "data-testids": ["admin-card-grants-card", "seed-team-boosts", "open-all-games", "grant-card-form", "grant-card-select", "grant-card-qty", "grant-card-emails", "grant-card-note", "grant-card-submit"],
+    "seed_message": "Team Boost cards seeded · 2 entries",
+    "grant_message": "Granted \"Team Boost ×2\" × 1 to 1 user(s)"
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iteration25.py",
+    "/app/test_reports/pytest/iteration25.xml"
+  ],
+  "action_items": [
+    "(Low) When /api/fantasy/leaderboard/round returns empty leaderboard, the response omits matches_in_round and squads_scanned (the early-return branches only emit {round, leaderboard:[]}). The TopOfRound component already defaults these to 0 client-side, so it is non-blocking — but the original spec asked for 'matches_in_round=0' explicitly. Consider returning matches_in_round=0 and squads_scanned=0 in both empty branches for response-shape consistency.",
+    "(Low) Visual-editor instrumentation injects a <span x-excluded style='display:contents'> inside <option> elements of the grant-card-select, which triggers a React hydration warning 'In HTML, <span> cannot be a child of <option>'. This is from the build-time instrumentation, not application code, so it should not affect production builds. If it persists in prod, the fix is to render plain text in <option> children instead of conditional JSX expressions.",
+    "(Optional) Visually confirm TopOfRound by signing in as a regular user that owns a main squad (admin@cloudypitch.com doesn't own one — MyTeamView returns 'Team not found' for non-owner squad IDs). Backend payload + component code already verified."
+  ],
+  "critical_code_review_comments": [
+    "wc_games.py open-all: cleanly filters with $nin LOCKED_STAGES, then per-game kickoff/closes_at check is sound. Audit-log entry written with full metadata (flipped, skipped_started, scanned, open_before, open_after, locked_stages). Good.",
+    "wc_games.py admin_seed_team_boost_cards: uses upsert with $setOnInsert created_at and $set updated_at — properly idempotent.",
+    "wc_games.py admin_grant_cards: validates card existence (404), validates at least 1 matching user (404), inserts uses_remaining=card.starter_uses with obtained_via='admin_grant', writes audit_log with recipients list. Solid.",
+    "fantasy.py fantasy_round_leaderboard: 161-line single function but logically chunked (resolve matches → bulk events/lineups → bulk players → per-squad loop → hydrate users → return). Captain ×2 with vice fallback is correct. Could memoize per-(match,player) point calc if perf becomes an issue with many squads, but n≤5000 squads × n_matches is fine for now.",
+    "TopOfRound.jsx is concise (96 lines), uses ISO-2 flag codepoint trick (no image bundle), has alive-flag cleanup for stale fetches. Good.",
+    "Admin.jsx GrantCardForm: ResponsesetCardId based on the first card-team-boost-2x match on initial load — convenient default. Validates non-empty card + emails before submit. Clean.",
+    "Note: returned data-testid pattern for individual top-of-round rows isn't present (only the wrapper 'top-of-round-leaderboard' has a data-testid). Adding per-row data-testid='top-of-round-row-{rank}' would help future automated tests verify row count + ordering."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iteration25.py"
+  ],
+  "success_rate": { "backend": "100% (11/11)", "frontend": "100% on admin UI flows; TopOfRound visual mount not validated due to admin not owning a squad (backend payload + component code reviewed and correct)" },
+  "test_credentials": "admin@cloudypitch.com / CloudyAdmin2026!",
+  "seed_data_creation": "Team Boost ×2 (card-team-boost-2x) and Team Boost ×3 (card-team-boost-3x) are now seeded in legend_cards via /api/admin/wc/cards/seed-team-boosts; one card-team-boost-2x was granted to admin@cloudypitch.com (user_cards row inserted, audit log written) — both are intentional test fixtures, safe to leave.",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "All iteration-25 endpoints validated. Backend pytest is /app/backend/tests/test_iteration25.py — reusable as regression. To visually validate TopOfRound, sign in as a user that owns a main WC2026 squad (admin doesn't), navigate to /my-teams/main/<their_squad_id>, scroll below pitch — component is conditionally rendered only when isMain && rounds.length > 0. The fantasy round-leaderboard backend already returns populated data (5 rows for 'Matchday 1' with matches_in_round=18 in current DB).",
+  "rca of the issue": "n/a — no blocking bugs found. Two low-priority polish items captured in action_items."
+}

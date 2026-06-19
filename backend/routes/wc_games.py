@@ -150,8 +150,10 @@ async def game_detail(game_id: str, user: dict = Depends(a.get_optional_user)):
             q, {"_id": 0, "home_team_id": 1, "away_team_id": 1},
         ).to_list(length=200)
         for m in kicked:
-            if m.get("home_team_id"): locked_team_ids.add(m["home_team_id"])
-            if m.get("away_team_id"): locked_team_ids.add(m["away_team_id"])
+            if m.get("home_team_id"):
+                locked_team_ids.add(m["home_team_id"])
+            if m.get("away_team_id"):
+                locked_team_ids.add(m["away_team_id"])
 
     # Resolve eligible players from team IDs (minus locked teams)
     pool_team_ids = [tid for tid in eligible_team_ids if tid not in locked_team_ids]
@@ -316,17 +318,14 @@ async def enter_game(game_id: str, body: GameEntryIn, user: dict = Depends(a.get
         if cu.user_card_id in seen_card_ids:
             raise HTTPException(status_code=400, detail="Each card can only be used once per game")
         seen_card_ids.add(cu.user_card_id)
-    # Each card MUST target a picked player
+    # Pre-resolve which submitted cards are TEAM-LEVEL boosts (Team Boost ×2/×3).
+    # These are entry-wide multipliers and intentionally bypass the
+    # "must target a player" + position-lock rules below.
     picked_player_ids = {p.player_id for p in body.player_picks}
     pick_pos_by_id = {p.player_id: p.position for p in body.player_picks}
-    for cu in body.cards_used:
-        if not cu.target_player_id:
-            raise HTTPException(status_code=400, detail="Each card must target a player in your squad")
-        if cu.target_player_id not in picked_player_ids:
-            raise HTTPException(status_code=400, detail="Card target must be one of your picked players")
-
-    # Position-lock validation — a card with `position=FWD` cannot be applied
-    # to a DEF/MID/GK. Cards with position='ANY' (or missing) skip the check.
+    team_boost_user_card_ids: set[str] = set()
+    legend_by_id: dict = {}
+    uc_by_id: dict = {}
     if body.cards_used:
         card_ids_for_check = list({cu.user_card_id for cu in body.cards_used})
         uc_rows = await db.user_cards.find(
@@ -335,26 +334,49 @@ async def enter_game(game_id: str, body: GameEntryIn, user: dict = Depends(a.get
         ).to_list(length=20)
         legend_ids = list({r["card_id"] for r in uc_rows if r.get("card_id")})
         legends = await db.legend_cards.find(
-            {"id": {"$in": legend_ids}}, {"_id": 0, "id": 1, "position": 1, "name": 1},
+            {"id": {"$in": legend_ids}},
+            {"_id": 0, "id": 1, "position": 1, "name": 1, "effect_type": 1},
         ).to_list(length=50)
-        legend_by_id = {l["id"]: l for l in legends}
+        legend_by_id = {lc["id"]: lc for lc in legends}
         uc_by_id = {r["id"]: r for r in uc_rows}
         for cu in body.cards_used:
             uc = uc_by_id.get(cu.user_card_id)
             if not uc:
                 continue
             legend = legend_by_id.get(uc.get("card_id"))
-            if not legend:
-                continue
-            card_pos = (legend.get("position") or "ANY").upper()
-            if card_pos == "ANY":
-                continue
-            target_pos = (pick_pos_by_id.get(cu.target_player_id) or "").upper()
-            if target_pos != card_pos:
-                raise HTTPException(
-                    status_code=400,
-                    detail=f"{legend.get('name')} can only boost a {card_pos} — your target is {target_pos or 'unknown'}.",
-                )
+            if legend and str(legend.get("effect_type") or "").lower().startswith("team_boost"):
+                team_boost_user_card_ids.add(cu.user_card_id)
+
+    # Each non-team-boost card MUST target a picked player
+    for cu in body.cards_used:
+        if cu.user_card_id in team_boost_user_card_ids:
+            continue
+        if not cu.target_player_id:
+            raise HTTPException(status_code=400, detail="Each card must target a player in your squad")
+        if cu.target_player_id not in picked_player_ids:
+            raise HTTPException(status_code=400, detail="Card target must be one of your picked players")
+
+    # Position-lock validation — a card with `position=FWD` cannot be applied
+    # to a DEF/MID/GK. Cards with position='ANY' (or missing) skip the check.
+    # Team Boost cards already filtered above.
+    for cu in body.cards_used:
+        if cu.user_card_id in team_boost_user_card_ids:
+            continue
+        uc = uc_by_id.get(cu.user_card_id)
+        if not uc:
+            continue
+        legend = legend_by_id.get(uc.get("card_id"))
+        if not legend:
+            continue
+        card_pos = (legend.get("position") or "ANY").upper()
+        if card_pos == "ANY":
+            continue
+        target_pos = (pick_pos_by_id.get(cu.target_player_id) or "").upper()
+        if target_pos != card_pos:
+            raise HTTPException(
+                status_code=400,
+                detail=f"{legend.get('name')} can only boost a {card_pos} — your target is {target_pos or 'unknown'}.",
+            )
 
     # Compare against previous entry — figure out which cards are NEW (consume) vs UNCHANGED (skip) vs REMOVED (refund)
     existing = await db.wc_game_entries.find_one({"user_id": user["id"], "wc_game_id": game_id})
@@ -600,10 +622,13 @@ async def public_game_entries(game_id: str, limit: int = 200):
     for r in rows:
         user_ids.add(r["user_id"])
         for p in r.get("player_picks", []) or []:
-            if p.get("player_id"): player_ids.add(p["player_id"])
+            if p.get("player_id"):
+                player_ids.add(p["player_id"])
         for cu in r.get("cards_used", []) or []:
-            if cu.get("user_card_id"): uc_ids.add(cu["user_card_id"])
-            if cu.get("target_player_id"): player_ids.add(cu["target_player_id"])
+            if cu.get("user_card_id"):
+                uc_ids.add(cu["user_card_id"])
+            if cu.get("target_player_id"):
+                player_ids.add(cu["target_player_id"])
 
     players = await db.players.find(
         {"id": {"$in": list(player_ids)}},
@@ -622,7 +647,7 @@ async def public_game_entries(game_id: str, limit: int = 200):
         {"_id": 0, "id": 1, "name": 1, "tier": 1, "position": 1,
          "effect_type": 1, "effect_value": 1, "player_name": 1, "country_code": 1},
     ).to_list(length=200) if legend_ids else []
-    by_legend = {l["id"]: l for l in legends}
+    by_legend = {lc["id"]: lc for lc in legends}
 
     users = await db.users.find(
         {"id": {"$in": list(user_ids)}},
@@ -788,34 +813,92 @@ async def admin_list_games(
 ):
     db = get_db()
     q = {}
-    if game_type: q["game_type"] = game_type
-    if status: q["status"] = status
-    if stage: q["stage"] = stage
+    if game_type:
+        q["game_type"] = game_type
+    if status:
+        q["status"] = status
+    if stage:
+        q["stage"] = stage
     rows = await db.wc_games.find(q, {"_id": 0}).sort("opens_at", 1).limit(limit).to_list(length=limit)
     return {"games": rows}
 
 
+# Stages locked-out from the admin "Open all" action. R32 and beyond depend
+# on group-stage results that don't exist yet, so flipping them to `open`
+# would expose empty/placeholder fixtures to players.
+LOCKED_STAGES = ["r32", "r16", "qf", "sf", "finals"]
+
+
 @admin_router.post("/games/open-all")
 async def admin_open_all_games(admin: dict = Depends(a.require_admin)):
-    """🚪 Flip every `upcoming` WC mini-game to `open` so users can enter
-    them immediately. Skips games already `open`/`closed`/`settled` to keep
-    the operation idempotent. Returns counts so admin can sanity-check."""
+    """🚪 Flip every `upcoming` WC mini-game (Match + Group MD1–MD3 + Round
+    MD1–MD3) to `open` so users can enter them immediately. Knockout rounds
+    (R32, R16, QF, SF, Finals) are intentionally skipped — their dependent
+    matches do not exist yet. Also skips individual match-games whose match
+    has already kicked off. Idempotent."""
     db = get_db()
+    now_iso = _now_iso()
+    now_dt = datetime.now(timezone.utc)
     before_open = await db.wc_games.count_documents({"status": "open"})
-    res = await db.wc_games.update_many(
-        {"status": "upcoming"},
-        {"$set": {"status": "open", "updated_at": _now_iso()}},
-    )
+
+    candidates = await db.wc_games.find(
+        {"status": "upcoming", "stage": {"$nin": LOCKED_STAGES}},
+        {"_id": 0, "id": 1, "match_id": 1, "closes_at": 1, "game_type": 1},
+    ).to_list(length=2000)
+
+    eligible_ids: list[str] = []
+    skipped_started = 0
+    for g in candidates:
+        # For match-type games, check the actual match kickoff
+        if g.get("game_type") == "match" and g.get("match_id"):
+            m = await db.matches.find_one(
+                {"id": g["match_id"]}, {"_id": 0, "scheduled_at": 1, "status": 1},
+            )
+            if m:
+                try:
+                    ko = datetime.fromisoformat(str(m.get("scheduled_at", "")).replace("Z", "+00:00").replace(" ", "T"))
+                    if ko.tzinfo is None:
+                        ko = ko.replace(tzinfo=timezone.utc)
+                    if ko <= now_dt:
+                        skipped_started += 1
+                        continue
+                except Exception:
+                    pass
+        # For group/round games: only skip if closes_at is in the past
+        ca = g.get("closes_at")
+        if ca:
+            try:
+                ca_dt = datetime.fromisoformat(str(ca).replace("Z", "+00:00").replace(" ", "T"))
+                if ca_dt.tzinfo is None:
+                    ca_dt = ca_dt.replace(tzinfo=timezone.utc)
+                if ca_dt <= now_dt:
+                    skipped_started += 1
+                    continue
+            except Exception:
+                pass
+        eligible_ids.append(g["id"])
+
+    if eligible_ids:
+        res = await db.wc_games.update_many(
+            {"id": {"$in": eligible_ids}},
+            {"$set": {"status": "open", "opens_at": now_iso, "updated_at": now_iso}},
+        )
+        flipped = res.modified_count
+    else:
+        flipped = 0
+
     after_open = await db.wc_games.count_documents({"status": "open"})
     await db.audit_log.insert_one({
         "id": new_id(), "user_id": admin["id"], "email": admin.get("email"),
         "action": "wc_games_open_all",
-        "metadata": {"flipped": res.modified_count,
+        "metadata": {"flipped": flipped, "skipped_started": skipped_started,
+                     "scanned": len(candidates), "locked_stages": LOCKED_STAGES,
                      "open_before": before_open, "open_after": after_open},
-        "created_at": _now_iso(),
+        "created_at": now_iso,
     })
-    return {"ok": True, "flipped": res.modified_count,
-            "open_before": before_open, "open_after": after_open}
+    return {"ok": True, "flipped": flipped, "skipped_started": skipped_started,
+            "open_before": before_open, "open_after": after_open,
+            "locked_stages": LOCKED_STAGES}
 
 
 # ─── Team Boost cards & admin grant ───────────────────────────────────
@@ -1014,7 +1097,6 @@ async def admin_backfill_closes_at(admin: dict = Depends(a.require_admin)):
     }
 
     # ── Match-type games: closes_at = KO - 30 min ──────────────────────────
-    from datetime import datetime, timedelta, timezone
     match_rows = await db.wc_games.find(
         {"game_type": "match"},
         {"_id": 0, "id": 1, "match_id": 1, "closes_at": 1},
@@ -1091,29 +1173,6 @@ async def admin_backfill_closes_at(admin: dict = Depends(a.require_admin)):
             "match_updated": match_updated, "match_scanned": len(match_rows)}
 
 
-@admin_router.post("/games/open-all")
-async def admin_open_all_games(admin: dict = Depends(a.require_admin)):
-    """One-click: switch every `upcoming` WC2026 game to `open` so users can enter.
-    Also relaxes `opens_at` to now so they're not blocked by the time check.
-    Use sparingly — this overrides the natural stage cadence.
-    """
-    db = get_db()
-    now = _now_iso()
-    res = await db.wc_games.update_many(
-        {"status": {"$in": ["upcoming", "open"]}},
-        {"$set": {"status": "open", "opens_at": now, "updated_at": now}},
-    )
-    await db.audit_log.insert_one({
-        "id": new_id(), "user_id": admin["id"], "email": admin.get("email"),
-        "action": "wc_games_open_all",
-        "metadata": {"affected": res.modified_count, "total_matched": res.matched_count},
-        "created_at": now,
-    })
-    total = await db.wc_games.count_documents({"status": "open"})
-    return {"ok": True, "modified": res.modified_count, "matched": res.matched_count, "now_open_total": total}
-
-
-# ---------- Settlement ----------
 @admin_router.post("/games/{game_id}/settle")
 async def admin_settle_game(
     game_id: str,
