@@ -5,6 +5,148 @@ import { useAuth } from "../lib/auth";
 import { Users, Database, Radio, Activity, RefreshCw, Trophy, Coins, Calendar, Settings2, Image as ImageIcon, UserPlus } from "lucide-react";
 import { refreshBrand } from "../components/Brand";
 import { AdsTab } from "../components/AdsTab";
+import { refreshServiceStatus } from "../lib/serviceStatus";
+
+/* 🛑 Service Controls — pause/unpause Fantasy + Predictions with a reason.
+ * Disabled writes block new entries and freeze the background settler. */
+function ServiceControlsCard({ onMsg, busy, setBusy }) {
+  const [services, setServices] = useState([]);
+  const [drafts, setDrafts] = useState({});
+
+  const refresh = async () => {
+    try {
+      const { data } = await api.get("/admin/services");
+      setServices(data.services || []);
+      const ds = {};
+      for (const s of data.services || []) {
+        ds[s.id] = { enabled: s.enabled, shutdown_reason: s.shutdown_reason || "" };
+      }
+      setDrafts(ds);
+    } catch (_) { /* ignore */ }
+  };
+
+  useEffect(() => { refresh(); }, []);
+
+  const apply = async (kind) => {
+    const d = drafts[kind] || { enabled: true, shutdown_reason: "" };
+    const next = !d.enabled;
+    if (!next && !d.shutdown_reason.trim()) {
+      onMsg(`Please add a reason before pausing ${kind}.`);
+      return;
+    }
+    setBusy(true);
+    try {
+      const { data } = await api.patch(`/admin/services/${kind}`, {
+        enabled: next, shutdown_reason: d.shutdown_reason || "",
+      });
+      onMsg(`${kind} → ${data.service.enabled ? "ENABLED" : "PAUSED"}`);
+      refreshServiceStatus();
+      refresh();
+    } catch (e) {
+      onMsg(e?.response?.data?.detail || `${kind} toggle failed`);
+    }
+    setBusy(false);
+  };
+
+  const saveReason = async (kind) => {
+    const d = drafts[kind] || { enabled: true, shutdown_reason: "" };
+    setBusy(true);
+    try {
+      const { data } = await api.patch(`/admin/services/${kind}`, {
+        enabled: d.enabled, shutdown_reason: d.shutdown_reason || "",
+      });
+      onMsg(`${kind} reason updated`);
+      refreshServiceStatus();
+      refresh();
+      void data;
+    } catch (e) {
+      onMsg(e?.response?.data?.detail || `${kind} update failed`);
+    }
+    setBusy(false);
+  };
+
+  if (services.length === 0) {
+    return (
+      <div className="cp-surface p-4" data-testid="service-controls-card">
+        <h3 className="text-sm font-extrabold mb-1">🛑 Service Controls</h3>
+        <p className="text-xs" style={{ color: "var(--cp-text-muted)" }}>Loading…</p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="cp-surface p-4" data-testid="service-controls-card">
+      <h3 className="text-sm font-extrabold mb-1">🛑 Service Controls</h3>
+      <p className="text-xs mb-3" style={{ color: "var(--cp-text-muted)" }}>
+        Pause <b>Fantasy</b> or <b>Predictions</b> to block new entries and freeze
+        the background settler. Existing points stay frozen — they resume when
+        you re-enable. The on-page reason is shown to users on the paused hub.
+        Leaderboards remain live.
+      </p>
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+        {services.map((s) => {
+          const d = drafts[s.id] || { enabled: s.enabled, shutdown_reason: s.shutdown_reason || "" };
+          const isOn = s.enabled;
+          return (
+            <div
+              key={s.id}
+              className="rounded p-3"
+              style={{
+                background: "var(--cp-surface-2)",
+                border: `1px solid ${isOn ? "rgba(163,230,53,0.30)" : "rgba(251,191,36,0.40)"}`,
+              }}
+              data-testid={`service-row-${s.id}`}
+            >
+              <div className="flex items-center justify-between mb-2">
+                <div>
+                  <div className="text-xs font-extrabold uppercase tracking-widest">{s.id}</div>
+                  <div className="text-[10px]" style={{ color: "var(--cp-text-muted)" }}>
+                    {isOn ? "✅ LIVE — accepting entries & settling points" : "⏸️ PAUSED — frozen"}
+                  </div>
+                  {s.updated_at && (
+                    <div className="text-[10px] mt-1" style={{ color: "var(--cp-text-muted)" }}>
+                      Last change: {new Date(s.updated_at).toLocaleString()}{s.updated_by ? ` by ${s.updated_by}` : ""}
+                    </div>
+                  )}
+                </div>
+                <button
+                  onClick={() => apply(s.id)}
+                  disabled={busy}
+                  className={`text-xs font-extrabold rounded px-3 py-1.5 disabled:opacity-50 ${isOn ? "bg-amber-500 text-black" : "bg-cp-lime text-cp-forest"}`}
+                  data-testid={`service-toggle-${s.id}`}
+                >
+                  {isOn ? "Pause" : "Resume"}
+                </button>
+              </div>
+              <textarea
+                value={d.shutdown_reason}
+                onChange={(e) => setDrafts({ ...drafts, [s.id]: { ...d, shutdown_reason: e.target.value } })}
+                rows={2}
+                placeholder={`Reason shown to users when ${s.id} is paused`}
+                className="cp-input text-xs w-full mb-2"
+                maxLength={500}
+                data-testid={`service-reason-${s.id}`}
+              />
+              <div className="flex items-center justify-between">
+                <span className="text-[10px]" style={{ color: "var(--cp-text-muted)" }}>
+                  {d.shutdown_reason.length}/500
+                </span>
+                <button
+                  onClick={() => saveReason(s.id)}
+                  disabled={busy}
+                  className="cp-btn-ghost text-xs disabled:opacity-50"
+                  data-testid={`service-save-reason-${s.id}`}
+                >
+                  Save reason
+                </button>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
 
 /* Sub-form: gift any card to a list of user emails. Lives inside the
  * "Card Operations" admin card. */
@@ -83,7 +225,7 @@ function GrantCardForm({ onMsg, busy, setBusy }) {
 
 
 const TAB_HINTS = {
-  dashboard: "Live platform health — users, matches, predictions, fantasy squads. Use DB Cleanup to remove cross-provider duplicates.",
+  dashboard: "Live platform health — users, matches, predictions, fantasy squads. Use DB Cleanup to remove cross-provider duplicates. 🛑 Service Controls let you pause Fantasy or Predictions with a public reason.",
   matches: "Browse and edit raw match rows pulled from Sportmonks/API-Sports. Useful for fixing kickoff times or hiding bad fixtures.",
   users: "User directory. Promote to admin, flip premium, or ban abusive accounts.",
   ingest: "Trigger ingestion jobs by hand (full pull / today / past 3 days). Check provider health before running.",
@@ -354,6 +496,8 @@ export const AdminPanel = () => {
               <GrantCardForm onMsg={setMsg} busy={busy} setBusy={setBusy} />
             </div>
           </div>
+
+          <ServiceControlsCard onMsg={setMsg} busy={busy} setBusy={setBusy} />
         </div>
       )}
 

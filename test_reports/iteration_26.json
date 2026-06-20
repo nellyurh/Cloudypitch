@@ -1,0 +1,54 @@
+{
+  "summary": "Iteration 26 — Admin kill-switch for Fantasy + Predictions. Full E2E (backend + admin UI + user-facing paused screens). 12/12 backend tests pass; admin UI flow, both ServicePausedScreens, gating, audit log, re-enable, idempotency, leaderboard-not-gated all verified. Both services re-enabled at end. ONE minor UI bug found: 'View leaderboard' link in ServicePausedScreen points to a non-existent route.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [
+      {
+        "component": "ServicePausedScreen.jsx",
+        "issue": "leaderboardHref = '/leaderboard' (fantasy) and '/predictions/leaderboard' (predictions) — neither route exists in App.js. The actual route is '/leaderboards' (plural). Console warning: 'No routes matched location /leaderboard'. Clicking the 'View leaderboard' button from the paused screen lands on a blank page (only nav + footer).",
+        "selector": "[data-testid='service-paused-leaderboard-link']",
+        "priority": "MEDIUM"
+      }
+    ],
+    "integration_issues": [],
+    "design_issues": [
+      {
+        "screen": "Admin dashboard (pre-existing, not introduced by this iteration)",
+        "issues": [
+          "React hydration warning: <span> inside <option> in GrantCardForm select (Admin.jsx around line 192). Not blocking, but spams console errors on every admin page render."
+        ]
+      }
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iteration26.py",
+    "/app/test_reports/pytest/iteration26.xml"
+  ],
+  "action_items": [
+    "Fix ServicePausedScreen.jsx: change leaderboardHref from '/leaderboard' to '/leaderboards' (and from '/predictions/leaderboard' to '/leaderboards' or whichever real route exists for the predictions leaderboard). Currently the 'View leaderboard' link from the paused screen takes users to a blank page.",
+    "(Optional, pre-existing) Fix the <option><span> hydration warning in Admin.jsx GrantCardForm select — wrap option text directly, no inline span."
+  ],
+  "critical_code_review_comments": [
+    "service_controls.py is clean — _id excluded everywhere, 423 detail object well-formed, audit log written with old/new diff.",
+    "Public /api/services/status correctly returns enabled=true defaults for missing docs (fresh DB safe).",
+    "ensure_enabled() is awaited correctly in all four guarded endpoints; ordering verified (gate runs before business logic but AFTER pydantic body validation — that's standard FastAPI and is fine).",
+    "Frontend serviceStatus.js uses module-scoped cache + 60s poll + broadcast pattern — sound. refreshServiceStatus() invalidates correctly.",
+    "ServicePausedScreen route hrefs are wrong (see ui_bugs above) — only real defect."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iteration26.py (new)"
+  ],
+  "success_rate": {
+    "backend": "100% (12/12)",
+    "frontend": "95% (1 broken link in paused-screen CTA, otherwise all flows green)"
+  },
+  "test_credentials": "Admin: admin@cloudypitch.com / CloudyAdmin2026! (from /app/memory/test_credentials.md). Test user signed up dynamically per run.",
+  "seed_data_creation": "None persisted. Both services flipped during tests then reset to enabled=true, shutdown_reason='' in test_zz_final_reset and again in the Playwright re-enable step. Verified clean.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Service-controls kill-switch verified end-to-end. Backend 423 contract: detail={code:'service_paused', service, reason}. Public status endpoint shape: {fantasy:{enabled,shutdown_reason,updated_at}, predictions:{...}}. data-testids in use: service-controls-card, service-row-{kind}, service-toggle-{kind}, service-reason-{kind}, service-save-reason-{kind}, service-paused-{kind}, service-paused-reason, service-paused-leaderboard-link, service-paused-home-link, service-paused-title. Pydantic validates body BEFORE the route guard — so for the 423 gate tests, payload must be schema-valid (otherwise you'll get 422). See test_iteration26.py for valid minimal bodies for /fantasy/squad, /fantasy/transfers/buy, /fantasy/transfers/spend, /wc/games/{id}/enter, /predictions.",
+  "rca_of_the_issue": "BROKEN LEADERBOARD LINK — ServicePausedScreen.jsx line 13 hardcodes '/leaderboard' (singular) and '/predictions/leaderboard'. App.js line 66 declares the real route as '/leaderboards' (plural). React Router emits 'No routes matched location' and renders the Layout shell with no content. Repro: pause fantasy as admin → visit /fantasy → click 'View leaderboard' → blank page. Fix: change leaderboardHref to '/leaderboards' for both branches (or whatever the canonical leaderboard route is). One-line frontend change."
+}

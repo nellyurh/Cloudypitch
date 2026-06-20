@@ -2335,94 +2335,109 @@ async def start_background_jobs():
         their points + the leaderboards refresh without admin intervention.
         Also settles all pending non-WC predictions for finished matches so
         the predictions leaderboard updates in lockstep.
+
+        🛑 Honours admin kill-switches: when fantasy/predictions are disabled
+        the corresponding settlement block is skipped so points freeze.
         """
         from wc_settler import settle_due_wc_games
         from fantasy_scoring import compute_player_points  # noqa: F401
+        from routes.service_controls import is_enabled
         await asyncio.sleep(240)
         while True:
-            try:
-                res = await settle_due_wc_games(limit=50)
-                if res.get("settled"):
-                    log.info(f"wc-games settler: settled {len(res['settled'])} games")
-            except Exception as e:
-                log.warning(f"wc-games settler: {e}")
-            try:
-                # Score any pending predictions whose match is now FT/AET/PEN.
-                # 🐛 Inverted (2026-02-12): query starts from UNSETTLED preds,
-                # not all FT matches — the latter exceeded our 5000-row page
-                # cap (5000+ FT matches across all sports) and WC matches were
-                # silently dropped from the loop.
-                from scoring import score_prediction
-                from db import utcnow_iso as _now
-                db = get_db()
-                pending = await db.predictions.find(
-                    {"settled_at": None}, {"_id": 0},
-                ).to_list(length=20000)
-                p_count = 0
-                if pending:
-                    match_ids = list({p["match_id"] for p in pending})
-                    finished_matches = await db.matches.find(
-                        {"id": {"$in": match_ids}, "status": {"$in": ["FT", "AET", "PEN"]}},
-                        {"_id": 0},
-                    ).to_list(length=len(match_ids))
-                    by_id = {m["id"]: m for m in finished_matches}
-                    for p in pending:
-                        m = by_id.get(p["match_id"])
-                        if not m:
-                            continue
-                        # 🐛 Fix 2026-02-15: use consecutive-from-most-recent
-                        # streak (matches admin /settle behavior). The old
-                        # `count_documents({outcome_correct: True})` counted
-                        # ALL ever-correct preds — so anyone with 10+ correct
-                        # preds in their history got +100 bonus on every new
-                        # correct prediction forever. Now we walk back from
-                        # the latest settled prediction and stop at the first
-                        # non-outcome-correct.
-                        from routes.predictions import _outcome_streak
-                        scount = await _outcome_streak(db, p["user_id"])
-                        result = score_prediction(
-                            predicted={
-                                "home_score_predicted": p["home_score_predicted"],
-                                "away_score_predicted": p["away_score_predicted"],
-                            },
-                            match=m,
-                            streak_count=scount + 1,
-                            applied_cards=[],
-                        )
-                        await db.predictions.update_one(
-                            {"id": p["id"]},
-                            {"$set": {
-                                "points_awarded": result["points_awarded"],
-                                "base_points": result["base_points"],
-                                "stage": result["stage"],
-                                "stage_multiplier": result["stage_multiplier"],
-                                "streak_bonus": result["streak_bonus"],
-                                "exact_score_hit": result["exact_score_hit"],
-                                "outcome_correct": result["outcome_correct"],
-                                "diff_correct": result["diff_correct"],
-                                "settled_at": _now(),
-                            }},
-                        )
-                        p_count += 1
-                if p_count:
-                    log.info(f"predictions settler: settled {p_count} predictions")
-            except Exception as e:
-                log.warning(f"predictions settler: {e}")
+            fantasy_on = await is_enabled("fantasy")
+            predictions_on = await is_enabled("predictions")
+            if fantasy_on:
+                try:
+                    res = await settle_due_wc_games(limit=50)
+                    if res.get("settled"):
+                        log.info(f"wc-games settler: settled {len(res['settled'])} games")
+                except Exception as e:
+                    log.warning(f"wc-games settler: {e}")
+            else:
+                log.info("wc-games settler: SKIPPED (fantasy paused)")
+            if predictions_on:
+                try:
+                    # Score any pending predictions whose match is now FT/AET/PEN.
+                    # 🐛 Inverted (2026-02-12): query starts from UNSETTLED preds,
+                    # not all FT matches — the latter exceeded our 5000-row page
+                    # cap (5000+ FT matches across all sports) and WC matches were
+                    # silently dropped from the loop.
+                    from scoring import score_prediction
+                    from db import utcnow_iso as _now
+                    db = get_db()
+                    pending = await db.predictions.find(
+                        {"settled_at": None}, {"_id": 0},
+                    ).to_list(length=20000)
+                    p_count = 0
+                    if pending:
+                        match_ids = list({p["match_id"] for p in pending})
+                        finished_matches = await db.matches.find(
+                            {"id": {"$in": match_ids}, "status": {"$in": ["FT", "AET", "PEN"]}},
+                            {"_id": 0},
+                        ).to_list(length=len(match_ids))
+                        by_id = {m["id"]: m for m in finished_matches}
+                        for p in pending:
+                            m = by_id.get(p["match_id"])
+                            if not m:
+                                continue
+                            # 🐛 Fix 2026-02-15: use consecutive-from-most-recent
+                            # streak (matches admin /settle behavior). The old
+                            # `count_documents({outcome_correct: True})` counted
+                            # ALL ever-correct preds — so anyone with 10+ correct
+                            # preds in their history got +100 bonus on every new
+                            # correct prediction forever. Now we walk back from
+                            # the latest settled prediction and stop at the first
+                            # non-outcome-correct.
+                            from routes.predictions import _outcome_streak
+                            scount = await _outcome_streak(db, p["user_id"])
+                            result = score_prediction(
+                                predicted={
+                                    "home_score_predicted": p["home_score_predicted"],
+                                    "away_score_predicted": p["away_score_predicted"],
+                                },
+                                match=m,
+                                streak_count=scount + 1,
+                                applied_cards=[],
+                            )
+                            await db.predictions.update_one(
+                                {"id": p["id"]},
+                                {"$set": {
+                                    "points_awarded": result["points_awarded"],
+                                    "base_points": result["base_points"],
+                                    "stage": result["stage"],
+                                    "stage_multiplier": result["stage_multiplier"],
+                                    "streak_bonus": result["streak_bonus"],
+                                    "exact_score_hit": result["exact_score_hit"],
+                                    "outcome_correct": result["outcome_correct"],
+                                    "diff_correct": result["diff_correct"],
+                                    "settled_at": _now(),
+                                }},
+                            )
+                            p_count += 1
+                    if p_count:
+                        log.info(f"predictions settler: settled {p_count} predictions")
+                except Exception as e:
+                    log.warning(f"predictions settler: {e}")
+            else:
+                log.info("predictions settler: SKIPPED (predictions paused)")
             # Re-credit the main fantasy squads from the latest match events.
             # Was previously admin-only via /api/fantasy/settle/gameweek so
             # squad points never grew automatically. Now runs every 5 min.
-            try:
-                from routes.fantasy import settle_gameweek
-                # `settle_gameweek` is the admin endpoint — but it only needs
-                # the `gameweek` param + a user with `is_admin=True`. Cheat
-                # and pass a system-admin shim so the loop can call it.
-                # Each iteration re-scores ALL squads against all FT matches;
-                # idempotent so safe to re-run.
-                result = await settle_gameweek(gameweek=1, user={"id": "system", "is_admin": True})
-                if (result or {}).get("settled"):
-                    log.info(f"fantasy settler: re-scored {result['settled']} squads")
-            except Exception as e:
-                log.warning(f"fantasy settler: {e}")
+            if fantasy_on:
+                try:
+                    from routes.fantasy import settle_gameweek
+                    # `settle_gameweek` is the admin endpoint — but it only needs
+                    # the `gameweek` param + a user with `is_admin=True`. Cheat
+                    # and pass a system-admin shim so the loop can call it.
+                    # Each iteration re-scores ALL squads against all FT matches;
+                    # idempotent so safe to re-run.
+                    result = await settle_gameweek(gameweek=1, user={"id": "system", "is_admin": True})
+                    if (result or {}).get("settled"):
+                        log.info(f"fantasy settler: re-scored {result['settled']} squads")
+                except Exception as e:
+                    log.warning(f"fantasy settler: {e}")
+            else:
+                log.info("fantasy settler: SKIPPED (fantasy paused)")
             await asyncio.sleep(300)
 
     async def live_poller():

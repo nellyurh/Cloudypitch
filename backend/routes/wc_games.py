@@ -221,6 +221,8 @@ class GameEntryIn(BaseModel):
 
 @router.post("/games/{game_id}/enter")
 async def enter_game(game_id: str, body: GameEntryIn, user: dict = Depends(a.get_current_user)):
+    from routes.service_controls import ensure_enabled
+    await ensure_enabled("fantasy")
     db = get_db()
     g = await db.wc_games.find_one({"id": game_id}, {"_id": 0})
     if not g:

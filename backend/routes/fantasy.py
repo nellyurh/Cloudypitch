@@ -4,6 +4,7 @@ from db import get_db, utcnow_iso
 from models import FantasySquadIn, new_id
 from fantasy_scoring import compute_player_points, aggregate_player_stats_from_events
 from scoring import compute_card_boost
+from routes.service_controls import ensure_enabled
 from typing import Optional
 import auth as a
 
@@ -181,6 +182,7 @@ async def my_squad(user: dict = Depends(a.get_current_user)):
 
 @router.post("/squad")
 async def create_or_update_squad(payload: FantasySquadIn, user: dict = Depends(a.get_current_user)):
+    await ensure_enabled("fantasy")
     db = get_db()
     comp = await db.fantasy_competitions.find_one({"id": payload.competition_id}, {"_id": 0})
     if not comp:
@@ -429,6 +431,7 @@ async def get_my_transfers(user: dict = Depends(a.get_current_user)):
 @router.post("/transfers/buy")
 async def buy_transfer_card(user: dict = Depends(a.get_current_user)):
     """Spend 🪙 300 coins for a 5-transfer pack."""
+    await ensure_enabled("fantasy")
     db = get_db()
     udoc = await db.users.find_one({"id": user["id"]}, {"_id": 0})
     bal = int(udoc.get("coins") or 0)
@@ -461,6 +464,7 @@ async def spend_transfer(payload: dict, user: dict = Depends(a.get_current_user)
 
     Body: {pay_with: "card" | "points"}
     """
+    await ensure_enabled("fantasy")
     pay_with = (payload or {}).get("pay_with", "card")
     db = get_db()
     if pay_with == "card":

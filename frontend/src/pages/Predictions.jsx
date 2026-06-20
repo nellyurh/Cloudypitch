@@ -4,6 +4,8 @@ import { useAuth, formatApiErr } from "../lib/auth";
 import { Link } from "react-router-dom";
 import { Trophy, Check, AlertTriangle, Lock, Award, Crown, History, X } from "lucide-react";
 import RewardedVideoButton from "../components/RewardedVideoButton";
+import { useServiceStatus } from "../lib/serviceStatus";
+import ServicePausedScreen from "../components/ServicePausedScreen";
 
 const TeamLogo = ({ src, name }) => {
   if (src) return <img src={src} alt="" className="w-6 h-6 object-contain shrink-0" onError={(e) => { e.target.style.display = "none"; }}/>;
@@ -140,6 +142,7 @@ function MyPredictionsList({ data }) {
 
 export const PredictionsHub = () => {
   const { user } = useAuth();
+  const svc = useServiceStatus();
   const [matches, setMatches] = useState([]);
   const [board, setBoard] = useState([]);
   const [boardScope, setBoardScope] = useState("global");
@@ -206,6 +209,12 @@ export const PredictionsHub = () => {
   const grouped = useMemo(() => groupByDate(matches), [matches]);
   const total = matches.length;
   const predicted = matches.filter(m => m.my_prediction).length;
+
+  // 🛑 Admin kill-switch: if Predictions are paused, replace the hub with
+  // the shutdown screen. Leaderboard is a separate route, so it remains live.
+  if (svc?.predictions && svc.predictions.enabled === false) {
+    return <ServicePausedScreen service="predictions" reason={svc.predictions.shutdown_reason}/>;
+  }
 
   return (
     <div className="grid grid-cols-1 lg:grid-cols-[1fr_320px] gap-4" data-testid="predictions-hub">

@@ -4,6 +4,8 @@ import { useAuth } from "../lib/auth";
 import { Link, useNavigate } from "react-router-dom";
 import { Trophy, LogIn, ArrowRight, Lock, Plus, Repeat, Sparkles, Star } from "lucide-react";
 import { WcGamesPanel } from "./WcGames";
+import { useServiceStatus } from "../lib/serviceStatus";
+import ServicePausedScreen from "../components/ServicePausedScreen";
 
 /**
  * Fantasy entry page — Sofascore-style competition picker.
@@ -34,6 +36,7 @@ const COMPETITIONS = [
 const FantasyHub = () => {
   const { user } = useAuth();
   const nav = useNavigate();
+  const svc = useServiceStatus();
   const [selected, setSelected] = useState(null);  // selected competition id
   const [mainSquad, setMainSquad] = useState(null); // user's main WC squad (15-man)
   const [loading, setLoading] = useState(true);
@@ -48,6 +51,12 @@ const FantasyHub = () => {
       setLoading(false);
     })();
   }, [user]);
+
+  // 🛑 Admin kill-switch: if Fantasy is paused, show shutdown screen.
+  // Placed AFTER all hooks so React hook order is consistent.
+  if (svc?.fantasy && svc.fantasy.enabled === false) {
+    return <ServicePausedScreen service="fantasy" reason={svc.fantasy.shutdown_reason}/>;
+  }
 
   if (!user) {
     return (

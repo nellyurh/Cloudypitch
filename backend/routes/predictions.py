@@ -16,6 +16,7 @@ import auth as a
 from db import get_db, utcnow_iso
 from models import PredictionIn, new_id
 from scoring import score_prediction
+from routes.service_controls import ensure_enabled
 
 router = APIRouter(prefix="/api/predictions", tags=["predictions"])
 
@@ -76,6 +77,7 @@ async def upcoming_for_user(limit: int = 50, user: dict = Depends(a.get_optional
 
 @router.post("")
 async def submit_prediction(payload: PredictionWithCardsIn, user: dict = Depends(a.get_current_user)):
+    await ensure_enabled("predictions")
     db = get_db()
     m = await db.matches.find_one({"id": payload.match_id}, {"_id": 0})
     if not m:

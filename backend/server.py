@@ -43,6 +43,10 @@ from routes.trybit import router as trybit_router, webhook_router as trybit_webh
 from routes.wc_games import router as wc_games_router, admin_router as wc_admin_router
 from routes.admin_cleanup import router as admin_cleanup_router
 from routes.leaderboard import router as leaderboard_router
+from routes.service_controls import (
+    router as service_controls_router,
+    admin_router as service_controls_admin_router,
+)
 
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
@@ -263,5 +267,6 @@ for r in (auth_router, catalog_router, matches_router, worldcup_router,
           referrals_router, auth_extras_router,
           wc_games_router, wc_admin_router,
           admin_cleanup_router,
-          leaderboard_router):
+          leaderboard_router,
+          service_controls_router, service_controls_admin_router):
     app.include_router(r)
