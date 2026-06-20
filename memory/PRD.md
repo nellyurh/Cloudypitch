@@ -10,6 +10,19 @@ Global multi-sport livescore + predictions + fantasy platform launching for FIFA
 - Sportmonks (football), API-Sports (other sports), Trybit/CryptoCloud (crypto deposits), PocketFi (NGN), Google AdSense
 
 
+### 2026-02-19 (🛑 Service Controls — Fantasy & Predictions kill-switches)
+- **NEW** `routes/service_controls.py` module with public + admin surface:
+  - `GET /api/services/status` (public, no auth) — `{fantasy:{enabled,shutdown_reason,updated_at}, predictions:{...}}`
+  - `GET /api/admin/services` — full docs incl. `updated_by`
+  - `PATCH /api/admin/services/{fantasy|predictions}` — body `{enabled, shutdown_reason}` (max 500 chars). Audit-logged.
+  - Helpers `is_enabled(kind)` / `ensure_enabled(kind)` (raises HTTP 423 with `{code:'service_paused', service, reason}`).
+- **Guarded write endpoints**: `POST /api/fantasy/squad`, `/api/fantasy/transfers/buy`, `/api/fantasy/transfers/spend`, `POST /api/wc/games/{id}/enter`, `POST /api/predictions`.
+- **Background settler honours kill-switch**: `wc_games_settler_loop` in `ingestion.py` now reads `is_enabled()` each tick and skips fantasy / predictions / wc-games settlement blocks independently. Existing points are frozen — nothing new is awarded while paused.
+- **Frontend hook + screens**: new `lib/serviceStatus.js` (module-cached, 60s auto-refresh, manual `refreshServiceStatus()`); new `components/ServicePausedScreen.jsx` renders the admin-set reason, a `/leaderboards` CTA, and a Back-to-Home link. `Fantasy.jsx` and `Predictions.jsx` both early-return the ServicePausedScreen when their service is disabled. Leaderboards are explicitly NOT gated.
+- **Admin UI**: new `🛑 Service Controls` card on `/admin → DASHBOARD` (below Card Operations). Two rows (Fantasy / Predictions) with status pill (✅ LIVE / ⏸️ PAUSED), updated-at + updated-by, reason textarea (500-char cap), Pause/Resume button, and Save-reason button. Guard prevents pausing without a reason.
+- **Verified end-to-end** (testing_agent_v3 iteration 26 — 12/12 backend pass, 95% FE; one broken `/leaderboard` → `/leaderboards` link fixed post-test). Regression: `/app/backend/tests/test_iteration26.py`.
+
+
 ### 2026-02-19 (Open ALL pre-knockout · Team Boost cards · Admin Grant UI · Top of Round)
 - **🚪 `POST /api/admin/wc/games/open-all`** — single-click flips every `upcoming` mini-game (match + group MD1–MD3) to `open`. Explicitly skips knockout stages `r32 / r16 / qf / sf / finals` (their dependent matches don't exist yet). Also skips any match-type game whose kickoff has already passed and any group/round game whose `closes_at` is in the past. Idempotent.
 - **🪙 Team Boost cards** — two new entries in `legend_cards` (tier 0):

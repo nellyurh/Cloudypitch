@@ -10,7 +10,7 @@ export default function ServicePausedScreen({
   reason,
 }) {
   const title = service === "predictions" ? "Predictions paused" : "Fantasy paused";
-  const leaderboardHref = service === "predictions" ? "/predictions/leaderboard" : "/leaderboard";
+  const leaderboardHref = "/leaderboards";
   const friendlyReason = (reason || "").trim() ||
     `${title} are temporarily disabled by an admin. Existing points are frozen — they'll resume the moment we reopen.`;
 
